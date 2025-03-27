@@ -4,6 +4,7 @@ pub mod gallery {
         prelude::*,
         tachys::html::node_ref::NodeRefContainer,
     };
+    use ordered_float::OrderedFloat;
     use std::fmt::Debug;
     use std::{default::Default, time::Duration};
     use tracing::trace;
@@ -368,8 +369,12 @@ pub mod gallery {
 
     #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
     pub struct ImgRow {
-        pub row_start: u32,
-        pub row_end: u32,
+        pub row_start: usize,
+        pub row_end: usize,
+        pub row_width: u32,
+        pub ratio: OrderedFloat<f32>,
+        pub pos_x: OrderedFloat<f32>,
+        pub pos_y: OrderedFloat<f32>,
         // pub scaled_width: u32,
         // pub ratio: f32,
     }
@@ -386,70 +391,99 @@ pub mod gallery {
         let mut rows = Vec::<ImgRow>::new();
         let mut total_w = 0;
         let mut total_ratio = 0.0;
-        let mut row_start: u32 = 0;
-        let mut last = imgs.len();
+        let mut row_start = 0;
+        let mut pos_x: f32 = 0.0;
+        let mut pos_y: f32 = 0.0;
+        let last = imgs.len();
 
-        // let mut imgs_iter = imgs.iter().enumerate().peekable();
         for (cursor, img) in imgs.iter().enumerate() {
             let width = img.get_width();
             let height = img.get_height();
             let ratio = width as f32 / height as f32;
             let scaled_w = width - (height.saturating_sub(row_height) as f32 * ratio) as u32;
             let img_fits_in_row = total_w + scaled_w <= max_width;
-            // let first = cursor == 0;
-            // let last = cursor + 1 == last;
 
             if !img_fits_in_row {
+                // let row_height: f32 = max_width as f32 / *row.ratio;
                 rows.push(ImgRow {
                     row_start,
-                    row_end: cursor as u32,
+                    row_end: cursor,
+                    row_width: total_w,
+                    pos_x: OrderedFloat::from(pos_x),
+                    pos_y: OrderedFloat::from(pos_y),
+                    ratio: OrderedFloat::from(total_ratio),
                 });
-                row_start = cursor as u32;
+                row_start = cursor;
                 total_w = 0;
                 total_ratio = 0.0;
             }
 
             total_w += scaled_w;
             total_ratio += ratio;
-
-            // if !img_fits_in_row {
-            //     rows.push(ImgRow {
-            //         row_start,
-            //         row_end: cursor as u32,
-            //     });
-            // }
-
-            // if last {
-            //     rows.push(ImgRow {
-            //         row_start: cursor as u32,
-            //         row_end: cursor as u32 + 1,
-            //     });
-            // }
-
-            // if !img_fits_in_row {
-            //     total_w = scaled_w;
-            //     total_ratio = ratio;
-            // }
         }
         if total_w != 0 {
             rows.push(ImgRow {
                 row_start,
-                row_end: last as u32,
+                row_end: last,
+                row_width: total_w,
+                pos_x: OrderedFloat::from(pos_x),
+                pos_y: OrderedFloat::from(pos_y),
+                ratio: OrderedFloat::from(total_ratio),
             });
         }
 
         rows
     }
 
-    // pub fn calc_ratio(width: u32, height: u32) -> f32 {
-    //     width as f32 / height as f32
-    // }
+    pub fn do_the_resize<IMG>(imgs: &mut [IMG], row_height: u32, max_width: u32, rows: &[ImgRow])
+    where
+        IMG: ResizableImage,
+    {
+        let rows_len = rows.len();
+        let more_than_one = rows_len > 1;
+        let len = if more_than_one {
+            rows_len - 1
+        } else {
+            rows_len
+        };
+        for i in 0..len {
+            let row = &rows[i];
+            let row_height: f32 = max_width as f32 / *row.ratio;
+            let row_len = row.row_end - row.row_start;
+            println!("row len: {}", row_len);
+            let mut offest_x: f32 = 0.0;
+            for i in row.row_start..row.row_end {
+                let img = &mut imgs[i];
+                let width = img.get_width();
+                let height = img.get_height();
+                let new_width = row_height * (width as f32 / height as f32);
+                let new_height = row_height;
+                img.set_view_width(new_width);
+                img.set_view_height(new_height);
+            }
+        }
+        if more_than_one {
+            let optimal_row_len = max_width / row_height;
+            let row = &rows[len];
+            let row_gap = max_width.saturating_sub(row.row_width);
+            let missing_imgs = row_gap.saturating_div(row_height);
+            let row_ratio = *row.ratio + missing_imgs as f32;
+            let row_height: f32 = max_width as f32 / row_ratio;
 
-    // pub fn calc_img_size(width: u32, height: u32, desired_height: u32) {
-    //     let ratio = width as f32 / height as f32;
-    //     let new_width = width - (height.saturating_sub(desired_height) as f32 * ratio) as u32;
-    //     (new_width, ratio)
-    // }
+            println!("last row {} {} {:?}", len, missing_imgs, row);
+
+            for i in row.row_start..row.row_end {
+                let img = &mut imgs[i];
+                let width = img.get_width();
+                let height = img.get_height();
+                let new_width = row_height * (width as f32 / height as f32);
+                let new_height = row_height;
+                img.set_view_width(new_width);
+                img.set_view_height(new_height);
+            }
+        }
+        // println!("optimal row len: {}", optimal_row_len);
+    }
 
     pub fn gen_imgs_rows<IMG>(row_height: u32, max_width: u32, imgs: &mut [IMG])
     where
@@ -619,18 +653,28 @@ pub mod gallery {
 
     #[cfg(test)]
     mod resize_tests {
-        use crate::app::components::gallery::{ImgRow, get_imgs_rows};
+        use ordered_float::OrderedFloat;
+
+        use crate::app::components::gallery::{ImgRow, do_the_resize, get_imgs_rows};
 
         use super::{ResizableImage, fast_img_resize};
 
+        #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq)]
         struct Img {
             pub width: u32,
             pub height: u32,
+            pub view_width: OrderedFloat<f32>,
+            pub view_height: OrderedFloat<f32>,
         }
 
         impl Img {
             pub fn new(width: u32, height: u32) -> Self {
-                Self { width, height }
+                Self {
+                    width,
+                    height,
+                    view_width: OrderedFloat::from(0.0),
+                    view_height: OrderedFloat::from(0.0),
+                }
             }
 
             pub fn ratio(&self) -> f32 {
@@ -651,10 +695,10 @@ pub mod gallery {
                 self.height
             }
             fn set_view_width(&mut self, width: f32) {
-                todo!()
+                *self.view_width = width;
             }
             fn set_view_height(&mut self, height: f32) {
-                todo!()
+                *self.view_height = height;
             }
             fn set_view_pos_x(&mut self, x: f32) {
                 todo!()
@@ -667,26 +711,19 @@ pub mod gallery {
         fn gen_row_single() {
             let max_width: u32 = 1000;
             let row_height: u32 = 200;
-            let imgs = [
-                Img::new(640, 480),
-                // Img::new(1920, 1080),
-                // Img::new(1280, 720),
-                // Img::new(720, 1280),
-            ];
+            let imgs = [Img::new(640, 480)];
 
             let rows1 = get_imgs_rows(&imgs, row_height, max_width);
 
             assert_eq!(
                 rows1,
                 Vec::from([ImgRow {
-                    // ratio: 0.0,
                     row_start: 0,
                     row_end: 1,
-                    // scaled_width: 0
+                    row_width: 1,
+                    ratio: OrderedFloat::from(1.3333334),
                 },])
             )
-
-            // fast_img_resize(new_height, max_width, imgs);
         }
 
         #[test]
@@ -702,42 +739,68 @@ pub mod gallery {
 
             let rows1 = get_imgs_rows(&imgs, row_height, max_width);
 
-            // let mut rows = Vec::<u32>::new();
-            // let mut total_w = 0;
-
-            // let mut imgs_iter = imgs.iter().peekable();
-            // while let Some(img) = imgs_iter.next() {
-            //     let scaled_w = img.get_scaled_width(row_height);
-            //     if total_w + scaled_w <= max_width {
-            //         total_w += scaled_w;
-            //     } else {
-            //         rows.push(total_w);
-            //         if imgs_iter.peek().is_none() {
-            //             rows.push(scaled_w);
-            //         } else {
-            //             total_w = scaled_w;
-            //         }
-            //     }
-            // }
             assert_eq!(
                 rows1,
                 Vec::from([
                     ImgRow {
-                        // ratio: 0.0,
-                        row_start: 0,
+                        row_start: 2,
                         row_end: 3,
-                        // scaled_width: 0
+                        row_width: 0,
+                        ratio: OrderedFloat::from(4.888889),
                     },
                     ImgRow {
-                        // ratio: 0.0,
                         row_start: 3,
                         row_end: 4,
-                        // scaled_width: 0
+                        row_width: 0,
+                        ratio: OrderedFloat::from(0.5625),
                     },
                 ])
             )
+        }
 
-            // fast_img_resize(new_height, max_width, imgs);
+        #[test]
+        fn resize_rows() {
+            let max_width: u32 = 1000;
+            let row_height: u32 = 200;
+            let mut imgs = [
+                Img::new(640, 480),
+                Img::new(1920, 1080),
+                Img::new(1280, 720),
+                Img::new(720, 1280),
+            ];
+
+            let rows = get_imgs_rows(&imgs, row_height, max_width);
+            do_the_resize(&mut imgs, row_height, max_width, &rows);
+
+            assert_eq!(
+                imgs,
+                [
+                    Img {
+                        height: 0,
+                        width: 0,
+                        view_width: OrderedFloat::from(0.0),
+                        view_height: OrderedFloat::from(0.0),
+                    },
+                    Img {
+                        height: 0,
+                        width: 0,
+                        view_width: OrderedFloat::from(0.0),
+                        view_height: OrderedFloat::from(0.0),
+                    },
+                    Img {
+                        height: 0,
+                        width: 0,
+                        view_width: OrderedFloat::from(0.0),
+                        view_height: OrderedFloat::from(0.0),
+                    },
+                    Img {
+                        height: 0,
+                        width: 0,
+                        view_width: OrderedFloat::from(0.0),
+                        view_height: OrderedFloat::from(0.0),
+                    },
+                ]
+            )
         }
     }
 }
