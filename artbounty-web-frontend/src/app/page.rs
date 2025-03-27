@@ -16,10 +16,10 @@ pub mod home {
         let global_state = expect_context::<GlobalState>();
         let imgs = global_state.imgs;
 
-        Effect::new(move || {
-            let new_imgs = Img::rand_vec(100);
-            imgs.set(new_imgs);
-        });
+        // Effect::new(move || {
+        //     let new_imgs = Img::rand_vec(10);
+        //     imgs.set(new_imgs);
+        // });
 
         main_ref.on_file_drop(async |event, data| {
             for file in data.get_files() {

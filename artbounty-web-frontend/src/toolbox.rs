@@ -3,70 +3,10 @@ pub mod prelude {
     pub use super::event_listener::{self, AddEventListener};
     pub use super::file::{self, GetFileStream, GetFiles, GetStreamChunk, PushChunkToVec};
     pub use super::intersection_observer::{self, AddIntersectionObserver};
+    pub use super::interval::{self};
     pub use super::random::{random_u8, random_u32, random_u32_ranged, random_u64};
     pub use super::resize_observer::{self, AddResizeObserver, GetContentBoxSize};
 }
-
-// pub mod tree {
-//     use indextree::{Arena, NodeId};
-//     use leptos::prelude::*;
-
-//     #[derive(Debug, Clone, Default, PartialEq, Eq)]
-//     pub struct TreeState {
-//         id: usize,
-//         tree: Arena<usize>,
-//         current: Option<NodeId>,
-//     }
-
-//     pub fn ping() {
-//         let tree_state = use_context::<StoredValue<TreeState>>().unwrap_or_else(move || {
-//             provide_context(StoredValue::new(TreeState::default()));
-//             expect_context::<StoredValue<TreeState>>()
-//         });
-//         tree_state.update_value(|tree_state| {
-//             let id = tree_state.id;
-//             tree_state.id += 1;
-//             let Some(node_id) = tree_state.current else {
-//                 return;
-//             };
-//             no
-//         });
-//         let id = ctx
-//             .id
-//             .try_update_value(|v| {
-//                 let id = *v;
-//                 *v += 1;
-//                 id
-//             })
-//             .unwrap();
-//         ctx.current.update_value(|v| {
-//             ctx.tree.update_value(|tree| {});
-//             match v {
-//                 Some(v) => {}
-//                 None => {}
-//             }
-//         });
-//     }
-// }
-
-// pub mod closure {
-//     use wasm_bindgen::{JsCast, JsValue, prelude::Closure};
-//     use web_sys::{IntersectionObserver, IntersectionObserverEntry, js_sys::Array};
-
-//     pub fn new() -> JsValue {
-//         Closure::<dyn FnMut(Array, IntersectionObserver)>::new(
-//             move |entries: Array, observer: IntersectionObserver| {
-//                 let entries: Vec<IntersectionObserverEntry> = entries
-//                     .to_vec()
-//                     .into_iter()
-//                     .map(|v| v.unchecked_into::<IntersectionObserverEntry>())
-//                     .collect();
-//                 callback(entries, observer);
-//             },
-//         )
-//         .into_js_value()
-//     }
-// }
 
 pub mod random {
     use web_sys::js_sys::Math::random;
@@ -96,10 +36,6 @@ pub mod uuid {
     use web_sys::Element;
 
     pub fn get_id(target: &Element, field_name: &str) -> Option<Uuid> {
-        // trace!(
-        //     "what does the fox say?: {:?}",
-        //     target.to_string().as_string()
-        // );
         let Some(id) = target.get_attribute(field_name) else {
             error!(
                 "{} was not set {:?}",
@@ -125,6 +61,118 @@ pub mod uuid {
 
     pub fn set_id(target: &Element, field_name: &str, id: Uuid) {
         target.set_attribute(field_name, &id.to_string()).unwrap();
+    }
+}
+
+pub mod interval {
+    use std::time::Duration;
+
+    use leptos::prelude::{Effect, GetValue, SetValue, StoredValue, on_cleanup};
+    use thiserror::Error;
+    use tracing::{error, trace};
+    use wasm_bindgen::{JsCast, prelude::Closure};
+    use web_sys::window;
+
+    #[derive(Debug, Clone, Copy)]
+    pub struct IntervalHandle(StoredValue<Option<i32>>);
+
+    #[derive(Debug, Error, Clone)]
+    pub enum ErrorIntervalClear {
+        #[error("failed to get Window object")]
+        GettingWindow,
+    }
+
+    #[derive(Debug, Error, Clone)]
+    pub enum ErrorSetInterval {
+        #[error("failed to get Window object")]
+        GettingWindow,
+
+        #[error("failed to set interval \"{0}\"")]
+        SettingInterval(String),
+    }
+
+    impl IntervalHandle {
+        pub fn new() -> Self {
+            Self(StoredValue::new(None))
+        }
+
+        pub fn clear(self) -> Result<bool, ErrorIntervalClear> {
+            let Some(handle) = self.0.get_value() else {
+                return Ok(false);
+            };
+            window()
+                .ok_or(ErrorIntervalClear::GettingWindow)?
+                .clear_interval_with_handle(handle);
+            Ok(true)
+        }
+
+        pub fn set(&self, handle: i32) {
+            self.0.set_value(Some(handle));
+        }
+
+        pub fn unset(&self) {
+            self.0.set_value(None);
+        }
+    }
+
+    #[track_caller]
+    pub fn new<F>(callback: F, duration: Duration) -> Result<IntervalHandle, ErrorSetInterval>
+    where
+        F: Fn() + Clone + 'static,
+    {
+        let handle = IntervalHandle::new();
+        let caller_location = std::panic::Location::caller();
+
+        Effect::new(move || {
+            let window = window().ok_or(ErrorSetInterval::GettingWindow);
+            let window = match window {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("failed to set interval at {} : {}", caller_location, err);
+                    return;
+                }
+            };
+            let closure = Closure::<dyn Fn()>::new(callback.clone()).into_js_value();
+            let ms = duration.as_millis() as i32;
+            let handle_id = window
+                .set_interval_with_callback_and_timeout_and_arguments_0(
+                    closure.as_ref().unchecked_ref(),
+                    ms,
+                )
+                .map_err(|e| {
+                    ErrorSetInterval::SettingInterval(
+                        e.as_string()
+                            .unwrap_or_else(|| String::from("uwknown error")),
+                    )
+                });
+            let handle_id = match handle_id {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("failed to set interval at {} : {}", caller_location, err);
+                    return;
+                }
+            };
+
+            handle.set(handle_id);
+        });
+
+        on_cleanup(move || {
+            let result = handle.clear();
+            let result = match result {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("failed to clear interval at {} : {}", caller_location, err);
+                    return;
+                }
+            };
+            if result {
+                trace!("interval cleared");
+            } else {
+                trace!("no interval set");
+            }
+        });
+
+        Ok(handle)
     }
 }
 
@@ -183,19 +231,6 @@ pub mod intersection_observer {
         }
     }
 
-    // impl<E, F, R> AddIntersectionObserver<F, R> for NodeRef<E>
-    // where
-    //     E: ElementType,
-    //     E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
-    //     R: ElementType,
-    //     R::Output: JsCast + Clone + 'static + Into<HtmlElement>,
-    //     F: FnMut(IntersectionObserverEntry, IntersectionObserver) + Send + Sync + Clone + 'static,
-    // {
-    //     fn add_intersection_observer(&self, callback: F, options: Options<R>) {
-    //         new(self.clone(), callback, options);
-    //     }
-    // }
-
     #[derive(Default, Clone)]
     pub struct GlobalState {
         pub observer: StoredValue<HashMap<u64, SendWrapper<IntersectionObserver>>>,
@@ -211,24 +246,6 @@ pub mod intersection_observer {
             >,
         >,
     }
-
-    // #[derive(Default, Clone)]
-    // pub struct Options<E>
-    // where
-    //     E: ElementType,
-    //     E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
-    // {
-    //     root: Option<NodeRef<E>>,
-    //     root_margin: Option<String>,
-    //     threshold: Option<OrderedFloat<f64>>,
-    // }
-
-    // //#[derive(Default, Clone)]
-    // pub struct Options {
-    //     root: Box<dyn Into<HtmlElement>>,
-    //     root_margin: Option<String>,
-    //     threshold: Option<OrderedFloat<f64>>,
-    // }
 
     #[derive(Clone)]
     pub struct Options<E = leptos::html::Div>
@@ -276,21 +293,6 @@ pub mod intersection_observer {
         }
     }
 
-    // impl <E> Options<E> where
-    //     E: ElementType,
-    //     E::Output: JsCast + Clone + 'static + Into<HtmlElement>, {
-    //     pub fn into_
-    // }
-
-    // impl <E> Into<IntersectionObserverInit> for Options<E> where  E: ElementType,
-    // E::Output: JsCast + Clone + 'static + Into<HtmlElement> {
-    //     fn into(self) -> IntersectionObserverInit {
-    //         let init = IntersectionObserverInit::new();
-    //         if let Some(root) =
-    //         init
-    //     }
-    // }
-
     impl<E> Hash for Options<E>
     where
         E: ElementType,
@@ -309,41 +311,6 @@ pub mod intersection_observer {
         }
     }
 
-    // pub fn init_global_state() {
-    //     provide_context(GlobalState::default());
-
-    //     Effect::new(move || {
-    //         let ctx = expect_context::<GlobalState>();
-
-    //         let observer = new_raw(move |entries, observer| {
-    //             ctx.callbacks.update_value(|callbacks| {
-    //                 for entry in entries {
-    //                     let target = entry.target();
-    //                     let Some(id) = get_id(&target, ID_FIELD_NAME) else {
-    //                         continue;
-    //                     };
-
-    //                     let Some(callback) = callbacks.get_mut(&id) else {
-    //                         continue;
-    //                     };
-    //                     callback(entry, observer.clone());
-    //                 }
-    //             });
-    //         });
-
-    //         ctx.observer.set(Some(SendWrapper::new(observer)));
-    //     });
-    // }
-
-    // pub fn new<E, R, F>(target: NodeRef<E>, mut callback: F, options: Options<R>)
-    // where
-    //     E: ElementType,
-    //     E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
-    //     R: ElementType,
-    //     R::Output: JsCast + Clone + 'static + Into<HtmlElement>,
-    //     F: FnMut(IntersectionObserverEntry, IntersectionObserver) + Clone + Send + Sync + 'static,
-    // {
-
     pub fn new<E, R, F>(target: NodeRef<E>, mut callback: F, options: Options<R>)
     where
         E: ElementType,
@@ -356,62 +323,7 @@ pub mod intersection_observer {
             Some(v) => v,
             None => {
                 provide_context(GlobalState::default());
-                let ctx = expect_context::<GlobalState>();
-
-                // Effect::new(move || {
-                //     let mut hasher = DefaultHasher::new();
-                //     options.hash(&mut hasher);
-                //     let hash = hasher.finish();
-                //     trace!("hash of options: {}", hash);
-
-                //     let root = if let Some(root) = &options.root {
-                //         if let Some(root) = root.get() {
-                //             let root: HtmlElement = root.into();
-                //             Some(root)
-                //         } else {
-                //             return;
-                //         }
-                //     } else {
-                //         None
-                //     };
-
-                //     let observer_settings = IntersectionObserverInit::new();
-
-                //     if let Some(root) = root {
-                //         observer_settings.set_root(Some(&root));
-                //     }
-
-                //     if let Some(margin) = &options.root_margin {
-                //         observer_settings.set_root_margin(margin);
-                //     }
-
-                //     if let Some(threshold) = options.threshold {
-                //         observer_settings.set_threshold(&JsValue::from_f64(*threshold));
-                //     }
-
-                //     let observer = new_with_options_raw(
-                //         move |entries, observer| {
-                //             ctx.callbacks.update_value(|callbacks| {
-                //                 for entry in entries {
-                //                     let target = entry.target();
-                //                     let Some(id) = get_id(&target, ID_FIELD_NAME) else {
-                //                         continue;
-                //                     };
-
-                //                     let Some(callback) = callbacks.get_mut(&id) else {
-                //                         continue;
-                //                     };
-                //                     callback(entry, observer.clone());
-                //                 }
-                //             });
-                //         },
-                //         &observer_settings,
-                //     );
-
-                //     ctx.observer.set(Some(SendWrapper::new(observer)));
-                // });
-
-                ctx
+                expect_context::<GlobalState>()
             }
         };
         let id = Uuid::new_v4();
@@ -504,89 +416,18 @@ pub mod intersection_observer {
                         );
 
                         trace!("inserting raw observer...");
-                        // trace!("getting observer entry");
                         let observer = observers.entry(hash).or_insert(SendWrapper::new(observer));
                         observer.observe(&target);
                         trace!("observer created");
-
-                        // ctx.observer.update_value(|observers| {
-
-                        // });
                     }
                 };
             });
-
-            // ctx.observer.update_value(|observers| {
-            //     let observer = observers.entry(id).or_insert_with(|| {
-            //         let observer_settings = IntersectionObserverInit::new();
-
-            //         if let Some(root) = root {
-            //             observer_settings.set_root(Some(&root));
-            //         }
-
-            //         if let Some(margin) = &options.root_margin {
-            //             observer_settings.set_root_margin(margin);
-            //         }
-
-            //         if let Some(threshold) = options.threshold {
-            //             observer_settings.set_threshold(&JsValue::from_f64(*threshold));
-            //         }
-
-            //         let observer = new_with_options_raw(
-            //             move |entries, observer| {
-            //                 ctx.callbacks.update_value(|callbacks| {
-            //                     for entry in entries {
-            //                         let target = entry.target();
-            //                         let Some(id) = get_id(&target, ID_FIELD_NAME) else {
-            //                             continue;
-            //                         };
-
-            //                         let Some(callback) = callbacks.get_mut(&id) else {
-            //                             continue;
-            //                         };
-            //                         callback(entry, observer.clone());
-            //                     }
-            //                 });
-            //             },
-            //             &observer_settings,
-            //         );
-            //         RwSignal::new(None)
-            //     });
-            // });
-
-            // let root = if let Some(root) = &options.root {
-            //     if let Some(root) = root.get() {
-            //         let root: HtmlElement = root.into();
-            //         Some(root)
-            //     } else {
-            //         return;
-            //     }
-            // } else {
-            //     None
-            // };
-
-            // observer.observe(&target);
 
             span.exit();
         });
 
         on_cleanup(move || {
             let span = trace_span!("intersection observer").entered();
-            //     let mut hasher = DefaultHasher::new();
-            //     options.hash(&mut hasher);
-            //     let hash = hasher.finish();
-            //     trace!("hash of options: {}", hash);
-
-            //     let root = if let Some(root) = &options.root {
-            //         if let Some(root) = root.get() {
-            //             let root: HtmlElement = root.into();
-            //             Some(root)
-            //         } else {
-            //             return;
-            //         }
-            //     } else {
-            //         None
-            //     };
 
             let Some(target) = target.get_untracked() else {
                 return;
@@ -891,13 +732,13 @@ pub mod file {
         js_sys::{Object, Reflect, Uint8Array},
     };
 
-    #[derive(Error, Debug)]
+    #[derive(Error, Debug, Clone)]
     pub enum ErrorGetFileStream {
         #[error("failed to cast as \"ReadableStreamDefaultReader\" \"{0}\"")]
         Cast(String),
     }
 
-    #[derive(Error, Debug)]
+    #[derive(Error, Debug, Clone)]
     pub enum ErrorGetStreamChunk {
         #[error("failed to get chunk \"{0}\"")]
         GetChunk(String),
@@ -1041,7 +882,6 @@ pub mod dropzone {
         time::SystemTime,
     };
 
-    // use gloo::file::{File, FileList, FileReadError};
     use leptos::{ev, html::ElementType, prelude::*, task::spawn_local};
     use tracing::{debug, error, trace, trace_span};
     use wasm_bindgen::prelude::*;
@@ -1074,10 +914,6 @@ pub mod dropzone {
             write!(f, "{}", name)
         }
     }
-    // #[track_caller]
-    // pub fn ws_loc_key() -> u128 {
-    //     xxhash_rust::xxh3::xxh3_128(std::panic::Location::caller().to_string().as_bytes())
-    // }
 
     pub trait AddDropZone {
         fn on_file_drop<F, R>(&self, callback: F)
@@ -1085,14 +921,6 @@ pub mod dropzone {
             R: Future<Output = anyhow::Result<()>> + 'static,
             F: FnMut(Event, DragEvent) -> R + 'static;
     }
-
-    // pub trait GetFiles {
-    //     fn files(&self) -> gloo::file::FileList;
-    // }
-
-    // pub trait GetFileData {
-    //     async fn data(&self) -> Result<Vec<u8>, FileReadError>;
-    // }
 
     impl<E> AddDropZone for NodeRef<E>
     where
@@ -1108,89 +936,6 @@ pub mod dropzone {
             new(self.clone(), callback);
         }
     }
-
-    // impl GetFileData for gloo::file::File {
-    //     async fn data(&self) -> Result<Vec<u8>, FileReadError> {
-    //         // let r = web_sys::FileReader::new().unwrap();
-    //         // r.se
-    //         gloo::file::futures::read_as_bytes(self).await
-    //     }
-    // }
-
-    // impl GetFiles for DragEvent {
-    //     fn files(&self) -> gloo::file::FileList {
-    //         let Some(files) = self.data_transfer().and_then(|v| v.files()) else {
-    //             trace!("shouldnt be here");
-    //             return gloo::file::FileList::from(web_sys::FileList::from(JsValue::null()));
-    //         };
-    //         {
-    //             let files = files.clone();
-    //             let event = self.clone();
-    //             trace!("spawning...");
-    //             spawn_local(async move {
-    //                 for files in event.get_files() {}
-    //                 // debug!("im in spawn!");
-    //                 // let files = (0..files.length())
-    //                 //     .map(|i| files.get(i))
-    //                 //     .collect::<Vec<Option<web_sys::File>>>();
-    //                 // // let reader = web_sys::FileReader::new().unwrap();
-    //                 // // // reader.result();
-
-    //                 // // let closure = Closure::<dyn FnMut()>::new({
-    //                 // //     let reader = reader.clone();
-    //                 // //     move || {
-    //                 // //         let result = reader.result().unwrap();
-    //                 // //         let result = js_sys::Uint8Array::new(&result).to_vec();
-    //                 // //         let result_str = String::from_utf8_lossy(&result);
-    //                 // //         trace!("ohohohoho: {}", result_str);
-    //                 // //     }
-    //                 // // })
-    //                 // // .into_js_value();
-
-    //                 // // reader.set_onloadend(Some(closure.as_ref().unchecked_ref()));
-
-    //                 // for file in files {
-    //                 //     let file = file.unwrap();
-    //                 //     let stream = file.stream();
-    //                 //     let reader = stream
-    //                 //         .get_reader()
-    //                 //         .dyn_into::<ReadableStreamDefaultReader>()
-    //                 //         .unwrap();
-    //                 //     let mut data = Vec::<u8>::new();
-
-    //                 //     loop {
-    //                 //         let promise = reader.read();
-    //                 //         let chunk = JsFuture::from(promise)
-    //                 //             .await
-    //                 //             .unwrap()
-    //                 //             .dyn_into::<Object>()
-    //                 //             .unwrap();
-    //                 //         let done = js_sys::Reflect::get(&chunk, &"done".into()).unwrap();
-    //                 //         if done.is_truthy() {
-    //                 //             debug!("its done");
-    //                 //             break;
-    //                 //         }
-    //                 //         let chunk = Reflect::get(&chunk, &"value".into())
-    //                 //             .unwrap()
-    //                 //             .dyn_into::<Uint8Array>()
-    //                 //             .unwrap();
-    //                 //         let data_len = data.len();
-    //                 //         debug!("chunk len: {}", chunk.length());
-    //                 //         data.resize(data_len + chunk.length() as usize, 0);
-    //                 //         chunk.copy_to(&mut data[data_len..]);
-    //                 //         // data.resize(data_len + chunk.length() as usize, 255);
-    //                 //         // chunk.copy_to(&mut data);
-    //                 //     }
-    //                 //     let s = String::from_utf8_lossy(&data);
-    //                 //     debug!("full data: {:?}", s);
-    //                 //     // reader.read_as_array_buffer(&file).unwrap();
-    //                 // }
-    //             });
-    //         }
-    //         trace!("len: {}", files.length());
-    //         gloo::file::FileList::from(files)
-    //     }
-    // }
 
     #[track_caller]
     pub fn new<E, F, R>(target: NodeRef<E>, mut callback: F)
@@ -1211,7 +956,6 @@ pub mod dropzone {
                     let mut callback = callback.borrow_mut();
                     let result = callback(Event::Start, e).await;
 
-                    trace!("tracking 3: {}", std::panic::Location::caller().to_string());
                     if let Err(err) = result {
                         error!("dropzone error at: {}: {}", callback_location, err);
                     }
