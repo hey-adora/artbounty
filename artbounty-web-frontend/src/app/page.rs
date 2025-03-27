@@ -7,7 +7,7 @@ pub mod home {
 
     use crate::app::{
         GlobalState,
-        components::gallery::{Gallery, Img, resize_imgs},
+        components::gallery::{Gallery, Img},
     };
 
     #[component]
