@@ -1,4 +1,5 @@
 pub mod gallery {
+    use futures::io::Cursor;
     use leptos::{
         html::{self, Div, Main, div},
         prelude::*,
@@ -280,7 +281,13 @@ pub mod gallery {
         IMG: ResizableImage,
     {
         let mut total_w = 0;
-        let mut total_ratio = 0.0;
+        let mut total_ratio = imgs
+            .first()
+            .map(|v| {
+                let (w, h) = v.get_size();
+                w as f32 / h as f32
+            })
+            .unwrap_or_default();
         let mut row_start = offset;
         let mut pos_y: f32 = 0.0;
 
@@ -290,14 +297,30 @@ pub mod gallery {
 
         if cursor > 0 && cursor < len {
             // let mut sub_cursor: usize = cursor.saturating_sub(1);
-            let mut iter = imgs.iter().rev().skip(cursor);
-            if let Some(pos_y) = iter.next().map(|v| v.get_pos_y()) {
-                row_start = iter
-                    .position(|v| v.get_pos_y() != pos_y)
-                    .unwrap_or_default();
-                cursor = row_start;
-                println!("wtf?: {:?}", row_start);
-            };
+            let mut sub_cursor = cursor;
+            let current_pos_y = imgs[cursor].get_pos_y();
+
+            for i in (0..cursor).rev() {
+                let prev_pos_y = imgs[i].get_pos_y();
+                if prev_pos_y != current_pos_y {
+                    break;
+                }
+                sub_cursor -= 1;
+
+                println!("hhhh :{i}");
+            }
+            cursor = sub_cursor;
+            row_start = sub_cursor;
+            // let mut iter = imgs.iter().rev().skip(cursor);
+            // if let Some(pos_y) = iter.next().map(|v| v.get_pos_y()) {
+            //     row_start = iter
+            //         .position(|v| v.get_pos_y() != pos_y)
+            //         .unwrap_or_default();
+            //     cursor = row_start;
+            //     println!("wtf?: {:?}", row_start);
+            // };
+            // println!("pos_y: {}", pos_y);
+
             // let a = first.get_pos_y();
             // let current_img = &imgs[sub_cursor];
             // let current_pos_y: f32 = current_img.get_pos_y();
@@ -360,11 +383,24 @@ pub mod gallery {
             // println!("where the row starts: {}", sub_cursor);
         }
 
+        if cursor < len {
+            let img = &imgs[cursor];
+            let (width, height) = img.get_size();
+            let ratio = width as f32 / height as f32;
+            let scaled_w = width - (height.saturating_sub(row_height) as f32 * ratio) as u32;
+
+            total_w = scaled_w;
+            total_ratio = ratio;
+
+            cursor += 1;
+        }
+
         loop {
             if cursor >= len {
                 break;
             }
 
+            println!("pos_y: {}", pos_y);
             let img = &imgs[cursor];
             let (width, height) = img.get_size();
             let ratio = width as f32 / height as f32;
@@ -373,6 +409,10 @@ pub mod gallery {
 
             if !img_fits_in_row {
                 let row_height: f32 = max_width as f32 / total_ratio;
+                println!(
+                    "row_height {} = {} / {} = {} | {}-{}",
+                    cursor, max_width, total_ratio, row_height, row_start, cursor
+                );
                 let mut pos_x: f32 = 0.0;
                 for i in row_start..cursor {
                     let img = &mut imgs[i];
@@ -384,10 +424,13 @@ pub mod gallery {
                     pos_x += new_width;
                 }
 
+                println!("pos_y1: {}", pos_y);
+                // println!("row_height: {}", row_height);
                 row_start = cursor;
                 total_w = 0;
                 total_ratio = 0.0;
                 pos_y += row_height;
+                println!("pos_y: {}", pos_y);
             }
 
             total_w += scaled_w;
@@ -416,9 +459,9 @@ pub mod gallery {
 
     #[cfg(test)]
     mod resize_tests {
-        use ordered_float::OrderedFloat;
-
         use crate::app::components::gallery::resize;
+        use ordered_float::OrderedFloat;
+        use pretty_assertions::{assert_eq, assert_ne};
 
         use super::ResizableImage;
 
@@ -431,90 +474,6 @@ pub mod gallery {
             pub pos_x: OrderedFloat<f32>,
             pub pos_y: OrderedFloat<f32>,
         }
-        const SAMPLE_FOUR_MAX_WIDTH: u32 = 1000;
-        const SAMPLE_FOUR_ROW_HEIGHT: u32 = 200;
-        const SAMPLE_FOUR_NEW: [Img; 4] = [
-            Img::new(640, 480),
-            Img::new(1920, 1080),
-            Img::new(1280, 720),
-            Img::new(720, 1280),
-        ];
-        const SAMPLE_FOUR_RESIZED: [Img; 4] = [
-            Img {
-                width: 640,
-                height: 480,
-                view_width: OrderedFloat(272.7273),
-                view_height: OrderedFloat(204.54546),
-                pos_x: OrderedFloat(0.0),
-                pos_y: OrderedFloat(0.0),
-            },
-            Img {
-                width: 1920,
-                height: 1080,
-                view_width: OrderedFloat(363.63638),
-                view_height: OrderedFloat(204.54546),
-                pos_x: OrderedFloat(272.7273),
-                pos_y: OrderedFloat(0.0),
-            },
-            Img {
-                width: 1280,
-                height: 720,
-                view_width: OrderedFloat(363.63638),
-                view_height: OrderedFloat(204.54546),
-                pos_x: OrderedFloat(636.36365),
-                pos_y: OrderedFloat(0.0),
-            },
-            Img {
-                width: 720,
-                height: 1280,
-                view_width: OrderedFloat(123.287674),
-                view_height: OrderedFloat(219.17809),
-                pos_x: OrderedFloat(0.0),
-                pos_y: OrderedFloat(204.54546),
-            },
-        ];
-        const SAMPLE_FIVE_RESIZED: [Img; 5] = [
-            Img {
-                width: 6400,
-                height: 480,
-                view_width: OrderedFloat(272.7273),
-                view_height: OrderedFloat(204.54546),
-                pos_x: OrderedFloat(0.0),
-                pos_y: OrderedFloat(0.0),
-            },
-            Img {
-                width: 640,
-                height: 480,
-                view_width: OrderedFloat(272.7273),
-                view_height: OrderedFloat(204.54546),
-                pos_x: OrderedFloat(0.0),
-                pos_y: OrderedFloat(0.0),
-            },
-            Img {
-                width: 1920,
-                height: 1080,
-                view_width: OrderedFloat(363.63638),
-                view_height: OrderedFloat(204.54546),
-                pos_x: OrderedFloat(272.7273),
-                pos_y: OrderedFloat(0.0),
-            },
-            Img {
-                width: 1280,
-                height: 720,
-                view_width: OrderedFloat(363.63638),
-                view_height: OrderedFloat(204.54546),
-                pos_x: OrderedFloat(636.36365),
-                pos_y: OrderedFloat(0.0),
-            },
-            Img {
-                width: 720,
-                height: 1280,
-                view_width: OrderedFloat(123.287674),
-                view_height: OrderedFloat(219.17809),
-                pos_x: OrderedFloat(0.0),
-                pos_y: OrderedFloat(204.54546),
-            },
-        ];
 
         impl Img {
             pub const fn new(width: u32, height: u32) -> Self {
@@ -552,6 +511,7 @@ pub mod gallery {
                 *self.view_height
             }
             fn set_size(&mut self, view_width: f32, view_height: f32, pos_x: f32, pos_y: f32) {
+                println!("setting {}", pos_y);
                 *self.view_width = view_width;
                 *self.view_height = view_height;
                 self.pos_x = OrderedFloat::from(pos_x);
@@ -611,16 +571,142 @@ pub mod gallery {
 
         #[test]
         fn resize_all_four() {
-            let mut imgs = SAMPLE_FOUR_NEW.clone();
-            resize(&mut imgs, SAMPLE_FOUR_ROW_HEIGHT, SAMPLE_FOUR_MAX_WIDTH, 0);
-            assert_eq!(imgs, SAMPLE_FOUR_RESIZED,);
+            let mut imgs = [
+                Img::new(640, 480),
+                Img::new(1920, 1080),
+                Img::new(1280, 720),
+                Img::new(720, 1280),
+            ];
+            resize(&mut imgs, 200, 1000, 0);
+            assert_eq!(
+                imgs,
+                [
+                    Img {
+                        width: 640,
+                        height: 480,
+                        view_width: OrderedFloat(272.7273),
+                        view_height: OrderedFloat(204.54546),
+                        pos_x: OrderedFloat(0.0),
+                        pos_y: OrderedFloat(0.0),
+                    },
+                    Img {
+                        width: 1920,
+                        height: 1080,
+                        view_width: OrderedFloat(363.63638),
+                        view_height: OrderedFloat(204.54546),
+                        pos_x: OrderedFloat(272.7273),
+                        pos_y: OrderedFloat(0.0),
+                    },
+                    Img {
+                        width: 1280,
+                        height: 720,
+                        view_width: OrderedFloat(363.63638),
+                        view_height: OrderedFloat(204.54546),
+                        pos_x: OrderedFloat(636.36365),
+                        pos_y: OrderedFloat(0.0),
+                    },
+                    Img {
+                        width: 720,
+                        height: 1280,
+                        view_width: OrderedFloat(123.287674),
+                        view_height: OrderedFloat(219.17809),
+                        pos_x: OrderedFloat(0.0),
+                        pos_y: OrderedFloat(204.54546),
+                    },
+                ],
+            );
         }
 
         #[test]
         fn resize_second_row() {
-            let mut imgs = SAMPLE_FIVE_RESIZED.clone();
-            resize(&mut imgs, SAMPLE_FOUR_ROW_HEIGHT, SAMPLE_FOUR_MAX_WIDTH, 3);
-            assert_eq!(imgs, SAMPLE_FIVE_RESIZED)
+            let mut imgs = [
+                Img {
+                    width: 640,
+                    height: 480,
+                    view_width: OrderedFloat(272.7273),
+                    view_height: OrderedFloat(204.54546),
+                    pos_x: OrderedFloat(0.0),
+                    pos_y: OrderedFloat(0.0),
+                },
+                Img {
+                    width: 640,
+                    height: 480,
+                    view_width: OrderedFloat(272.7273),
+                    view_height: OrderedFloat(204.54546),
+                    pos_x: OrderedFloat(0.0),
+                    pos_y: OrderedFloat(0.0),
+                },
+                Img {
+                    width: 19200,
+                    height: 1080,
+                    view_width: OrderedFloat(363.63638),
+                    view_height: OrderedFloat(204.54546),
+                    pos_x: OrderedFloat(272.7273),
+                    pos_y: OrderedFloat(20.0),
+                },
+                Img {
+                    width: 1280,
+                    height: 720,
+                    view_width: OrderedFloat(363.63638),
+                    view_height: OrderedFloat(204.54546),
+                    pos_x: OrderedFloat(636.36365),
+                    pos_y: OrderedFloat(0.0),
+                },
+                Img {
+                    width: 720,
+                    height: 1280,
+                    view_width: OrderedFloat(123.287674),
+                    view_height: OrderedFloat(219.17809),
+                    pos_x: OrderedFloat(0.0),
+                    pos_y: OrderedFloat(204.54546),
+                },
+            ];
+            resize(&mut imgs, 200, 1000, 2);
+            assert_eq!(
+                imgs,
+                [
+                    Img {
+                        width: 640,
+                        height: 480,
+                        view_width: OrderedFloat(272.7273),
+                        view_height: OrderedFloat(204.54546),
+                        pos_x: OrderedFloat(0.0),
+                        pos_y: OrderedFloat(0.0),
+                    },
+                    Img {
+                        width: 640,
+                        height: 480,
+                        view_width: OrderedFloat(272.7273),
+                        view_height: OrderedFloat(204.54546),
+                        pos_x: OrderedFloat(0.0),
+                        pos_y: OrderedFloat(0.0),
+                    },
+                    Img {
+                        width: 19200,
+                        height: 1080,
+                        view_width: OrderedFloat(363.63638),
+                        view_height: OrderedFloat(204.54546),
+                        pos_x: OrderedFloat(272.7273),
+                        pos_y: OrderedFloat(0.0),
+                    },
+                    Img {
+                        width: 1280,
+                        height: 720,
+                        view_width: OrderedFloat(363.63638),
+                        view_height: OrderedFloat(204.54546),
+                        pos_x: OrderedFloat(636.36365),
+                        pos_y: OrderedFloat(0.0),
+                    },
+                    Img {
+                        width: 720,
+                        height: 1280,
+                        view_width: OrderedFloat(123.287674),
+                        view_height: OrderedFloat(219.17809),
+                        pos_x: OrderedFloat(0.0),
+                        pos_y: OrderedFloat(204.54546),
+                    },
+                ]
+            )
         }
     }
 }
