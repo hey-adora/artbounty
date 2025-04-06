@@ -30,7 +30,8 @@ sha2 = { version = "0.10.8" }
 futures = { version = "0.3.31" }
 thiserror = { version = "2.0.12" }
 anyhow = { version = "1.0.97" }
-pretty_assertions = { version="1.4.1" }
+pretty_assertions = { version = "1.4.1" }
+simple_logger = "5.0.0"
 web-sys = { version = "0.3.77", features = [
     "Window",
     "HtmlDivElement",
@@ -53,7 +54,6 @@ web-sys = { version = "0.3.77", features = [
     "MutationObserverInit",
     "Node",
 ] }
-
 
 [[workspace.metadata.leptos]]
 name = "artbounty"

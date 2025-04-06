@@ -24,3 +24,7 @@ test2
 .vscode
 cache
 db
+remote_db
+remote_db2
+remote_db_mut
+index.html
