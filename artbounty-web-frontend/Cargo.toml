@@ -46,3 +46,6 @@ futures = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 pretty_assertions = { workspace = true }
+
+[dev-dependencies]
+simple_logger = { workspace = true }
