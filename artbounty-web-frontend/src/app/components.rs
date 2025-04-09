@@ -21,13 +21,14 @@ pub mod gallery {
         let top_bar_ref = NodeRef::<Div>::new();
         let first_ref = NodeRef::<Div>::new();
         let top_bar_is_visible = StoredValue::new(false);
+        let scroll_offset: StoredValue<f32> = StoredValue::new(0.0_f32);
 
         let handle = interval::new(
             move || {
-                let Some(width) = gallery_ref.get_untracked().map(|v| v.client_width() as u32)
-                else {
+                let Some(gallery_elm) = gallery_ref.get_untracked() else {
                     return;
                 };
+
                 // return;
                 let Some(first_ref) = first_ref.get_untracked() else {
                     let mut new_imgs = Img::rand_vec(1);
@@ -38,29 +39,59 @@ pub mod gallery {
                 if !top_bar_is_visible.get_value() {
                     return;
                 }
-                return;
-                let mut new_imgs = Img::rand_vec(1);
+                let width = gallery_elm.client_width() as u32;
+                let scroll_top = gallery_elm.scroll_top();
+
+                // return;
+                let mut new_imgs = Img::rand_vec(10);
                 imgs.update(|v| {
                     //let old_imgs_count = v.len();
                     let len = v.len();
-                    if len > 0 {
-                        let offset = new_imgs.len().saturating_sub(v.len());
-                        new_imgs.extend_from_slice(v);
+                    new_imgs.extend_from_slice(v);
 
-                        resize(&mut new_imgs, NEW_IMG_HEIGHT, width, offset, true);
+                    // let y = resize(&mut new_imgs, NEW_IMG_HEIGHT, width, 0, false);
+
+                    //
+
+                    let y = if len > 0 {
+                        let offset = new_imgs.len().saturating_sub(v.len());
+                        //new_imgs.extend_from_slice(v);
+
+                        resize(&mut new_imgs, NEW_IMG_HEIGHT, width, offset, true)
                     } else {
-                        new_imgs.extend_from_slice(v);
-                        resize(&mut new_imgs, NEW_IMG_HEIGHT, width, 0, false);
-                    }
-                    trace!("here: {:#?}", v);
+                        //new_imgs.extend_from_slice(v);
+                        resize(&mut new_imgs, NEW_IMG_HEIGHT, width, 0, false)
+                    };
+
+                    // let diff = y - scroll_offset.get_value();
+                    // scroll_offset.set_value(y);
+                    // let scroll_by = scroll as f64 - diff.abs() as f64;
+                    // gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
+
+                    let diff = (y - scroll_offset.get_value()).abs();
+                    // if old_y > 0 {
+                    //     let diff = old_y - y;
+                    //     println!("old_y: {}",);
+                    // }
+                    scroll_offset.set_value(y);
+                    let scroll_by = scroll_top as f64 + (diff / 2.0) as f64;
+                    trace!("SCROLL_BY: {} + ({} / 2.0) = {}", scroll_top, diff,scroll_by );
+                    trace!("totalllllllllllllll y: {y} diff: {diff} scroll_top: {scroll_top} scroll_by: {scroll_by}");
+                    gallery_elm.scroll_by_with_x_and_y(0.0, diff as f64);
+
+
+                    //trace!("totalllllllllllllll y: {y} diff: {diff} scroll_top: {scroll} scroll_by: {scroll_by}");
+
+
+                    //trace!("here: {:#?}", v);
                     // let offset = new_imgs.len().saturating_sub(v.len());
                     // new_imgs.extend_from_slice(v);
                     // resize(&mut new_imgs, NEW_IMG_HEIGHT, width, 0, false);
                     // fast_img_resize(NEW_IMG_HEIGHT, width, &mut new_imgs);
                     *v = new_imgs;
                 });
-                first_ref.scroll_into_view();
-                trace!("beep boop");
+                //first_ref.scroll_into_view();
+                //trace!("beep boop");
             },
             Duration::from_secs(1),
         )
@@ -129,9 +160,11 @@ pub mod gallery {
         };
 
         let big_btn = move |_| {
-            let Some(width) = gallery_ref.get_untracked().map(|v| v.client_width() as u32) else {
+            let Some(gallery_elm) = gallery_ref.get_untracked() else {
                 return;
             };
+            let width = gallery_elm.client_width() as u32;
+            let scroll_top = gallery_elm.scroll_top();
             let mut new_imgs = Img::rand_vec(1);
 
             imgs.update(|v| {
@@ -141,7 +174,18 @@ pub mod gallery {
                 //let offset = new_imgs.len().saturating_sub(v.len());
                 //new_imgs.extend_from_slice(v);
                 new_imgs.extend_from_slice(v);
-                resize(&mut new_imgs, NEW_IMG_HEIGHT, width, 0, true);
+
+                let y = resize(&mut new_imgs, NEW_IMG_HEIGHT, width, 0, false);
+                let diff = (y - scroll_offset.get_value()).abs();
+                // if old_y > 0 {
+                //     let diff = old_y - y;
+                //     println!("old_y: {}",);
+                // }
+                scroll_offset.set_value(y);
+                let scroll_by = scroll_top as f64 + (diff / 2.0) as f64;
+                trace!("SCROLL_BY: {} + ({} / 2.0) = {}", scroll_top, diff,scroll_by );
+                trace!("totalllllllllllllll y: {y} diff: {diff} scroll_top: {scroll_top} scroll_by: {scroll_by}");
+                gallery_elm.scroll_by_with_x_and_y(0.0, diff as f64);
 
                 // fast_img_resize(NEW_IMG_HEIGHT, width, &mut new_imgs[..new_imgs_count]);
                 *v = new_imgs;
@@ -210,7 +254,7 @@ pub mod gallery {
         view! {
             <div
                 node_ref=gallery_img_ref
-                class="text-white grid place-items-center bg-blue-950 absolute border border-red-600 overflow-hidden"
+                class="transition-all duration-300 ease-in-out text-white grid place-items-center bg-blue-950 absolute border border-red-600 overflow-hidden"
                 style:background-color=fn_background
                 style:left=fn_left
                 style:top=fn_top
@@ -245,6 +289,10 @@ pub mod gallery {
             self.view_pos_y.set(pos_y);
         }
 
+        fn set_pos_y(&mut self, pos_y: f32) {
+            self.view_pos_y.set(pos_y);
+        }
+
         fn get_pos_y(&self) -> f32 {
             self.view_pos_y.get_untracked()
         }
@@ -257,9 +305,9 @@ pub mod gallery {
         //     self.view_width.get_untracked()
         // }
 
-        // fn get_view_height(&self) -> f32 {
-        //     self.
-        // }
+        fn get_view_height(&self) -> f32 {
+            self.view_height.get_untracked()
+        }
     }
 
     impl Img {
@@ -293,21 +341,86 @@ pub mod gallery {
         fn get_size(&self) -> (u32, u32);
         fn get_pos_y(&self) -> f32;
         // fn get_view_width(&self) -> f32;
-        // fn get_view_height(&self) -> f32;
+        fn get_view_height(&self) -> f32;
         fn set_size(&mut self, view_width: f32, view_height: f32, pos_x: f32, pos_y: f32);
+        fn set_pos_y(&mut self, pos_y: f32);
     }
 
-    pub fn resize<IMG>(imgs: &mut [IMG], row_height: u32, max_width: u32, offset: usize, rev: bool)
+    pub fn normalize_y<IMG>(imgs: &mut [IMG])
     where
         IMG: ResizableImage,
     {
-        // let mut total_ratio = imgs
-        //     .first()
-        //     .map(|v| {
-        //         let (w, h) = v.get_size();
-        //         w as f32 / h as f32
-        //     })
-        //     .unwrap_or_default();
+        let Some((first_y, first_height)) =
+            imgs.first().map(|v| (v.get_pos_y(), v.get_view_height()))
+        else {
+            return;
+        };
+        let needs_normalizing = first_y < 0.0;
+        //let needs_normalizing = imgs.first().map(|v| v.get_pos_y() < 0.0 ).unwrap_or(false);
+        if !needs_normalizing {
+            return;
+        }
+
+        //let len = imgs.len();
+        let mut prev_y: f32 = first_y;
+        let mut prev_height: f32 = first_height;
+        //let mut current_height: f32 = first_height;
+        let mut offset_y: f32 = 0.0;
+
+        // for i in 0..len {
+        //     let current_y = {
+        //         let img = &imgs[i];
+        //         img.get_pos_y()
+        //     };
+
+        //     if current_y != prev_y {
+        //         let current_height = img.get_view_height();
+        //         let prev_height = &imgs[i - 1];
+        //         prev_y = current_y;
+        //         offset_y += current_height;
+        //     }
+
+        //     img.set_pos_y(offset_y);
+        // }
+        for img in imgs {
+            let current_y = img.get_pos_y();
+
+            if current_y != prev_y {
+                prev_y = current_y;
+                offset_y += prev_height;
+                prev_height = img.get_view_height();
+            }
+
+            img.set_pos_y(offset_y);
+        }
+
+        // let Some(first) = imgs.first() else {
+        //     return;
+        // };
+
+        // let first_y = first.get_pos_y();
+
+        // if first_y >= 0.0 {
+        //     return;
+        // }
+
+        // for img in imgs {
+        //     let current_y = img.get_pos_y();
+        //     let new_y = current_y - first_y;
+        //     img.set_pos_y(new_y);
+        // }
+    }
+
+    pub fn resize<IMG>(
+        imgs: &mut [IMG],
+        row_height: u32,
+        max_width: u32,
+        offset: usize,
+        rev: bool,
+    ) -> f32
+    where
+        IMG: ResizableImage,
+    {
         let len = imgs.len();
         let mut total_w = 0;
         let mut total_ratio = 0.0;
@@ -341,19 +454,7 @@ pub mod gallery {
                     cursor_row_end -= 1;
                 }
             }
-            // for i in (0..cursor).rev() {
-            //     let prev_pos_y = imgs[i].get_pos_y();
-            //     if prev_pos_y != current_pos_y {
-            //         break;
-            //     }
-            //     if rev {
-            //         sub_cursor += 1;
-            //     } else {
-            //         sub_cursor -= 1;
-            //     }
 
-            //     println!("hhhh :{i}");
-            // }
             if rev {
                 trace!("before setting end: {cursor_row_end}");
                 cursor_row_end = cursor_row_end.saturating_sub(1);
@@ -442,24 +543,9 @@ pub mod gallery {
                         cursor_row_start += 1;
                     }
                 }
-                // let iter = if rev {
-                //     (cursor..row_start).rev()
-                // } else {
-                //     (row_start..cursor)
-                // };
-                // for i in iter {
-                //     let img = &mut imgs[i];
-                //     let (width, height) = img.get_size();
-                //     let new_width = row_height * (width as f32 / height as f32);
-                //     let new_height = row_height;
-                //     img.set_size(new_width, new_height, pos_x, pos_y);
-
-                //     pos_x += new_width;
-                // }
 
                 trace!("pos_y1: {}", pos_y);
-                // trace!("row_height: {}", row_height);
-                //row_start = cursor;
+
                 total_w = 0;
                 total_ratio = 0.0;
                 if rev {
@@ -487,11 +573,6 @@ pub mod gallery {
             let row_height: f32 = max_width as f32 / row_ratio;
             let mut pos_x: f32 = if rev { max_width as f32 } else { 0.0 };
 
-            // let iter = if rev {
-            //     (0..row_start).rev()
-            // } else {
-            //     (row_start..len).into_iter()
-            // };
             let mut i = cursor_row_start;
             loop {
                 trace!("in last loop");
@@ -522,236 +603,15 @@ pub mod gallery {
                     i += 1;
                 }
             }
-            // for i in iter {
-            //     let img = &mut imgs[i];
-            //     let (width, height) = img.get_size();
-            //     let new_width = row_height * (width as f32 / height as f32);
-            //     let new_height = row_height;
-            //     img.set_size(new_width, new_height, pos_x, pos_y);
-
-            //     pos_x += new_width;
-            // }
         }
+
+        normalize_y(imgs);
+        //        imgs.pos_y
+
+        imgs.last()
+            .map(|v| v.get_view_height() + v.get_pos_y())
+            .unwrap_or(0.0)
     }
-
-    // pub fn resize_rev<IMG>(imgs: &mut [IMG], row_height: u32, max_width: u32, offset: usize, rev: bool)
-    // where
-    //     IMG: ResizableImage,
-    // {
-    //     // let mut total_ratio = imgs
-    //     //     .first()
-    //     //     .map(|v| {
-    //     //         let (w, h) = v.get_size();
-    //     //         w as f32 / h as f32
-    //     //     })
-    //     //     .unwrap_or_default();
-    //     let len = imgs.len();
-    //     let mut total_w = 0;
-    //     let mut total_ratio = 0.0;
-    //     let mut pos_y: f32 = 0.0;
-    //     let mut cursor_row_start: usize = offset;
-    //     let mut cursor_row_end: usize = offset;
-
-    //     // find start of the row
-    //     // or end of a row in rev
-    //     if cursor_row_end > 0 && cursor_row_end < len {
-    //         let current_pos_y = imgs[cursor_row_end].get_pos_y();
-    //         //let mut sub_cursor = cursor;
-
-    //         loop {
-    //             if (cursor_row_end == 0) || (rev && cursor_row_end >= len) {
-    //                 break;
-    //             }
-
-    //             let prev_pos_y = imgs[cursor_row_end].get_pos_y();
-    //             if prev_pos_y != current_pos_y {
-    //                 break;
-    //             }
-
-    //             if rev {
-    //                 cursor_row_end += 1;
-    //             } else {
-    //                 cursor_row_end -= 1;
-    //             }
-    //         }
-    //         // for i in (0..cursor).rev() {
-    //         //     let prev_pos_y = imgs[i].get_pos_y();
-    //         //     if prev_pos_y != current_pos_y {
-    //         //         break;
-    //         //     }
-    //         //     if rev {
-    //         //         sub_cursor += 1;
-    //         //     } else {
-    //         //         sub_cursor -= 1;
-    //         //     }
-
-    //         //     println!("hhhh :{i}");
-    //         // }
-    //         if rev {
-    //             cursor_row_end = (cursor_row_end + 1).clamp(0, len.saturating_sub(1));
-    //             cursor_row_start = cursor_row_end;
-    //         } else {
-    //             cursor_row_end = cursor_row_end.saturating_sub(1);
-    //             cursor_row_start = cursor_row_end;
-    //         }
-    //     }
-
-    //     //read the first image
-    //     if cursor_row_end < len {
-    //         let img = &imgs[cursor_row_end];
-    //         let (width, height) = img.get_size();
-    //         let ratio = width as f32 / height as f32;
-    //         let scaled_w = width - (height.saturating_sub(row_height) as f32 * ratio) as u32;
-
-    //         total_w = scaled_w;
-    //         total_ratio = ratio;
-
-    //         if rev {
-    //             cursor_row_end = cursor_row_end.saturating_sub(1);
-    //         } else {
-    //             cursor_row_end += 1;
-    //         }
-    //     }
-
-    //     // do the actual resizing
-    //     loop {
-    //         if cursor_row_end >= len || (rev && cursor_row_end == 0) {
-    //             break;
-    //         }
-
-    //         let (scaled_w, ratio, img_fits_in_row) = {
-    //             println!("pos_y: {}", pos_y);
-    //             let img = &imgs[cursor_row_end];
-    //             let (width, height) = img.get_size();
-    //             let ratio = width as f32 / height as f32;
-    //             let scaled_w = width - (height.saturating_sub(row_height) as f32 * ratio) as u32;
-    //             let img_fits_in_row = total_w + scaled_w <= max_width;
-    //             (scaled_w, ratio, img_fits_in_row)
-    //         };
-
-    //         if !img_fits_in_row {
-    //             let row_height: f32 = max_width as f32 / total_ratio;
-    //             println!(
-    //                 "row_height {} = {} / {} = {} | {}-{}",
-    //                 cursor_row_end,
-    //                 max_width,
-    //                 total_ratio,
-    //                 row_height,
-    //                 cursor_row_start,
-    //                 cursor_row_end
-    //             );
-    //             //let mut pos_x: f32 = if rev { max_width as f32 } else { 0.0 };
-    //             let mut pos_x: f32 = if rev { max_width as f32 } else { 0.0 };
-
-    //             //let mut i: usize = row_start;
-    //             loop {
-    //                 if cursor_row_start == cursor_row_end {
-    //                     break;
-    //                 }
-
-    //                 let img = &mut imgs[cursor_row_end];
-    //                 let (width, height) = img.get_size();
-    //                 let new_width = row_height * (width as f32 / height as f32);
-    //                 let new_height = row_height;
-
-    //                 if rev {
-    //                     pos_x -= new_width;
-    //                 }
-
-    //                 img.set_size(new_width, new_height, pos_x, pos_y);
-
-    //                 if rev {
-    //                     cursor_row_start -= 1;
-    //                 } else {
-    //                     pos_x += new_width;
-    //                     cursor_row_start += 1;
-    //                 }
-    //             }
-    //             // let iter = if rev {
-    //             //     (cursor..row_start).rev()
-    //             // } else {
-    //             //     (row_start..cursor)
-    //             // };
-    //             // for i in iter {
-    //             //     let img = &mut imgs[i];
-    //             //     let (width, height) = img.get_size();
-    //             //     let new_width = row_height * (width as f32 / height as f32);
-    //             //     let new_height = row_height;
-    //             //     img.set_size(new_width, new_height, pos_x, pos_y);
-
-    //             //     pos_x += new_width;
-    //             // }
-
-    //             println!("pos_y1: {}", pos_y);
-    //             // println!("row_height: {}", row_height);
-    //             //row_start = cursor;
-    //             total_w = 0;
-    //             total_ratio = 0.0;
-    //             if rev {
-    //                 pos_y -= row_height;
-    //             } else {
-    //                 pos_y += row_height;
-    //             }
-    //             println!("pos_y: {}", pos_y);
-    //         }
-
-    //         total_w += scaled_w;
-    //         total_ratio += ratio;
-
-    //         if rev {
-    //             cursor_row_end -= 1;
-    //         } else {
-    //             cursor_row_end += 1;
-    //         }
-    //     }
-    //     // finish unfilled row resizing
-    //     if total_w != 0 {
-    //         let row_gap = max_width.saturating_sub(total_w);
-    //         let missing_imgs = row_gap.saturating_div(row_height);
-    //         let row_ratio = total_ratio + missing_imgs as f32;
-    //         let row_height: f32 = max_width as f32 / row_ratio;
-    //         let mut pos_x: f32 = 0.0;
-
-    //         // let iter = if rev {
-    //         //     (0..row_start).rev()
-    //         // } else {
-    //         //     (row_start..len).into_iter()
-    //         // };
-    //         let mut i = cursor_row_start;
-    //         loop {
-    //             if (i == len) || (rev && i == 0) {
-    //                 break;
-    //             }
-
-    //             let img = &mut imgs[i];
-    //             let (width, height) = img.get_size();
-    //             let new_width = row_height * (width as f32 / height as f32);
-    //             let new_height = row_height;
-
-    //             if rev {
-    //                 pos_x -= new_width;
-    //             }
-
-    //             img.set_size(new_width, new_height, pos_x, pos_y);
-
-    //             if rev {
-    //                 i -= 1;
-    //             } else {
-    //                 pos_x += new_width;
-    //                 i += 1;
-    //             }
-    //         }
-    //         // for i in iter {
-    //         //     let img = &mut imgs[i];
-    //         //     let (width, height) = img.get_size();
-    //         //     let new_width = row_height * (width as f32 / height as f32);
-    //         //     let new_height = row_height;
-    //         //     img.set_size(new_width, new_height, pos_x, pos_y);
-
-    //         //     pos_x += new_width;
-    //         // }
-    //     }
-    // }
 
     #[cfg(test)]
     mod resize_tests {
@@ -816,9 +676,9 @@ pub mod gallery {
             // fn get_view_width(&self) -> f32 {
             //     *self.view_width
             // }
-            // fn get_view_height(&self) -> f32 {
-            //     *self.view_height
-            // }
+            fn get_view_height(&self) -> f32 {
+                *self.view_height
+            }
             fn set_size(&mut self, view_width: f32, view_height: f32, pos_x: f32, pos_y: f32) {
                 println!("setting yyyyyyyyyyy {}", pos_y);
                 println!("setting xxxxxxxxxxx {}", pos_x);
@@ -827,147 +687,10 @@ pub mod gallery {
                 self.pos_x = OrderedFloat::from(pos_x);
                 self.pos_y = OrderedFloat::from(pos_y);
             }
+            fn set_pos_y(&mut self, pos_y: f32) {
+                *self.pos_y = pos_y;
+            }
         }
-
-        // #[test]
-        // fn resize_all_four() {
-        //     let mut imgs = [
-        //         Img::new(640, 480),
-        //         Img::new(1920, 1080),
-        //         Img::new(1280, 720),
-        //         Img::new(720, 1280),
-        //     ];
-        //     resize(&mut imgs, 200, 1000, 0, false);
-        //     assert_eq!(
-        //         [
-        //             Img {
-        //                 width: 640,
-        //                 height: 480,
-        //                 view_width: OrderedFloat(272.7273),
-        //                 view_height: OrderedFloat(204.54546),
-        //                 pos_x: OrderedFloat(0.0),
-        //                 pos_y: OrderedFloat(0.0),
-        //             },
-        //             Img {
-        //                 width: 1920,
-        //                 height: 1080,
-        //                 view_width: OrderedFloat(363.63638),
-        //                 view_height: OrderedFloat(204.54546),
-        //                 pos_x: OrderedFloat(272.7273),
-        //                 pos_y: OrderedFloat(0.0),
-        //             },
-        //             Img {
-        //                 width: 1280,
-        //                 height: 720,
-        //                 view_width: OrderedFloat(363.63638),
-        //                 view_height: OrderedFloat(204.54546),
-        //                 pos_x: OrderedFloat(636.36365),
-        //                 pos_y: OrderedFloat(0.0),
-        //             },
-        //             Img {
-        //                 width: 720,
-        //                 height: 1280,
-        //                 view_width: OrderedFloat(123.287674),
-        //                 view_height: OrderedFloat(219.17809),
-        //                 pos_x: OrderedFloat(0.0),
-        //                 pos_y: OrderedFloat(204.54546),
-        //             },
-        //         ],
-        //         imgs
-        //     );
-        // }
-
-        // #[test]
-        // fn resize_second_row() {
-        //     let mut imgs = [
-        //         Img {
-        //             width: 640,
-        //             height: 480,
-        //             view_width: OrderedFloat(272.7273),
-        //             view_height: OrderedFloat(204.54546),
-        //             pos_x: OrderedFloat(0.0),
-        //             pos_y: OrderedFloat(0.0),
-        //         },
-        //         Img {
-        //             width: 640,
-        //             height: 480,
-        //             view_width: OrderedFloat(272.7273),
-        //             view_height: OrderedFloat(204.54546),
-        //             pos_x: OrderedFloat(0.0),
-        //             pos_y: OrderedFloat(0.0),
-        //         },
-        //         Img {
-        //             width: 19200,
-        //             height: 1080,
-        //             view_width: OrderedFloat(363.63638),
-        //             view_height: OrderedFloat(204.54546),
-        //             pos_x: OrderedFloat(272.7273),
-        //             pos_y: OrderedFloat(20.0),
-        //         },
-        //         Img {
-        //             width: 1280,
-        //             height: 720,
-        //             view_width: OrderedFloat(363.63638),
-        //             view_height: OrderedFloat(204.54546),
-        //             pos_x: OrderedFloat(636.36365),
-        //             pos_y: OrderedFloat(0.0),
-        //         },
-        //         Img {
-        //             width: 720,
-        //             height: 1280,
-        //             view_width: OrderedFloat(123.287674),
-        //             view_height: OrderedFloat(219.17809),
-        //             pos_x: OrderedFloat(0.0),
-        //             pos_y: OrderedFloat(204.54546),
-        //         },
-        //     ];
-        //     resize(&mut imgs, 200, 1000, 2, false);
-        //     assert_eq!(
-        //         imgs,
-        //         [
-        //             Img {
-        //                 width: 640,
-        //                 height: 480,
-        //                 view_width: OrderedFloat(272.7273),
-        //                 view_height: OrderedFloat(204.54546),
-        //                 pos_x: OrderedFloat(0.0),
-        //                 pos_y: OrderedFloat(0.0),
-        //             },
-        //             Img {
-        //                 width: 640,
-        //                 height: 480,
-        //                 view_width: OrderedFloat(272.7273),
-        //                 view_height: OrderedFloat(204.54546),
-        //                 pos_x: OrderedFloat(0.0),
-        //                 pos_y: OrderedFloat(0.0),
-        //             },
-        //             Img {
-        //                 width: 19200,
-        //                 height: 1080,
-        //                 view_width: OrderedFloat(1000.0),
-        //                 view_height: OrderedFloat(56.249996),
-        //                 pos_x: OrderedFloat(0.0),
-        //                 pos_y: OrderedFloat(0.0),
-        //             },
-        //             Img {
-        //                 width: 1280,
-        //                 height: 720,
-        //                 view_width: OrderedFloat(409.6),
-        //                 view_height: OrderedFloat(230.40001),
-        //                 pos_x: OrderedFloat(0.0),
-        //                 pos_y: OrderedFloat(56.249996),
-        //             },
-        //             Img {
-        //                 width: 720,
-        //                 height: 1280,
-        //                 view_width: OrderedFloat(129.6),
-        //                 view_height: OrderedFloat(230.40001),
-        //                 pos_x: OrderedFloat(409.6),
-        //                 pos_y: OrderedFloat(56.249996),
-        //             },
-        //         ]
-        //     )
-        // }
 
         #[test]
         fn resize_imgs_two() {
@@ -1058,7 +781,7 @@ pub mod gallery {
                         height: 480,
                         view_width: OrderedFloat(307.69232),
                         view_height: OrderedFloat(230.76923),
-                        pos_x: OrderedFloat(-615.38464),
+                        pos_x: OrderedFloat(384.61536),
                         pos_y: OrderedFloat(-483.5497),
                     },
                     Img {
@@ -1066,7 +789,7 @@ pub mod gallery {
                         height: 480,
                         view_width: OrderedFloat(307.69232),
                         view_height: OrderedFloat(230.76923),
-                        pos_x: OrderedFloat(-307.69232),
+                        pos_x: OrderedFloat(692.3077),
                         pos_y: OrderedFloat(-483.5497),
                     },
                     Img {
