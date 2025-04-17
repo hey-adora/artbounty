@@ -49,3 +49,4 @@ pretty_assertions = { workspace = true }
 
 [dev-dependencies]
 simple_logger = { workspace = true }
+test-log = { workspace = true }

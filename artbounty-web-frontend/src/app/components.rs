@@ -8,7 +8,7 @@ pub mod gallery {
     use ordered_float::OrderedFloat;
     use std::fmt::Debug;
     use std::{default::Default, time::Duration};
-    use tracing::trace;
+    use tracing::{debug, trace};
     use web_sys::HtmlDivElement;
 
     use crate::toolbox::{prelude::*, random::random_u64};
@@ -28,68 +28,51 @@ pub mod gallery {
                 let Some(gallery_elm) = gallery_ref.get_untracked() else {
                     return;
                 };
-
-                // return;
+                let width = gallery_elm.client_width() as u32;
+                //return;
                 let Some(first_ref) = first_ref.get_untracked() else {
                     let mut new_imgs = Img::rand_vec(1);
-                    // resize(&mut new_imgs, NEW_IMG_HEIGHT, width, 0);
+                    resize(&mut new_imgs, NEW_IMG_HEIGHT, width, 0, false);
                     imgs.set(new_imgs);
                     return;
-                };
+                }; 
                 if !top_bar_is_visible.get_value() {
-                    return;
+                    return; 
                 }
-                let width = gallery_elm.client_width() as u32;
+               
                 let scroll_top = gallery_elm.scroll_top();
 
                 // return;
                 let mut new_imgs = Img::rand_vec(10);
-                imgs.update(|v| {
-                    //let old_imgs_count = v.len();
-                    let len = v.len();
-                    new_imgs.extend_from_slice(v);
+                imgs.update(|old_imgs| {
 
-                    // let y = resize(&mut new_imgs, NEW_IMG_HEIGHT, width, 0, false);
+                    let old_imgs_len = old_imgs.len();
+                    // if old_imgs_len >= 10 {
+                    //     return;
+                    // }
+                    let new_imgs_len = new_imgs.len();
+                    let offset = new_imgs_len.saturating_sub(old_imgs_len);
+                    new_imgs.extend_from_slice(old_imgs);
+                    *old_imgs = new_imgs;
 
-                    //
-
-                    let y = if len > 0 {
-                        let offset = new_imgs.len().saturating_sub(v.len());
-                        //new_imgs.extend_from_slice(v);
-
-                        resize(&mut new_imgs, NEW_IMG_HEIGHT, width, offset, true)
+                    let y = if old_imgs_len > 0 {
+                        debug!("running {NEW_IMG_HEIGHT} {width} {offset} {}", false);
+                        resize(old_imgs, NEW_IMG_HEIGHT, width, offset, true)
                     } else {
-                        //new_imgs.extend_from_slice(v);
-                        resize(&mut new_imgs, NEW_IMG_HEIGHT, width, 0, false)
+                        debug!("running {NEW_IMG_HEIGHT} {width} {} {}", 0, false);
+                        resize(old_imgs, NEW_IMG_HEIGHT, width, 0, false)
                     };
 
-                    // let diff = y - scroll_offset.get_value();
-                    // scroll_offset.set_value(y);
-                    // let scroll_by = scroll as f64 - diff.abs() as f64;
-                    // gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
-
                     let diff = (y - scroll_offset.get_value()).abs();
-                    // if old_y > 0 {
-                    //     let diff = old_y - y;
-                    //     println!("old_y: {}",);
-                    // }
                     scroll_offset.set_value(y);
                     let scroll_by = scroll_top as f64 + (diff / 2.0) as f64;
                     trace!("SCROLL_BY: {} + ({} / 2.0) = {}", scroll_top, diff,scroll_by );
                     trace!("totalllllllllllllll y: {y} diff: {diff} scroll_top: {scroll_top} scroll_by: {scroll_by}");
                     gallery_elm.scroll_by_with_x_and_y(0.0, diff as f64);
-
-
-                    //trace!("totalllllllllllllll y: {y} diff: {diff} scroll_top: {scroll} scroll_by: {scroll_by}");
-
-
-                    //trace!("here: {:#?}", v);
-                    // let offset = new_imgs.len().saturating_sub(v.len());
-                    // new_imgs.extend_from_slice(v);
-                    // resize(&mut new_imgs, NEW_IMG_HEIGHT, width, 0, false);
-                    // fast_img_resize(NEW_IMG_HEIGHT, width, &mut new_imgs);
-                    *v = new_imgs;
+                   
                 });
+
+
                 //first_ref.scroll_into_view();
                 //trace!("beep boop");
             },
@@ -129,8 +112,11 @@ pub mod gallery {
                 // let Some(first_ref) = first_ref.get_untracked() else {
                 //     return;
                 // };
+
                 let is_interescting = entry.is_intersecting();
                 top_bar_is_visible.set_value(is_interescting);
+
+
                 // if is_interescting {
                 //     let mut new_imgs = Img::rand_vec(1);
                 //     imgs.update(|v| {
@@ -165,7 +151,11 @@ pub mod gallery {
             };
             let width = gallery_elm.client_width() as u32;
             let scroll_top = gallery_elm.scroll_top();
-            let mut new_imgs = Img::rand_vec(1);
+            let mut new_imgs = Vec::from([
+                Img::new(1000, 200),
+                Img::new(100, 1000),
+                Img::new(1000, 100),
+            ]);
 
             imgs.update(|v| {
                 let old_imgs_count = v.len();
@@ -173,7 +163,7 @@ pub mod gallery {
                 let offset = new_imgs.len();
                 //let offset = new_imgs.len().saturating_sub(v.len());
                 //new_imgs.extend_from_slice(v);
-                new_imgs.extend_from_slice(v);
+                //new_imgs.extend_from_slice(v);
 
                 let y = resize(&mut new_imgs, NEW_IMG_HEIGHT, width, 0, false);
                 let diff = (y - scroll_offset.get_value()).abs();
@@ -311,6 +301,21 @@ pub mod gallery {
     }
 
     impl Img {
+        pub fn new(width: u32, height: u32) -> Self {
+            let id = random_u64();
+
+            Self {
+                id,
+                row_id: 0,
+                width,
+                height,
+                view_width: RwSignal::new(0.0),
+                view_height: RwSignal::new(0.0),
+                view_pos_x: RwSignal::new(0.0),
+                view_pos_y: RwSignal::new(0.0),
+            }
+        }
+
         pub fn rand() -> Self {
             let id = random_u64();
             let width = random_u32_ranged(500, 1000);
@@ -426,22 +431,28 @@ pub mod gallery {
         let mut total_ratio = 0.0;
         let mut pos_y: f32 = 0.0;
         let mut cursor_row_start: usize = offset;
-        let mut cursor_row_end: usize = offset;
+        let mut cursor_row_end: usize = cursor_row_start;
 
         // find start of the row
         // or end of a row in rev
         if cursor_row_end < len {
-            let current_pos_y = imgs[cursor_row_end].get_pos_y();
+            let current_pos_y = imgs[offset].get_pos_y();
             //let mut sub_cursor = cursor;
 
+            let mut new_offset = offset;
             loop {
-                if (cursor_row_end == 0 && !rev) || (rev && cursor_row_end >= len) {
+                trace!(
+                    "find first row loop break: ({new_offset} == 0 && !{rev}) = {} || ({rev} && {new_offset} >= {len}) = {}",
+                    (new_offset == 0 && !rev),
+                    (rev && new_offset >= len)
+                );
+                if (new_offset == 0 && !rev) || (rev && new_offset >= len) {
                     break;
                 }
 
-                let prev_pos_y = imgs[cursor_row_end].get_pos_y();
+                let prev_pos_y = imgs[new_offset].get_pos_y();
                 trace!(
-                    "finding first row {cursor_row_end} : {prev_pos_y} != {current_pos_y} == {}",
+                    "finding first row {new_offset} : {prev_pos_y} != {current_pos_y} == {}",
                     prev_pos_y != current_pos_y
                 );
                 if prev_pos_y != current_pos_y {
@@ -449,23 +460,54 @@ pub mod gallery {
                 }
 
                 if rev {
-                    cursor_row_end += 1;
+                    new_offset += 1;
                 } else {
-                    cursor_row_end -= 1;
+                    new_offset -= 1;
                 }
             }
 
-            if rev {
-                trace!("before setting end: {cursor_row_end}");
-                cursor_row_end = cursor_row_end.saturating_sub(1);
-                trace!("after setting end: {cursor_row_end}");
-                cursor_row_start = cursor_row_end;
-            } else {
-                trace!("before setting end: {cursor_row_end}");
-                cursor_row_end = (cursor_row_end + 1).clamp(0, len.saturating_sub(1));
-                trace!("after setting end: {cursor_row_end}");
-                cursor_row_start = cursor_row_end;
+            if new_offset != offset {
+                if rev {
+                    trace!("before setting end: {cursor_row_end}");
+                    cursor_row_end = new_offset.saturating_sub(1);
+                    trace!("after setting end: {cursor_row_end}");
+                    cursor_row_start = cursor_row_end;
+                } else {
+                    trace!("before setting end: {cursor_row_end}");
+                    cursor_row_end = (new_offset + 1).clamp(0, len.saturating_sub(1));
+                    trace!("after setting end: {cursor_row_end}");
+                    cursor_row_start = cursor_row_end;
+                }
             }
+          
+
+            // if cursor_row_end != 0 && cursor_row_end < len {
+            //     if rev {
+            //         trace!("before setting end: {cursor_row_end}");
+            //         cursor_row_end -= 1;
+            //         trace!("after setting end: {cursor_row_end}");
+            //         cursor_row_start = cursor_row_end;
+            //     } else {
+            //         trace!("before setting end: {cursor_row_end}");
+            //         cursor_row_end += 1;
+            //         trace!("after setting end: {cursor_row_end}");
+            //         cursor_row_start = cursor_row_end;
+            //     }
+            // }
+
+        //    if i > 0 {
+        //     if rev {
+        //         trace!("before setting end: {cursor_row_end}");
+        //         cursor_row_end -= 1;
+        //         trace!("after setting end: {cursor_row_end}");
+        //         cursor_row_start = cursor_row_end;
+        //     } else {
+        //         trace!("before setting end: {cursor_row_end}");
+        //         cursor_row_end += 1;
+        //         trace!("after setting end: {cursor_row_end}");
+        //         cursor_row_start = cursor_row_end;
+        //     }
+        //    }
         }
 
         trace!("start: {cursor_row_start}, end: {cursor_row_end}");
@@ -615,11 +657,11 @@ pub mod gallery {
 
     #[cfg(test)]
     mod resize_tests {
-        use std::str::FromStr;
-
         use crate::app::components::gallery::resize;
         use ordered_float::OrderedFloat;
         use pretty_assertions::{assert_eq, assert_ne};
+        use std::str::FromStr;
+        use test_log::test;
 
         use super::ResizableImage;
 
@@ -720,7 +762,47 @@ pub mod gallery {
         }
 
         #[test]
-        fn resize_imgs_single() {
+        fn resize_imgs_three() {
+            let mut imgs = Vec::from([
+                Img::new(1000, 200),
+                Img::new(100, 1000),
+                Img::new(1000, 100),
+            ]);
+            resize(&mut imgs, 200, 1000, 0, false);
+
+            assert_eq!(
+                [
+                    Img {
+                        width: 1000,
+                        height: 200,
+                        view_width: OrderedFloat(1000.0),
+                        view_height: OrderedFloat(200.0),
+                        pos_x: OrderedFloat(0.0),
+                        pos_y: OrderedFloat(0.0),
+                    },
+                    Img {
+                        width: 100,
+                        height: 1000,
+                        view_width: OrderedFloat(1000.0),
+                        view_height: OrderedFloat(10000.0),
+                        pos_x: OrderedFloat(0.0),
+                        pos_y: OrderedFloat(200.0),
+                    },
+                    Img {
+                        width: 1000,
+                        height: 100,
+                        view_width: OrderedFloat(1000.0),
+                        view_height: OrderedFloat(100.0),
+                        pos_x: OrderedFloat(0.0),
+                        pos_y: OrderedFloat(10200.0),
+                    },
+                ],
+                *imgs
+            )
+        }
+
+        #[test]
+        fn resize_imgs_single_normal() {
             let mut imgs = [Img::new(640, 480)];
             resize(&mut imgs, 200, 1000, 0, false);
             assert_eq!(
@@ -736,6 +818,8 @@ pub mod gallery {
             )
         }
 
+    
+
         #[test]
         fn resize_imgs_single_rev() {
             let mut imgs = [Img::new(640, 480)];
@@ -746,7 +830,7 @@ pub mod gallery {
                     height: 480,
                     view_width: OrderedFloat(307.69232),
                     view_height: OrderedFloat(230.76923),
-                    pos_x: OrderedFloat(-307.69232),
+                    pos_x: OrderedFloat(692.3077),
                     pos_y: OrderedFloat(0.0),
                 },],
                 imgs,
@@ -755,7 +839,7 @@ pub mod gallery {
 
         #[test]
         fn resize_imgs_rev_from_top() {
-            simple_logger::SimpleLogger::new().init().unwrap();
+            //simple_logger::SimpleLogger::new().init().unwrap();
             // tracing_subscriber::fmt()
             //     .event_format(
             //         tracing_subscriber::fmt::format()
@@ -782,7 +866,7 @@ pub mod gallery {
                         view_width: OrderedFloat(307.69232),
                         view_height: OrderedFloat(230.76923),
                         pos_x: OrderedFloat(384.61536),
-                        pos_y: OrderedFloat(-483.5497),
+                        pos_y: OrderedFloat(0.0),
                     },
                     Img {
                         width: 640,
@@ -790,7 +874,7 @@ pub mod gallery {
                         view_width: OrderedFloat(307.69232),
                         view_height: OrderedFloat(230.76923),
                         pos_x: OrderedFloat(692.3077),
-                        pos_y: OrderedFloat(-483.5497),
+                        pos_y: OrderedFloat(0.0),
                     },
                     Img {
                         width: 19200,
@@ -798,7 +882,7 @@ pub mod gallery {
                         view_width: OrderedFloat(1000.0),
                         view_height: OrderedFloat(56.249996),
                         pos_x: OrderedFloat(0.0),
-                        pos_y: OrderedFloat(-427.2997),
+                        pos_y: OrderedFloat(230.76923),
                     },
                     Img {
                         width: 1280,
@@ -806,7 +890,7 @@ pub mod gallery {
                         view_width: OrderedFloat(759.6439),
                         view_height: OrderedFloat(427.2997),
                         pos_x: OrderedFloat(0.0),
-                        pos_y: OrderedFloat(0.0),
+                        pos_y: OrderedFloat(287.01923),
                     },
                     Img {
                         width: 720,
@@ -814,7 +898,7 @@ pub mod gallery {
                         view_width: OrderedFloat(240.3561),
                         view_height: OrderedFloat(427.2997),
                         pos_x: OrderedFloat(759.6439),
-                        pos_y: OrderedFloat(0.0),
+                        pos_y: OrderedFloat(287.01923),
                     },
                 ],
                 imgs
@@ -839,16 +923,16 @@ pub mod gallery {
                         height: 480,
                         view_width: OrderedFloat(307.69232),
                         view_height: OrderedFloat(230.76923),
-                        pos_x: OrderedFloat(-615.38464),
-                        pos_y: OrderedFloat(-483.5497),
+                        pos_x: OrderedFloat(384.61536),
+                        pos_y: OrderedFloat(0.0),
                     },
                     Img {
                         width: 640,
                         height: 480,
                         view_width: OrderedFloat(307.69232),
                         view_height: OrderedFloat(230.76923),
-                        pos_x: OrderedFloat(-307.69232),
-                        pos_y: OrderedFloat(-483.5497),
+                        pos_x: OrderedFloat(692.3077),
+                        pos_y: OrderedFloat(0.0),
                     },
                     Img {
                         width: 19200,
@@ -856,7 +940,7 @@ pub mod gallery {
                         view_width: OrderedFloat(1000.0),
                         view_height: OrderedFloat(56.249996),
                         pos_x: OrderedFloat(0.0),
-                        pos_y: OrderedFloat(-427.2997),
+                        pos_y: OrderedFloat(230.76923),
                     },
                     Img {
                         width: 1280,
@@ -864,7 +948,7 @@ pub mod gallery {
                         view_width: OrderedFloat(759.6439),
                         view_height: OrderedFloat(427.2997),
                         pos_x: OrderedFloat(0.0),
-                        pos_y: OrderedFloat(0.0),
+                        pos_y: OrderedFloat(287.01923),
                     },
                     Img {
                         width: 720,
@@ -872,7 +956,7 @@ pub mod gallery {
                         view_width: OrderedFloat(240.3561),
                         view_height: OrderedFloat(427.2997),
                         pos_x: OrderedFloat(759.6439),
-                        pos_y: OrderedFloat(0.0),
+                        pos_y: OrderedFloat(287.01923),
                     },
                 ],
                 imgs
@@ -896,16 +980,16 @@ pub mod gallery {
                         height: 480,
                         view_width: OrderedFloat(307.69232),
                         view_height: OrderedFloat(230.76923),
-                        pos_x: OrderedFloat(-615.38464),
-                        pos_y: OrderedFloat(-61.249996),
+                        pos_x: OrderedFloat(384.61536),
+                        pos_y: OrderedFloat(0.0),
                     },
                     Img {
                         width: 640,
                         height: 480,
                         view_width: OrderedFloat(307.69232),
                         view_height: OrderedFloat(230.76923),
-                        pos_x: OrderedFloat(-307.69232),
-                        pos_y: OrderedFloat(-61.249996),
+                        pos_x: OrderedFloat(692.3077),
+                        pos_y: OrderedFloat(0.0),
                     },
                     Img {
                         width: 19200,
@@ -913,7 +997,7 @@ pub mod gallery {
                         view_width: OrderedFloat(1000.0),
                         view_height: OrderedFloat(56.249996),
                         pos_x: OrderedFloat(0.0),
-                        pos_y: OrderedFloat(-5.0),
+                        pos_y: OrderedFloat(230.76923),
                     },
                     Img {
                         width: 1280,
@@ -921,7 +1005,7 @@ pub mod gallery {
                         view_width: OrderedFloat(0.0),
                         view_height: OrderedFloat(0.0),
                         pos_x: OrderedFloat(0.0),
-                        pos_y: OrderedFloat(0.0),
+                        pos_y: OrderedFloat(287.01923),
                     },
                     Img {
                         width: 720,
@@ -929,7 +1013,7 @@ pub mod gallery {
                         view_width: OrderedFloat(0.0),
                         view_height: OrderedFloat(0.0),
                         pos_x: OrderedFloat(0.0),
-                        pos_y: OrderedFloat(0.0),
+                        pos_y: OrderedFloat(287.01923),
                     },
                 ],
                 imgs
