@@ -29,7 +29,9 @@ pub mod gallery {
                     return;
                 };
                 let width = gallery_elm.client_width() as u32;
-                let heigth = gallery_elm.client_height() as u32;
+                let heigth = gallery_elm.client_height() as f32;
+                let scroll_heigth = gallery_elm.scroll_height() as f32;
+                let scroll_top = gallery_elm.scroll_top() as f32;
                 //return;
                 // let Some(first_ref) = first_ref.get_untracked() else {
                 //     let mut new_imgs = Img::rand_vec(1);
@@ -41,12 +43,18 @@ pub mod gallery {
                     return;
                 }
 
-                let scroll_top = gallery_elm.scroll_top();
-
                 // return;
-                let can_fit_count = calc_fit_count(width, heigth, NEW_IMG_HEIGHT);
+                let can_fit_count = calc_fit_count(width, heigth as u32, NEW_IMG_HEIGHT) * 2;
                 let mut new_imgs = Img::rand_vec(can_fit_count as usize);
                 imgs.update(|old_imgs| {
+                    let removed_height = if let Some((cut_to, removed_height)) =
+                        remove_imgs(old_imgs, heigth * 3.0, scroll_heigth, false)
+                    {
+                        *old_imgs = old_imgs[..cut_to].to_vec();
+                        removed_height
+                    } else {
+                        0.0
+                    };
 
                     let old_imgs_len = old_imgs.len();
                     // if old_imgs_len >= 10 {
@@ -54,6 +62,7 @@ pub mod gallery {
                     // }
                     let new_imgs_len = new_imgs.len();
                     let offset = new_imgs_len.saturating_sub(old_imgs_len);
+
                     new_imgs.extend_from_slice(old_imgs);
                     *old_imgs = new_imgs;
 
@@ -65,14 +74,18 @@ pub mod gallery {
                         resize(old_imgs, NEW_IMG_HEIGHT, width, 0, false)
                     };
 
-                    let diff = (y - scroll_offset.get_value()).abs();
-                    scroll_offset.set_value(y);
-                    let scroll_by = scroll_top as f64 + (diff / 2.0) as f64;
-                    trace!("SCROLL_BY: {} + ({} / 2.0) = {}", scroll_top, diff,scroll_by );
-                    trace!("totalllllllllllllll y: {y} diff: {diff} scroll_top: {scroll_top} scroll_by: {scroll_by}");
-                    gallery_elm.scroll_by_with_x_and_y(0.0, diff as f64);
+                    let diff = y - scroll_heigth ;
+                    let new_scroll_top = diff + removed_height + 100.0 ;
+                    // let new_scroll_top = scroll_top + diff.abs();
+                    trace!("SCROLL: y {y}: removed height {removed_height} : scroll top {scroll_top}: scroll height {scroll_heigth}: diff {diff}: new_scroll_top {new_scroll_top}");
+                    // trace!("NEW SCROLL TOP {new_scroll_top}");
+                    // let diff = (y - scroll_offset.get_value()).abs();
+                    // scroll_offset.set_value(y);
+                    // let scroll_by = scroll_top as f64 + (diff / 2.0) as f64 - removed_height as f64;
+                    // trace!("SCROLL_BY: {} + ({} / 2.0) - {} = {}", scroll_top, diff,removed_height,scroll_by );
+                    // trace!("totalllllllllllllll y: {y} diff: {diff} scroll_top: {scroll_top} scroll_by: {scroll_by}");
+                    gallery_elm.scroll_by_with_x_and_y(0.0, new_scroll_top as f64);
                 });
-
 
                 //first_ref.scroll_into_view();
                 //trace!("beep boop");
@@ -416,25 +429,31 @@ pub mod gallery {
         // }
     }
 
-    pub fn remove_from_end<IMG>(
+    pub fn remove_imgs<IMG>(
         imgs: &[IMG],
-        view_height: u32,
-        scroll_height: u32,
-        remove_percent: u32,
-    ) -> Option<usize>
+        view_height: f32,
+        scroll_height: f32,
+        from_start: bool,
+    ) -> Option<(usize, f32)>
     where
         IMG: ResizableImage,
     {
-        trace!("===REMOVING FROM END===");
-        let Some((last_y, last_height)) = imgs.last().map(|v| (v.get_pos_y(), v.get_view_height()))
-        else {
+        trace!(
+            "===REMOVING FROM {}===",
+            if from_start { "START" } else { "END" }
+        );
+        let Some((last_y, last_height)) = (if from_start {
+            imgs.first().map(|v| (v.get_pos_y(), v.get_view_height()))
+        } else {
+            imgs.last().map(|v| (v.get_pos_y(), v.get_view_height()))
+        }) else {
             return None;
         };
         trace!("last_y: {last_y} last_height: {last_height}");
         let mut prev_y: f32 = last_y;
         let mut removed_y = last_height;
-        let mut cut_index = imgs.len();
-        let overflow_height = scroll_height.saturating_sub(view_height) as f32;
+        let mut cut_index = if from_start { 0 } else { imgs.len() - 1 };
+        let overflow_height = scroll_height - view_height;
         trace!(
             "overflow_height = {overflow_height} - {removed_y} < 0.0 = {}",
             overflow_height - removed_y < 0.0
@@ -443,7 +462,11 @@ pub mod gallery {
             return None;
         }
 
-        for img in imgs.iter().rev() {
+        // let mut iter = if from_start { imgs.iter() } else {imgs.iter().rev()};
+        loop {
+            let Some(img) = imgs.get(cut_index) else {
+                break;
+            };
             let current_y = img.get_pos_y();
             trace!(
                 "current_y != prev_y = {current_y} != {prev_y} = {}",
@@ -452,17 +475,24 @@ pub mod gallery {
             if current_y != prev_y {
                 prev_y = current_y;
                 let current_height = img.get_view_height();
-                removed_y += current_height;
                 trace!(
-                    "overflow_height = {overflow_height} - {removed_y} <= 0.0 = {}",
-                    overflow_height - removed_y <= 0.0
+                    "overflow_height = {overflow_height} - ({removed_y} + {current_height}) <= 0.0 = {}",
+                    overflow_height - (removed_y + current_height) <= 0.0
                 );
-                if overflow_height - removed_y <= 0.0 {
-                    return Some(cut_index);
+                if overflow_height - (removed_y + current_height) <= 0.0 {
+                    return Some((
+                        if from_start { cut_index } else { cut_index + 1 },
+                        removed_y,
+                    ));
                 }
+                removed_y += current_height;
             }
 
-            cut_index -= 1;
+            if from_start {
+                cut_index += 1;
+            } else {
+                cut_index -= 1;
+            }
         }
 
         None
@@ -765,7 +795,7 @@ pub mod gallery {
 
     #[cfg(test)]
     mod resize_tests {
-        use crate::app::components::gallery::{remove_from_end, remove_from_start, resize};
+        use crate::app::components::gallery::{remove_from_start, remove_imgs, resize};
         use ordered_float::OrderedFloat;
         use pretty_assertions::{assert_eq, assert_ne};
         use std::str::FromStr;
@@ -863,8 +893,8 @@ pub mod gallery {
                 },
             ];
 
-            let cut_index = remove_from_end(&mut imgs, 500, 1000, 0);
-            assert_eq!(Some(1), cut_index);
+            let cut_index = remove_imgs(&mut imgs, 500.0, 1000.0, false);
+            assert_eq!(Some((1, 500.0)), cut_index);
 
             let mut imgs = [
                 Img {
@@ -893,8 +923,8 @@ pub mod gallery {
                 },
             ];
 
-            let cut_index = remove_from_end(&mut imgs, 500, 1500, 0);
-            assert_eq!(Some(1), cut_index);
+            let cut_index = remove_imgs(&mut imgs, 500.0, 1500.0, false);
+            assert_eq!(Some((1, 500.0)), cut_index);
 
             let mut imgs = [
                 Img {
@@ -931,8 +961,8 @@ pub mod gallery {
                 },
             ];
 
-            let cut_index = remove_from_start(&mut imgs, 500, 2000, 0);
-            assert_eq!(Some(3), cut_index);
+            let cut_index = remove_imgs(&mut imgs, 500.0, 2000.0, true);
+            assert_eq!(Some((3, 1000.0)), cut_index);
         }
 
         #[test]
