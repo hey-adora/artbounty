@@ -4,32 +4,33 @@ members = ["artbounty-web-backend", "artbounty-web-frontend"]
 
 [workspace.dependencies]
 artbounty-web-frontend = { path = "artbounty-web-frontend" }
-axum = { version = "0.7.9" }
-leptos_axum = { version = "0.7.7" }
-tokio = { version = "1.43.0", features = ["full"] }
+axum = { version = "0.8.4" }
+leptos_axum = { version = "0.8.2" }
+tokio = { version = "1.45.1", features = ["full"] }
 tower = { version = "0.5.2" }
-tower-http = { version = "0.6.2", features = ["compression-full"] }
-surrealdb = { version = "2.2.1", features = ["kv-surrealkv", "kv-mem"] }
+tower-http = { version = "0.6.4", features = ["compression-full"] }
+surrealdb = { version = "2.3.3", features = ["kv-surrealkv", "kv-mem"] }
 console_error_panic_hook = "0.1.7"
 gloo = { version = "0.11.0", features = ["file", "futures"] }
-indexmap = "2.7.1"
-indextree = "4.7.3"
-leptos = { version = "0.7.7", features = ["rkyv"] }
-leptos_router = { version = "0.7.7" }
+indexmap = "2.9.0"
+indextree = "4.7.4"
+leptos = { version = "0.8.2", features = ["rkyv", "nightly"] }
+leptos_router = { version = "0.8.2" }
+leptos_meta = "0.8.2"
 ordered-float = { version = "5.0.0", features = ["rkyv"] }
-reactive_stores = "0.1.7"
+reactive_stores = "0.2.2"
 rkyv = "0.8.10"
 server_fn = { version = "0.7.7", features = ["rkyv"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
-uuid = { version = "1.14.0", features = ["v4", "js"] }
+uuid = { version = "1.17.0", features = ["v4", "js"] }
 wasm-bindgen = { version = "0.2.100" }
 wasm-bindgen-futures = { version = "0.4.50" }
 send_wrapper = { version = "0.6.0" }
-sha2 = { version = "0.10.8" }
+sha2 = { version = "0.10.9" }
 futures = { version = "0.3.31" }
 thiserror = { version = "2.0.12" }
-anyhow = { version = "1.0.97" }
+anyhow = { version = "1.0.98" }
 pretty_assertions = { version = "1.4.1" }
 simple_logger = "5.0.0"
 test-log = { version = "0.2.17", features = ["trace"] }
@@ -67,8 +68,8 @@ tailwind-input-file = "style/tailwind.css"
 assets-dir = "assets"
 site-addr = "0.0.0.0:3000"
 reload-port = 3001
-end2end-cmd = "npx playwright test"
-end2end-dir = "end2end"
+end2end-cmd = "yarn playwright test"
+end2end-dir = "e2e"
 browserquery = "defaults"
 watch = true
 env = "DEV"

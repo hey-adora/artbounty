@@ -31,6 +31,7 @@ wasm-bindgen-futures = { workspace = true }
 web-sys = { workspace = true }
 leptos = { workspace = true }
 leptos_router = { workspace = true }
+leptos_meta = { workspace = true }
 console_error_panic_hook = { workspace = true }
 gloo = { workspace = true }
 reactive_stores = { workspace = true }
