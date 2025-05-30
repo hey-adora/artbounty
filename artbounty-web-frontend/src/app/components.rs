@@ -23,76 +23,59 @@ pub mod gallery {
         let top_bar_is_visible = StoredValue::new(false);
         let scroll_offset: StoredValue<f32> = StoredValue::new(0.0_f32);
 
-        let handle = interval::new(
-            move || {
-                let Some(gallery_elm) = gallery_ref.get_untracked() else {
-                    return;
-                };
-                let width = gallery_elm.client_width() as u32;
-                let heigth = gallery_elm.client_height() as f32;
-                let scroll_heigth = gallery_elm.scroll_height() as f32;
-                let scroll_top = gallery_elm.scroll_top() as f32;
-                //return;
-                // let Some(first_ref) = first_ref.get_untracked() else {
-                //     let mut new_imgs = Img::rand_vec(1);
-                //     resize(&mut new_imgs, NEW_IMG_HEIGHT, width, 0, false);
-                //     imgs.set(new_imgs);
-                //     return;
-                // };
-                if !top_bar_is_visible.get_value() {
-                    return;
-                }
+        // let handle = interval::new(
+        //     move || {
+        //         let Some(gallery_elm) = gallery_ref.get_untracked() else {
+        //             return;
+        //         };
+        //         let width = gallery_elm.client_width() as u32;
+        //         let heigth = gallery_elm.client_height() as f32;
+        //         let scroll_heigth = gallery_elm.scroll_height() as f32;
+        //         let scroll_top = gallery_elm.scroll_top() as f32;
 
-                // return;
-                let can_fit_count = calc_fit_count(width, heigth as u32, NEW_IMG_HEIGHT) * 2;
-                let mut new_imgs = Img::rand_vec(can_fit_count as usize);
-                imgs.update(|old_imgs| {
-                    let removed_height = if let Some((cut_to, removed_height)) =
-                        remove_imgs(old_imgs, heigth * 3.0, scroll_heigth, false)
-                    {
-                        *old_imgs = old_imgs[..cut_to].to_vec();
-                        removed_height
-                    } else {
-                        0.0
-                    };
+        //         if !top_bar_is_visible.get_value() {
+        //             return;
+        //         }
 
-                    let old_imgs_len = old_imgs.len();
-                    // if old_imgs_len >= 10 {
-                    //     return;
-                    // }
-                    let new_imgs_len = new_imgs.len();
-                    let offset = new_imgs_len.saturating_sub(old_imgs_len);
+        //         let can_fit_count = calc_fit_count(width, heigth as u32, NEW_IMG_HEIGHT) * 2;
+        //         let mut new_imgs = Img::rand_vec(can_fit_count as usize);
+        //         imgs.update(|old_imgs| {
+        //             let removed_height = if let Some((cut_to, removed_height)) =
+        //                 remove_imgs(old_imgs, heigth * 3.0, scroll_heigth, false)
+        //             {
+        //                 *old_imgs = old_imgs[..cut_to].to_vec();
+        //                 removed_height
+        //             } else {
+        //                 0.0
+        //             };
 
-                    new_imgs.extend_from_slice(old_imgs);
-                    *old_imgs = new_imgs;
+        //             let old_imgs_len = old_imgs.len();
+        //             let new_imgs_len = new_imgs.len();
+        //             let offset = new_imgs_len.saturating_sub(old_imgs_len);
 
-                    let y = if old_imgs_len > 0 {
-                        debug!("running {NEW_IMG_HEIGHT} {width} {offset} {}", false);
-                        resize(old_imgs, NEW_IMG_HEIGHT, width, offset, true)
-                    } else {
-                        debug!("running {NEW_IMG_HEIGHT} {width} {} {}", 0, false);
-                        resize(old_imgs, NEW_IMG_HEIGHT, width, 0, false)
-                    };
+        //             new_imgs.extend_from_slice(old_imgs);
+        //             *old_imgs = new_imgs;
 
-                    let diff = y - scroll_heigth ;
-                    let new_scroll_top = diff + removed_height + 100.0 ;
-                    // let new_scroll_top = scroll_top + diff.abs();
-                    trace!("SCROLL: y {y}: removed height {removed_height} : scroll top {scroll_top}: scroll height {scroll_heigth}: diff {diff}: new_scroll_top {new_scroll_top}");
-                    // trace!("NEW SCROLL TOP {new_scroll_top}");
-                    // let diff = (y - scroll_offset.get_value()).abs();
-                    // scroll_offset.set_value(y);
-                    // let scroll_by = scroll_top as f64 + (diff / 2.0) as f64 - removed_height as f64;
-                    // trace!("SCROLL_BY: {} + ({} / 2.0) - {} = {}", scroll_top, diff,removed_height,scroll_by );
-                    // trace!("totalllllllllllllll y: {y} diff: {diff} scroll_top: {scroll_top} scroll_by: {scroll_by}");
-                    gallery_elm.scroll_by_with_x_and_y(0.0, new_scroll_top as f64);
-                });
+        //             let y = if old_imgs_len > 0 {
+        //                 debug!("running {NEW_IMG_HEIGHT} {width} {offset} {}", false);
+        //                 resize(old_imgs, NEW_IMG_HEIGHT, width, offset, true)
+        //             } else {
+        //                 debug!("running {NEW_IMG_HEIGHT} {width} {} {}", 0, false);
+        //                 resize(old_imgs, NEW_IMG_HEIGHT, width, 0, false)
+        //             };
 
-                //first_ref.scroll_into_view();
-                //trace!("beep boop");
-            },
-            Duration::from_secs(1),
-        )
-        .unwrap();
+        //             let diff = y - scroll_heigth ;
+        //             let new_scroll_top = diff + removed_height + 100.0 ;
+        //             trace!("SCROLL: y {y}: removed height {removed_height} : scroll top {scroll_top}: scroll height {scroll_heigth}: diff {diff}: new_scroll_top {new_scroll_top}");
+        //             gallery_elm.scroll_by_with_x_and_y(0.0, new_scroll_top as f64);
+        //         });
+
+        //         //first_ref.scroll_into_view();
+        //         //trace!("beep boop");
+        //     },
+        //     Duration::from_secs(1),
+        // )
+        // .unwrap();
 
         //let imggg = RwSignal::<Vec<(usize, Img)>>::new(Vec::new());
 
@@ -147,15 +130,18 @@ pub mod gallery {
 
         let get_imgs = move || {
             let mut imgs = imgs.get();
-            let Some(width) = gallery_ref.get().map(|v| v.client_width() as u32) else {
-                return Vec::new();
-            };
+            // let Some(width) = gallery_ref.get().map(|v| v.client_width() as u32) else {
+            //     return view! {""};
+            // };
             // trace!("resizing!!!! {}", width);
             // if width > 0 {
             //     resize_imgs(NEW_IMG_HEIGHT, width, &mut imgs);
             // }
 
-            imgs.into_iter().enumerate().collect::<Vec<(usize, _)>>()
+            imgs.into_iter()
+                .enumerate()
+                .map(|(i, img)| view! {<GalleryImg index=i img first_ref />})
+                .collect_view()
         };
 
         let big_btn = move |_| {
@@ -195,23 +181,145 @@ pub mod gallery {
             });
         };
 
+        let update_imgs = move |gallery_elm: &HtmlDivElement,
+                                remove_at_top: bool,
+                                width: f32,
+                                heigth: f32,
+                                scroll_heigth: f32,
+                                scroll_top: f32| {
+            // if scroll_at_bottom {
+            //     if scroll_heigth - scroll_top > heigth {
+            //         return;
+            //     }
+            //     trace!("im at the bottom 4");
+            // } else {
+            //     if scroll_top > heigth {
+            //         return;
+            //     }
+            //     // let Some(gallery_elm) = gallery_ref.get_untracked() else {
+            //     //     return;
+            //     // };
+            //     // let width = gallery_elm.client_width() as u32;
+            //     // let heigth = gallery_elm.client_height() as f32;
+            //     // let scroll_heigth = gallery_elm.scroll_height() as f32;
+            //     // let scroll_top = gallery_elm.scroll_top() as f32;
+
+            //     // if !top_bar_is_visible.get_value() {
+            //     //     return;
+            //     // }
+
+            // }
+            let width = width as u32;
+            let can_fit_count = calc_fit_count(width, heigth as u32, NEW_IMG_HEIGHT) * 2;
+            let mut new_imgs = Img::rand_vec(can_fit_count as usize);
+            imgs.update(|old_imgs| {
+                    let removed_height = if let Some((cut_to, removed_height)) =
+                        remove_imgs(old_imgs, heigth * 3.0, scroll_heigth, remove_at_top)
+                    {
+                        *old_imgs = old_imgs[..cut_to].to_vec();
+                        removed_height
+                    } else {
+                        0.0
+                    };
+
+                    let old_imgs_len = old_imgs.len();
+                    let new_imgs_len = new_imgs.len();
+                    let offset = new_imgs_len.saturating_sub(old_imgs_len);
+
+                    new_imgs.extend_from_slice(old_imgs);
+                    *old_imgs = new_imgs;
+
+                    let y = if old_imgs_len > 0 {
+                        debug!("running {NEW_IMG_HEIGHT} {width} {offset} {}", false);
+                        resize(old_imgs, NEW_IMG_HEIGHT, width, offset, true)
+                    } else {
+                        debug!("running {NEW_IMG_HEIGHT} {width} {} {}", 0, false);
+                        resize(old_imgs, NEW_IMG_HEIGHT, width, 0, false)
+                    };
+
+                    let diff = y - scroll_heigth ;
+                    let new_scroll_top = diff + removed_height + 100.0 ;
+                    trace!("SCROLL: y {y}: removed height {removed_height} : scroll top {scroll_top}: scroll height {scroll_heigth}: diff {diff}: new_scroll_top {new_scroll_top}");
+                    gallery_elm.scroll_by_with_x_and_y(0.0, new_scroll_top as f64);
+                });
+            trace!("im at the top");
+        };
+
+        Effect::new(move || {
+            trace!("ON LOAD");
+            let Some(gallery_elm) = gallery_ref.get_untracked() else {
+                trace!("gallery NOT found");
+                return;
+            };
+            trace!("gallery elm found");
+            let width = gallery_elm.client_width() as f32;
+            let heigth = gallery_elm.client_height() as f32;
+            let scroll_heigth = gallery_elm.scroll_height() as f32;
+            let scroll_top = gallery_elm.scroll_top() as f32;
+
+            update_imgs(
+                &gallery_elm,
+                false,
+                width,
+                heigth,
+                scroll_heigth,
+                scroll_top,
+            );
+        });
+
+        let on_scroll = move |_: web_sys::Event| {
+            // trace!("ON SCROLL");
+            let Some(gallery_elm) = gallery_ref.get_untracked() else {
+                trace!("gallery NOT found");
+                return;
+            };
+            trace!("gallery elm found");
+            let width = gallery_elm.client_width() as f32;
+            let heigth = gallery_elm.client_height() as f32;
+            let scroll_heigth = gallery_elm.scroll_height() as f32;
+            let scroll_top = gallery_elm.scroll_top() as f32;
+
+            // let scroll_at_bottom = scroll_heigth / 2.0 < scroll_top + heigth / 2.0;
+            let scroll_at_top = scroll_top <= heigth;
+            let scroll_at_bottom = scroll_heigth - scroll_top <= heigth;
+            if scroll_at_top {
+                update_imgs(
+                    &gallery_elm,
+                    false,
+                    width,
+                    heigth,
+                    scroll_heigth,
+                    scroll_top,
+                );
+            }
+            if scroll_at_bottom {
+                update_imgs(&gallery_elm, true, width, heigth, scroll_heigth, scroll_top);
+                let len = imgs.with(|imgs| imgs.len());
+                trace!("img count: {len}");
+            }
+        };
+
         let a = view! {
             <div
                 id="gallery"
                 node_ref=gallery_ref
+                on:scroll=on_scroll
                 class="relative overflow-y-scroll overflow-x-hidden"
             >
                 // style:width=move || format!("{}px", gallery_wdith.get())
                 <div node_ref=top_bar_ref class="bg-red-600 h-[100px] w-full ">
                     <button on:click=big_btn>"click me"</button>
                 </div>
-                <For
-                    each=get_imgs
-                    key=|img| img.1.id
-                    children=move |(i, img)| {
-                        view! { <GalleryImg index=i img first_ref /> }
-                    }
-                />
+                {
+                    get_imgs
+                }
+                // <For
+                //     each=get_imgs
+                //     key=|img| img.1.id
+                //     children=move |(i, img)| {
+                //         view! { <GalleryImg index=i img first_ref /> }
+                //     }
+                // />
             </div>
         };
 
@@ -257,7 +365,8 @@ pub mod gallery {
         view! {
             <div
                 node_ref=gallery_img_ref
-                class="transition-all duration-300 ease-in-out text-white grid place-items-center bg-blue-950 absolute border border-red-600 overflow-hidden"
+                // class="transition-all duration-300 ease-in-out text-white grid place-items-center bg-blue-950 absolute border border-red-600 overflow-hidden"
+                class="text-white grid place-items-center bg-blue-950 absolute border border-red-600 overflow-hidden"
                 style:background-color=fn_background
                 style:left=fn_left
                 style:top=fn_top
@@ -433,16 +542,16 @@ pub mod gallery {
         imgs: &[IMG],
         view_height: f32,
         scroll_height: f32,
-        from_start: bool,
+        from_top: bool,
     ) -> Option<(usize, f32)>
     where
         IMG: ResizableImage,
     {
         trace!(
             "===REMOVING FROM {}===",
-            if from_start { "START" } else { "END" }
+            if from_top { "TOP" } else { "BOTTOM" }
         );
-        let Some((last_y, last_height)) = (if from_start {
+        let Some((last_y, last_height)) = (if from_top {
             imgs.first().map(|v| (v.get_pos_y(), v.get_view_height()))
         } else {
             imgs.last().map(|v| (v.get_pos_y(), v.get_view_height()))
@@ -452,7 +561,7 @@ pub mod gallery {
         trace!("last_y: {last_y} last_height: {last_height}");
         let mut prev_y: f32 = last_y;
         let mut removed_y = last_height;
-        let mut cut_index = if from_start { 0 } else { imgs.len() - 1 };
+        let mut cut_index = if from_top { 0 } else { imgs.len() - 1 };
         let overflow_height = scroll_height - view_height;
         trace!(
             "overflow_height = {overflow_height} - {removed_y} < 0.0 = {}",
@@ -480,15 +589,12 @@ pub mod gallery {
                     overflow_height - (removed_y + current_height) <= 0.0
                 );
                 if overflow_height - (removed_y + current_height) <= 0.0 {
-                    return Some((
-                        if from_start { cut_index } else { cut_index + 1 },
-                        removed_y,
-                    ));
+                    return Some((if from_top { cut_index } else { cut_index + 1 }, removed_y));
                 }
                 removed_y += current_height;
             }
 
-            if from_start {
+            if from_top {
                 cut_index += 1;
             } else {
                 cut_index -= 1;
@@ -886,15 +992,31 @@ pub mod gallery {
                 Img {
                     width: 720,
                     height: 1280,
-                    view_width: OrderedFloat(1000.0),
+                    view_width: OrderedFloat(500.0),
                     view_height: OrderedFloat(500.0),
                     pos_x: OrderedFloat(0.0),
                     pos_y: OrderedFloat(500.0),
                 },
+                Img {
+                    width: 720,
+                    height: 1280,
+                    view_width: OrderedFloat(500.0),
+                    view_height: OrderedFloat(500.0),
+                    pos_x: OrderedFloat(500.0),
+                    pos_y: OrderedFloat(500.0),
+                },
+                Img {
+                    width: 720,
+                    height: 1280,
+                    view_width: OrderedFloat(1000.0),
+                    view_height: OrderedFloat(500.0),
+                    pos_x: OrderedFloat(0.0),
+                    pos_y: OrderedFloat(1000.0),
+                },
             ];
 
-            let cut_index = remove_imgs(&mut imgs, 500.0, 1000.0, false);
-            assert_eq!(Some((1, 500.0)), cut_index);
+            let cut_index = remove_imgs(&mut imgs, 500.0, 1500.0, false);
+            assert_eq!(Some((3, 500.0)), cut_index);
 
             let mut imgs = [
                 Img {

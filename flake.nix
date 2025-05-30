@@ -30,7 +30,7 @@
         devShell =
           with pkgs;
           mkShell {
-            buildInputs = [
+            packages = [
               rust
               mold
               cargo-leptos
@@ -42,7 +42,7 @@
               alsa-lib
               libudev-zero
               clang
-              lld
+              # lld
               sqlite
               fontconfig
               freetype
@@ -68,14 +68,14 @@
             ];
             RUST_BACKTRACE = 1;
             RUST_SRC_PATH = rustPlatform.rustLibSrc;
-            # RUSTFLAGS = "-Clink-arg=-fuse-ld=${pkgs.mold}/bin/mold";
-            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
-              pkgs.wayland
-              pkgs.libxkbcommon
-              pkgs.vulkan-loader
-              pkgs.alsa-lib
-              pkgs.udev
-            ];
+            # RUSTFLAGS = "-C linker=clang -C link-arg=-fuse-ld=${pkgs.mold}/bin/mold -Z share-generics=y";
+            # LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
+            #   pkgs.wayland
+            #   pkgs.libxkbcommon
+            #   pkgs.vulkan-loader
+            #   pkgs.alsa-lib
+            #   pkgs.udev
+            # ];
             PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
             PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = true;
           };
