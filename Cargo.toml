@@ -3,6 +3,8 @@ resolver = "2"
 members = ["artbounty-web-backend", "artbounty-web-frontend"]
 
 [workspace.dependencies]
+itertools = "0.14.0"
+rand = "0.9.1"
 artbounty-web-frontend = { path = "artbounty-web-frontend" }
 axum = { version = "0.8.4" }
 leptos_axum = { version = "0.8.2" }

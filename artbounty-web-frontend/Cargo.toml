@@ -47,7 +47,9 @@ futures = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 pretty_assertions = { workspace = true }
+itertools = { workspace = true }
 
 [dev-dependencies]
 simple_logger = { workspace = true }
 test-log = { workspace = true }
+rand = { workspace = true }

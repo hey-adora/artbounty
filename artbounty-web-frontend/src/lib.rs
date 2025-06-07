@@ -1,3 +1,7 @@
+#![feature(test)]
+#![feature(strict_overflow_ops)]
+extern crate test;
+
 use leptos::prelude::*;
 use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
 use server_fn::codec::Rkyv;
