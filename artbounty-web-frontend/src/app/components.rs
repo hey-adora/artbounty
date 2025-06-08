@@ -530,6 +530,21 @@ pub mod gallery {
         }
     }
 
+    pub fn normalize_imgs_y_v2<IMG>(imgs: &mut [IMG])
+    where
+        IMG: ResizableImage,
+    {
+        let Some(y) = imgs.first().map(|img| img.get_pos_y()) else {
+            return;
+        };
+        if y == 0.0 {
+            return;
+        }
+        imgs.iter_mut().for_each(|img| {
+            img.set_pos_y(img.get_pos_y() - y);
+        });
+    }
+
     pub fn normalize_y<IMG>(imgs: &mut [IMG])
     where
         IMG: ResizableImage,
@@ -540,32 +555,14 @@ pub mod gallery {
             return;
         };
         let needs_normalizing = first_y < 0.0;
-        //let needs_normalizing = imgs.first().map(|v| v.get_pos_y() < 0.0 ).unwrap_or(false);
         if !needs_normalizing {
             return;
         }
 
-        //let len = imgs.len();
         let mut prev_y: f32 = first_y;
         let mut prev_height: f32 = first_height;
-        //let mut current_height: f32 = first_height;
         let mut offset_y: f32 = 0.0;
 
-        // for i in 0..len {
-        //     let current_y = {
-        //         let img = &imgs[i];
-        //         img.get_pos_y()
-        //     };
-
-        //     if current_y != prev_y {
-        //         let current_height = img.get_view_height();
-        //         let prev_height = &imgs[i - 1];
-        //         prev_y = current_y;
-        //         offset_y += current_height;
-        //     }
-
-        //     img.set_pos_y(offset_y);
-        // }
         for img in imgs {
             let current_y = img.get_pos_y();
 
@@ -577,22 +574,6 @@ pub mod gallery {
 
             img.set_pos_y(offset_y);
         }
-
-        // let Some(first) = imgs.first() else {
-        //     return;
-        // };
-
-        // let first_y = first.get_pos_y();
-
-        // if first_y >= 0.0 {
-        //     return;
-        // }
-
-        // for img in imgs {
-        //     let current_y = img.get_pos_y();
-        //     let new_y = current_y - first_y;
-        //     img.set_pos_y(new_y);
-        // }
     }
 
     // pub fn scroll_height_calc<IMG>(
@@ -607,44 +588,6 @@ pub mod gallery {
     where
         IMG: ResizableImage,
     {
-        // let Some((prev_y, removed_y)) = imgs.last().map(|v| (v.get_pos_y(), v.get_view_height()))
-        // else {
-        //     return None;
-        // };
-        // let available_height_for_removal = scroll_height - view_height;
-        // if available_height_for_removal - removed_y < 0.0 {
-        //     trace!("nothing to remove");
-        //     return None;
-        // }
-        // let a = ;
-        // let ((cut_at, _, removed_y)) = imgs
-        //     .iter()
-        //     .rev()
-        //     .map(|img| (img.get_pos_y(), img.get_view_height()))
-        //     .posit
-        //     .skip_while(predicate)
-        //     .fold_while(
-        //         (0_usize, prev_y, removed_y),
-        //         |(cut_at, prev_y, removed_y), (i, (img_y, img_height))| {
-        //             let cant_remove_more =
-        //                 available_height_for_removal - (removed_y + img_height) < 0.0;
-        //             FoldWhile::Continue((i, prev_y, removed_y))
-        //         },
-        //     )
-        //     .into_inner();
-
-        // imgs.last()
-        //     .map(|v| v.get_pos_y() + v.get_view_height())
-        //     .and_then(|total_height| {
-        //         imgs.iter()
-        //             .rev()
-        //             .map(|img| img.get_pos_y() + img.get_view_height())
-        //             .position(|current_row_height| current_row_height <= view_height)
-        //             // .unwrap_or(1)
-        //             .inspect(|i| trace!("remove i: {i}"))
-        //             .map(|i| imgs.len().strict_sub(i))
-        //
-        //})
         imgs.iter()
             .rev()
             .map(|img| img.get_pos_y() + img.get_view_height())
@@ -658,30 +601,14 @@ pub mod gallery {
     where
         IMG: ResizableImage,
     {
-        // imgs.iter()
-        //     .map(|img| img.get_pos_y() + img.get_view_height())
-        //     .position(|current_row_height| current_row_height > view_height)
-        //     .inspect(|i| trace!("remove i: {i}"))
-        //     .map(|i| imgs.len().strict_sub(i + 1))
         imgs.last()
             .map(|v| v.get_pos_y() + v.get_view_height())
             .and_then(|total_height| {
                 imgs.iter()
                     .map(|img| img.get_pos_y() + img.get_view_height())
                     .position(|current_row_height| total_height - current_row_height < view_height)
-                    .and_then(|i| if i == 0 { None } else { Some(i) })
-                    // .map(|img| img.get_pos_y())
-                    // .position(|y| total_height - y > view_height)
                     .inspect(|i| trace!("remove rev i: {i}"))
-                // .map(|i| i.checked_sub(1))
-                // .and_then(|i| {
-                //     if imgs.len() <= i + 1 {
-                //         None
-                //     } else {
-                //         Some(i + 1)
-                //     }
-                // })
-                // .map(|i| imgs.len().strict_sub(i + 1))
+                    .and_then(|i| if i == 0 { None } else { Some(i) })
             })
     }
 
@@ -1356,8 +1283,8 @@ pub mod gallery {
     mod resize_tests {
         use crate::app::components::gallery::{
             Row, get_row_end, get_row_start, get_row_start_or_end, get_rows, get_rows_rev,
-            remove_imgs, remove_imgs_rev_v2, remove_imgs_v2, resize, set_rows, set_rows_rev,
-            update_imgs,
+            normalize_imgs_y_v2, remove_imgs, remove_imgs_rev_v2, remove_imgs_v2, resize, set_rows,
+            set_rows_rev, update_imgs,
         };
         use ordered_float::OrderedFloat;
         use pretty_assertions::{assert_eq, assert_ne};
@@ -1740,6 +1667,59 @@ pub mod gallery {
 
             set_rows_rev(&mut imgs, &rows, 1000);
             assert_eq!(expected_imgs, imgs);
+
+            let rows = Vec::from([
+                Row {
+                    aspect_ratio: 2.0,
+                    start_at: 3,
+                    end_at: 4,
+                },
+                Row {
+                    aspect_ratio: 2.0,
+                    start_at: 2,
+                    end_at: 2,
+                },
+                Row {
+                    aspect_ratio: 2.0,
+                    start_at: 0,
+                    end_at: 1,
+                },
+            ]);
+
+            let mut imgs = Vec::from([
+                //row 0
+                Img::new(0, 500, 500),
+                Img::new(1, 500, 500),
+                //row 1
+                Img::new(0, 1000, 500),
+                //row 2
+                Img::new(0, 500, 500),
+                Img::new(1, 500, 500),
+                //row 3
+                Img::new_full(2, 500, 500, 500.0, 500.0, 0.0, 500.0),
+                Img::new_full(3, 500, 500, 500.0, 500.0, 500.0, 500.0),
+                //row 4
+                Img::new_full(4, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
+            ]);
+
+            let expected_imgs = Vec::from([
+                //row 0
+                Img::new_full(0, 500, 500, 500.0, 500.0, 0.0, -1000.0),
+                Img::new_full(1, 500, 500, 500.0, 500.0, 500.0, -1000.0),
+                //row 1
+                Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, -500.0),
+                //row 2
+                Img::new_full(0, 500, 500, 500.0, 500.0, 0.0, 0.0),
+                Img::new_full(1, 500, 500, 500.0, 500.0, 500.0, 0.0),
+                //row 3
+                Img::new_full(2, 500, 500, 500.0, 500.0, 0.0, 500.0),
+                Img::new_full(3, 500, 500, 500.0, 500.0, 500.0, 500.0),
+                //row 4
+                Img::new_full(4, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
+            ]);
+
+            set_rows_rev(&mut imgs, &rows, 1000);
+            assert_eq!(expected_imgs, imgs);
         }
 
         #[test]
@@ -1938,6 +1918,70 @@ pub mod gallery {
 
             let cut_index = remove_imgs_rev_v2(&mut imgs, 1000.0);
             assert_eq!(None, cut_index);
+        }
+
+        #[test]
+        fn test_normalize_negative() {
+            trace!("=================");
+            let mut imgs = Vec::from([
+                //row 0
+                Img::new_full(0, 500, 500, 500.0, 500.0, 0.0, -1000.0),
+                Img::new_full(1, 500, 500, 500.0, 500.0, 500.0, -1000.0),
+                //row 1
+                Img::new_full(2, 1000, 500, 1000.0, 500.0, 0.0, -500.0),
+                //row 2
+                Img::new_full(3, 500, 500, 500.0, 500.0, 0.0, 0.0),
+                Img::new_full(4, 500, 500, 500.0, 500.0, 500.0, 0.0),
+                //row 3
+                Img::new_full(5, 500, 500, 500.0, 500.0, 0.0, 500.0),
+                Img::new_full(6, 500, 500, 500.0, 500.0, 500.0, 500.0),
+                //row 4
+                Img::new_full(7, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
+            ]);
+            let expected_imgs = Vec::from([
+                //row 0
+                Img::new_full(0, 500, 500, 500.0, 500.0, 0.0, 0.0),
+                Img::new_full(1, 500, 500, 500.0, 500.0, 500.0, 0.0),
+                //row 1
+                Img::new_full(2, 1000, 500, 1000.0, 500.0, 0.0, 500.0),
+                //row 2
+                Img::new_full(3, 500, 500, 500.0, 500.0, 0.0, 1000.0),
+                Img::new_full(4, 500, 500, 500.0, 500.0, 500.0, 1000.0),
+                //row 3
+                Img::new_full(5, 500, 500, 500.0, 500.0, 0.0, 1500.0),
+                Img::new_full(6, 500, 500, 500.0, 500.0, 500.0, 1500.0),
+                //row 4
+                Img::new_full(7, 1000, 500, 1000.0, 500.0, 0.0, 2000.0),
+            ]);
+
+            normalize_imgs_y_v2(&mut imgs);
+            trace!("img {:#?}", imgs);
+            assert_eq!(imgs, expected_imgs);
+
+            let mut imgs = Vec::from([
+                //row 2
+                Img::new_full(3, 500, 500, 500.0, 500.0, 0.0, 1000.0),
+                Img::new_full(4, 500, 500, 500.0, 500.0, 500.0, 1000.0),
+                //row 3
+                Img::new_full(5, 500, 500, 500.0, 500.0, 0.0, 1500.0),
+                Img::new_full(6, 500, 500, 500.0, 500.0, 500.0, 1500.0),
+                //row 4
+                Img::new_full(7, 1000, 500, 1000.0, 500.0, 0.0, 2000.0),
+            ]);
+            let expected_imgs = Vec::from([
+                //row 2
+                Img::new_full(3, 500, 500, 500.0, 500.0, 0.0, 0.0),
+                Img::new_full(4, 500, 500, 500.0, 500.0, 500.0, 0.0),
+                //row 3
+                Img::new_full(5, 500, 500, 500.0, 500.0, 0.0, 500.0),
+                Img::new_full(6, 500, 500, 500.0, 500.0, 500.0, 500.0),
+                //row 4
+                Img::new_full(7, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
+            ]);
+
+            normalize_imgs_y_v2(&mut imgs);
+            trace!("img {:#?}", imgs);
+            assert_eq!(imgs, expected_imgs);
         }
 
         #[test]
