@@ -1,6 +1,6 @@
 pub mod gallery {
     use futures::io::Cursor;
-    use itertools::Itertools;
+    use itertools::{FoldWhile, Itertools};
     use leptos::{
         html::{self, Div, Main, div},
         prelude::*,
@@ -603,6 +603,88 @@ pub mod gallery {
     //         imgs
     //     }
 
+    pub fn remove_imgs_v2<IMG>(imgs: &[IMG], view_height: f32) -> Option<usize>
+    where
+        IMG: ResizableImage,
+    {
+        // let Some((prev_y, removed_y)) = imgs.last().map(|v| (v.get_pos_y(), v.get_view_height()))
+        // else {
+        //     return None;
+        // };
+        // let available_height_for_removal = scroll_height - view_height;
+        // if available_height_for_removal - removed_y < 0.0 {
+        //     trace!("nothing to remove");
+        //     return None;
+        // }
+        // let a = ;
+        // let ((cut_at, _, removed_y)) = imgs
+        //     .iter()
+        //     .rev()
+        //     .map(|img| (img.get_pos_y(), img.get_view_height()))
+        //     .posit
+        //     .skip_while(predicate)
+        //     .fold_while(
+        //         (0_usize, prev_y, removed_y),
+        //         |(cut_at, prev_y, removed_y), (i, (img_y, img_height))| {
+        //             let cant_remove_more =
+        //                 available_height_for_removal - (removed_y + img_height) < 0.0;
+        //             FoldWhile::Continue((i, prev_y, removed_y))
+        //         },
+        //     )
+        //     .into_inner();
+
+        // imgs.last()
+        //     .map(|v| v.get_pos_y() + v.get_view_height())
+        //     .and_then(|total_height| {
+        //         imgs.iter()
+        //             .rev()
+        //             .map(|img| img.get_pos_y() + img.get_view_height())
+        //             .position(|current_row_height| current_row_height <= view_height)
+        //             // .unwrap_or(1)
+        //             .inspect(|i| trace!("remove i: {i}"))
+        //             .map(|i| imgs.len().strict_sub(i))
+        //
+        //})
+        imgs.iter()
+            .rev()
+            .map(|img| img.get_pos_y() + img.get_view_height())
+            .position(|current_row_height| current_row_height <= view_height)
+            .and_then(|i| if i == 0 { None } else { Some(i) })
+            .inspect(|i| trace!("remove i: {i}"))
+            .map(|i| imgs.len().strict_sub(i))
+    }
+
+    pub fn remove_imgs_rev_v2<IMG>(imgs: &[IMG], view_height: f32) -> Option<usize>
+    where
+        IMG: ResizableImage,
+    {
+        // imgs.iter()
+        //     .map(|img| img.get_pos_y() + img.get_view_height())
+        //     .position(|current_row_height| current_row_height > view_height)
+        //     .inspect(|i| trace!("remove i: {i}"))
+        //     .map(|i| imgs.len().strict_sub(i + 1))
+        imgs.last()
+            .map(|v| v.get_pos_y() + v.get_view_height())
+            .and_then(|total_height| {
+                imgs.iter()
+                    .map(|img| img.get_pos_y() + img.get_view_height())
+                    .position(|current_row_height| total_height - current_row_height < view_height)
+                    .and_then(|i| if i == 0 { None } else { Some(i) })
+                    // .map(|img| img.get_pos_y())
+                    // .position(|y| total_height - y > view_height)
+                    .inspect(|i| trace!("remove rev i: {i}"))
+                // .map(|i| i.checked_sub(1))
+                // .and_then(|i| {
+                //     if imgs.len() <= i + 1 {
+                //         None
+                //     } else {
+                //         Some(i + 1)
+                //     }
+                // })
+                // .map(|i| imgs.len().strict_sub(i + 1))
+            })
+    }
+
     pub fn remove_imgs<IMG>(
         imgs: &[IMG],
         view_height: f32,
@@ -614,10 +696,7 @@ pub mod gallery {
     {
         let len = imgs.len();
         let span = trace_span!("IMG_REMOVAL", len, view_height, scroll_height, from_top).entered();
-        // trace!(
-        //     "===REMOVING FROM {}===",
-        //     if from_top { "TOP" } else { "BOTTOM" }
-        // );
+
         let Some((last_y, last_height)) = (if from_top {
             imgs.first().map(|v| (v.get_pos_y(), v.get_view_height()))
         } else {
@@ -625,22 +704,18 @@ pub mod gallery {
         }) else {
             return None;
         };
-        // trace!("last_y: {last_y} last_height: {last_height}");
+
         let mut prev_y: f32 = last_y;
         let mut removed_y = last_height;
         let mut removed_row_index = 0;
         let mut cut_index = if from_top { 0 } else { len - 1 };
         let available_height_for_removal = scroll_height - view_height;
-        // trace!(
-        //     "overflow_height = {overflow_height} - {removed_y} < 0.0 = {}",
-        //     overflow_height - removed_y < 0.0
-        // );
+
         if available_height_for_removal - removed_y < 0.0 {
             trace!("nothing to remove");
             return None;
         }
 
-        // let mut iter = if from_start { imgs.iter() } else {imgs.iter().rev()};
         loop {
             let Some(img) = imgs.get(cut_index) else {
                 trace!("end reached");
@@ -662,21 +737,12 @@ pub mod gallery {
                 available_height_for_removal
             )
             .entered();
-            // trace!(cut_index, prev_y, removed_y, overflow_height);
-            // trace!("cut index: {cut_index}");
-            // trace!(
-            //     "current_y != prev_y = {current_y} != {prev_y} = {}",
-            //     current_y != prev_y
-            // );
+
             if is_new_row {
                 prev_y = current_y;
                 let current_height = img.get_view_height();
                 let cant_remove_more =
                     available_height_for_removal - (removed_y + current_height) < 0.0;
-                // trace!(
-                //     "overflow_height = {overflow_height} - ({removed_y} + {current_height}) <= 0.0 = {}",
-                //     overflow_height - (removed_y + current_height) <= 0.0
-                // );
 
                 if cant_remove_more {
                     trace!(
@@ -1290,7 +1356,8 @@ pub mod gallery {
     mod resize_tests {
         use crate::app::components::gallery::{
             Row, get_row_end, get_row_start, get_row_start_or_end, get_rows, get_rows_rev,
-            remove_imgs, resize, set_rows, set_rows_rev, update_imgs,
+            remove_imgs, remove_imgs_rev_v2, remove_imgs_v2, resize, set_rows, set_rows_rev,
+            update_imgs,
         };
         use ordered_float::OrderedFloat;
         use pretty_assertions::{assert_eq, assert_ne};
@@ -1777,35 +1844,100 @@ pub mod gallery {
         fn img_remove() {
             trace!("=================");
             let mut imgs = [
+                //row 0
                 Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
+                //row 1
                 Img::new_full(1, 500, 500, 500.0, 500.0, 0.0, 500.0),
                 Img::new_full(2, 500, 500, 500.0, 500.0, 500.0, 500.0),
+                //row 2
                 Img::new_full(3, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
             ];
 
-            let cut_index = remove_imgs(&mut imgs, 500.0, 1500.0, false);
-            assert_eq!(Some((0, 1000.0)), cut_index);
+            let cut_index = remove_imgs_v2(&mut imgs, 500.0);
+            assert_eq!(Some(1), cut_index);
 
             trace!("=================");
             let mut imgs = [
+                //row 0
                 Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
+                //row 1
                 Img::new_full(1, 500, 500, 500.0, 500.0, 0.0, 500.0),
                 Img::new_full(2, 500, 500, 500.0, 500.0, 500.0, 500.0),
             ];
 
-            let cut_index = remove_imgs(&mut imgs, 500.0, 1500.0, false);
+            let cut_index = remove_imgs_v2(&mut imgs, 500.0);
+            assert_eq!(Some(1), cut_index);
+
+            trace!("=================");
+            let mut imgs = [
+                //row 0
+                Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
+                //row 1
+                Img::new_full(1, 500, 500, 500.0, 500.0, 0.0, 500.0),
+                Img::new_full(2, 500, 500, 500.0, 500.0, 500.0, 500.0),
+            ];
+
+            let cut_index = remove_imgs_v2(&mut imgs, 1000.0);
             assert_eq!(None, cut_index);
 
             trace!("=================");
             let mut imgs = [
+                //row 0
                 Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
+            ];
+
+            let cut_index = remove_imgs_v2(&mut imgs, 1000.0);
+            assert_eq!(None, cut_index);
+
+            trace!("=================");
+            let mut imgs = [
+                //row 0
+                Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
+                //row 1
                 Img::new_full(1, 500, 500, 500.0, 500.0, 0.0, 500.0),
                 Img::new_full(2, 500, 500, 500.0, 500.0, 500.0, 500.0),
+            ];
+
+            let cut_index = remove_imgs_v2(&mut imgs, 1000.0);
+            assert_eq!(None, cut_index);
+
+            trace!("=================");
+            let mut imgs = [
+                //row 0
+                Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
+                //row 1
+                Img::new_full(1, 500, 500, 500.0, 500.0, 0.0, 500.0),
+                Img::new_full(2, 500, 500, 500.0, 500.0, 500.0, 500.0),
+                //row 2
                 Img::new_full(3, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
             ];
 
-            let cut_index = remove_imgs(&mut imgs, 500.0, 1500.0, true);
-            assert_eq!(Some((3, 1000.0)), cut_index);
+            let cut_index = remove_imgs_rev_v2(&mut imgs, 500.0);
+            assert_eq!(Some(3), cut_index);
+
+            trace!("=================");
+            let mut imgs = [
+                //row 0
+                Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
+                //row 1
+                Img::new_full(1, 500, 500, 500.0, 500.0, 0.0, 500.0),
+                Img::new_full(2, 500, 500, 500.0, 500.0, 500.0, 500.0),
+            ];
+
+            let cut_index = remove_imgs_rev_v2(&mut imgs, 500.0);
+            assert_eq!(Some(1), cut_index);
+
+            trace!("=================");
+            let mut imgs = [
+                //row 0
+                Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
+                //row 1
+                Img::new_full(1, 500, 500, 500.0, 500.0, 0.0, 500.0),
+                Img::new_full(2, 500, 500, 500.0, 500.0, 500.0, 500.0),
+            ];
+
+            let cut_index = remove_imgs_rev_v2(&mut imgs, 1000.0);
+            assert_eq!(None, cut_index);
         }
 
         #[test]
