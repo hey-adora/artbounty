@@ -454,6 +454,39 @@ pub mod gallery {
         }
     }
 
+    pub fn add_imgs_to_bottom<IMG>(
+        mut imgs: Vec<IMG>,
+        new_imgs: Vec<IMG>,
+        width: u32,
+        heigth: f32,
+        row_height: u32,
+    ) -> Vec<IMG>
+    where
+        IMG: ResizableImage + Clone + Display + Debug,
+    {
+        trace!("stage 0: {imgs:#?}");
+        if let Some(cut_index) = remove_until_fit_from_top(&mut imgs, heigth) {
+            imgs = imgs[cut_index..].to_vec();
+            trace!("stage 1 ({cut_index}): {imgs:#?}");
+        }
+        normalize_imgs_y_v2(&mut imgs);
+        trace!("stage 2: {imgs:#?}");
+        let Some(offset) = imgs
+            .len()
+            .checked_sub(1)
+            .map(|offset| get_row_start(&mut imgs, offset))
+        else {
+            return imgs;
+        };
+        // trace!("stage 3: {imgs:#?}");
+        imgs.extend(new_imgs);
+        trace!("stage 4: {imgs:#?}");
+        let rows = get_rows_to_bottom(&imgs, offset, width, row_height);
+        set_rows(&mut imgs, &rows, width);
+        trace!("stage 5: {imgs:#?}");
+        imgs
+    }
+
     fn update_imgs<IMG: ResizableImage + Clone + Display>(
         mut imgs: Vec<IMG>,
         mut new_imgs: Vec<IMG>,
@@ -534,15 +567,14 @@ pub mod gallery {
     where
         IMG: ResizableImage,
     {
-        let Some(y) = imgs.first().map(|img| img.get_pos_y()) else {
-            return;
-        };
-        if y == 0.0 {
-            return;
-        }
-        imgs.iter_mut().for_each(|img| {
-            img.set_pos_y(img.get_pos_y() - y);
-        });
+        imgs.first()
+            .map(|img| img.get_pos_y())
+            .and_then(|y| if y == 0.0 { None } else { Some(y) })
+            .map(|y| {
+                imgs.iter_mut().for_each(|img| {
+                    img.set_pos_y(img.get_pos_y() - y);
+                })
+            });
     }
 
     pub fn normalize_y<IMG>(imgs: &mut [IMG])
@@ -584,7 +616,7 @@ pub mod gallery {
     //         imgs
     //     }
 
-    pub fn remove_imgs_v2<IMG>(imgs: &[IMG], view_height: f32) -> Option<usize>
+    pub fn remove_until_fit_from_bottom<IMG>(imgs: &[IMG], view_height: f32) -> Option<usize>
     where
         IMG: ResizableImage,
     {
@@ -597,7 +629,7 @@ pub mod gallery {
             .map(|i| imgs.len().strict_sub(i))
     }
 
-    pub fn remove_imgs_rev_v2<IMG>(imgs: &[IMG], view_height: f32) -> Option<usize>
+    pub fn remove_until_fit_from_top<IMG>(imgs: &[IMG], view_height: f32) -> Option<usize>
     where
         IMG: ResizableImage,
     {
@@ -759,7 +791,7 @@ pub mod gallery {
         pub end_at: usize,
     }
 
-    pub fn get_rows(
+    pub fn get_rows_to_bottom(
         imgs: &[impl ResizableImage],
         offset: usize,
         max_width: u32,
@@ -803,7 +835,7 @@ pub mod gallery {
     }
 
     // append_or_add_row(img, rows, &mut row_width, row_height, max_width, i)
-    pub fn get_rows_rev(
+    pub fn get_rows_to_top(
         imgs: &[impl ResizableImage],
         offset: usize,
         max_width: u32,
@@ -1282,8 +1314,9 @@ pub mod gallery {
     #[cfg(test)]
     mod resize_tests {
         use crate::app::components::gallery::{
-            Row, get_row_end, get_row_start, get_row_start_or_end, get_rows, get_rows_rev,
-            normalize_imgs_y_v2, remove_imgs, remove_imgs_rev_v2, remove_imgs_v2, resize, set_rows,
+            Row, add_imgs_to_bottom, get_row_end, get_row_start, get_row_start_or_end,
+            get_rows_to_bottom, get_rows_to_top, normalize_imgs_y_v2, remove_imgs,
+            remove_until_fit_from_bottom, remove_until_fit_from_top, resize, set_rows,
             set_rows_rev, update_imgs,
         };
         use ordered_float::OrderedFloat;
@@ -1439,7 +1472,7 @@ pub mod gallery {
                 //row 2
                 Img::new(3, 500, 500),
             ]);
-            let rows = get_rows(&imgs, 0, 1000, 500);
+            let rows = get_rows_to_bottom(&imgs, 0, 1000, 500);
             let expected_rows = Vec::from([
                 Row {
                     aspect_ratio: 2.0,
@@ -1459,7 +1492,7 @@ pub mod gallery {
             ]);
             assert_eq!(expected_rows, rows);
 
-            let rows = get_rows(&imgs, 1, 1000, 500);
+            let rows = get_rows_to_bottom(&imgs, 1, 1000, 500);
             trace!("{:#?}", rows);
             let expected_rows = Vec::from([
                 Row {
@@ -1487,7 +1520,7 @@ pub mod gallery {
                 //row 2
                 Img::new(3, 1000, 500),
             ]);
-            let rows = get_rows_rev(&imgs, 2, 1000, 500);
+            let rows = get_rows_to_top(&imgs, 2, 1000, 500);
             let expected_imgs = Vec::from([
                 Row {
                     aspect_ratio: 2.0,
@@ -1502,7 +1535,7 @@ pub mod gallery {
             ]);
             assert_eq!(expected_imgs, rows);
 
-            let rows = get_rows_rev(&imgs, 0, 1000, 500);
+            let rows = get_rows_to_top(&imgs, 0, 1000, 500);
             trace!("{:#?}", rows);
             let expected_imgs = Vec::from([Row {
                 aspect_ratio: 1.0,
@@ -1769,6 +1802,34 @@ pub mod gallery {
         }
 
         #[test]
+        fn test_add_imgs_to_bottom() {
+            let imgs = Vec::from([
+                Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
+                Img::new_full(1, 500, 500, 500.0, 500.0, 0.0, 500.0),
+                Img::new_full(2, 500, 500, 500.0, 500.0, 500.0, 500.0),
+                Img::new_full(3, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
+            ]);
+            let new_imgs = Vec::from([
+                Img::new(4, 500, 500),
+                Img::new(5, 500, 500),
+                Img::new(6, 500, 500),
+                Img::new(7, 500, 500),
+            ]);
+            let expected_imgs = Vec::from([
+                //row 0
+                Img::new_full(3, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
+                //row 1
+                Img::new_full(4, 500, 500, 500.0, 500.0, 0.0, 500.0),
+                Img::new_full(5, 500, 500, 500.0, 500.0, 500.0, 500.0),
+                //row 2
+                Img::new_full(6, 500, 500, 500.0, 500.0, 0.0, 1000.0),
+                Img::new_full(7, 500, 500, 500.0, 500.0, 500.0, 1000.0),
+            ]);
+            let imgs = add_imgs_to_bottom(imgs, new_imgs, 1000, 500.0, 500);
+            assert_eq!(expected_imgs, imgs);
+        }
+
+        #[test]
         fn update_imgs_test() {
             trace!("=======UPDATING IMGS=======");
             let imgs = Vec::from([
@@ -1833,7 +1894,7 @@ pub mod gallery {
                 Img::new_full(3, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
             ];
 
-            let cut_index = remove_imgs_v2(&mut imgs, 500.0);
+            let cut_index = remove_until_fit_from_bottom(&mut imgs, 500.0);
             assert_eq!(Some(1), cut_index);
 
             trace!("=================");
@@ -1845,7 +1906,7 @@ pub mod gallery {
                 Img::new_full(2, 500, 500, 500.0, 500.0, 500.0, 500.0),
             ];
 
-            let cut_index = remove_imgs_v2(&mut imgs, 500.0);
+            let cut_index = remove_until_fit_from_bottom(&mut imgs, 500.0);
             assert_eq!(Some(1), cut_index);
 
             trace!("=================");
@@ -1857,7 +1918,7 @@ pub mod gallery {
                 Img::new_full(2, 500, 500, 500.0, 500.0, 500.0, 500.0),
             ];
 
-            let cut_index = remove_imgs_v2(&mut imgs, 1000.0);
+            let cut_index = remove_until_fit_from_bottom(&mut imgs, 1000.0);
             assert_eq!(None, cut_index);
 
             trace!("=================");
@@ -1866,7 +1927,7 @@ pub mod gallery {
                 Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
             ];
 
-            let cut_index = remove_imgs_v2(&mut imgs, 1000.0);
+            let cut_index = remove_until_fit_from_bottom(&mut imgs, 1000.0);
             assert_eq!(None, cut_index);
 
             trace!("=================");
@@ -1878,7 +1939,7 @@ pub mod gallery {
                 Img::new_full(2, 500, 500, 500.0, 500.0, 500.0, 500.0),
             ];
 
-            let cut_index = remove_imgs_v2(&mut imgs, 1000.0);
+            let cut_index = remove_until_fit_from_bottom(&mut imgs, 1000.0);
             assert_eq!(None, cut_index);
 
             trace!("=================");
@@ -1892,7 +1953,7 @@ pub mod gallery {
                 Img::new_full(3, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
             ];
 
-            let cut_index = remove_imgs_rev_v2(&mut imgs, 500.0);
+            let cut_index = remove_until_fit_from_top(&mut imgs, 500.0);
             assert_eq!(Some(3), cut_index);
 
             trace!("=================");
@@ -1904,7 +1965,7 @@ pub mod gallery {
                 Img::new_full(2, 500, 500, 500.0, 500.0, 500.0, 500.0),
             ];
 
-            let cut_index = remove_imgs_rev_v2(&mut imgs, 500.0);
+            let cut_index = remove_until_fit_from_top(&mut imgs, 500.0);
             assert_eq!(Some(1), cut_index);
 
             trace!("=================");
@@ -1916,7 +1977,7 @@ pub mod gallery {
                 Img::new_full(2, 500, 500, 500.0, 500.0, 500.0, 500.0),
             ];
 
-            let cut_index = remove_imgs_rev_v2(&mut imgs, 1000.0);
+            let cut_index = remove_until_fit_from_top(&mut imgs, 1000.0);
             assert_eq!(None, cut_index);
         }
 
