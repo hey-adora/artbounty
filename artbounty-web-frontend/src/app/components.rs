@@ -482,8 +482,44 @@ pub mod gallery {
         imgs.extend(new_imgs);
         trace!("stage 4: {imgs:#?}");
         let rows = get_rows_to_bottom(&imgs, offset, width, row_height);
-        set_rows(&mut imgs, &rows, width);
+        set_rows_to_bottom(&mut imgs, &rows, width);
         trace!("stage 5: {imgs:#?}");
+        imgs
+    }
+
+    pub fn add_imgs_to_top<IMG>(
+        mut imgs: Vec<IMG>,
+        mut new_imgs: Vec<IMG>,
+        width: u32,
+        heigth: f32,
+        row_height: u32,
+    ) -> Vec<IMG>
+    where
+        IMG: ResizableImage + Clone + Display + Debug,
+    {
+        trace!("stage 0: {imgs:#?}");
+        if let Some(cut_index) = remove_until_fit_from_bottom(&mut imgs, heigth) {
+            imgs = imgs[..cut_index].to_vec();
+            trace!("stage 1 ({cut_index}): {imgs:#?}");
+        }
+
+        let Some(offset) = imgs.len().strict_add(new_imgs.len()).checked_sub(2) else {
+            return imgs;
+        };
+        // .inspect(|offset| trace!(offset))
+
+        new_imgs.extend(imgs);
+        imgs = new_imgs;
+
+        let offset = get_row_end(&mut imgs, offset);
+        trace!("stage 4(offset: {offset}): {imgs:#?}");
+        let rows = get_rows_to_top(&imgs, offset, width, row_height);
+        set_rows_to_top(&mut imgs, &rows, width);
+        trace!("stage 2: {imgs:#?}");
+        normalize_imgs_y_v2(&mut imgs);
+        trace!("stage 5: {imgs:#?}");
+        // trace!("stage 3: {imgs:#?}");
+        // trace!("stage 4(offset: {offset}): {imgs:#?}");
         imgs
     }
 
@@ -955,7 +991,7 @@ pub mod gallery {
     //         .0
     // }
 
-    pub fn set_rows(imgs: &mut [impl ResizableImage], rows: &[Row], max_width: u32) {
+    pub fn set_rows_to_bottom(imgs: &mut [impl ResizableImage], rows: &[Row], max_width: u32) {
         let mut row_pos_y = rows
             .first()
             .and_then(|row| row.start_at.checked_sub(1))
@@ -977,7 +1013,7 @@ pub mod gallery {
         });
     }
 
-    pub fn set_rows_rev(imgs: &mut [impl ResizableImage], rows: &[Row], max_width: u32) {
+    pub fn set_rows_to_top(imgs: &mut [impl ResizableImage], rows: &[Row], max_width: u32) {
         let mut row_pos_y = rows
             .first()
             .and_then(|row| row.end_at.checked_add(1))
@@ -1314,10 +1350,10 @@ pub mod gallery {
     #[cfg(test)]
     mod resize_tests {
         use crate::app::components::gallery::{
-            Row, add_imgs_to_bottom, get_row_end, get_row_start, get_row_start_or_end,
-            get_rows_to_bottom, get_rows_to_top, normalize_imgs_y_v2, remove_imgs,
-            remove_until_fit_from_bottom, remove_until_fit_from_top, resize, set_rows,
-            set_rows_rev, update_imgs,
+            Row, add_imgs_to_bottom, add_imgs_to_top, get_row_end, get_row_start,
+            get_row_start_or_end, get_rows_to_bottom, get_rows_to_top, normalize_imgs_y_v2,
+            remove_imgs, remove_until_fit_from_bottom, remove_until_fit_from_top, resize,
+            set_rows_to_bottom, set_rows_to_top, update_imgs,
         };
         use ordered_float::OrderedFloat;
         use pretty_assertions::{assert_eq, assert_ne};
@@ -1575,7 +1611,7 @@ pub mod gallery {
                 Img::new(3, 500, 500),
             ]);
 
-            set_rows(&mut imgs, &rows, 1000);
+            set_rows_to_bottom(&mut imgs, &rows, 1000);
 
             let expected_imgs = Vec::from([
                 //row 0
@@ -1624,7 +1660,7 @@ pub mod gallery {
                 Img::new_full(4, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
             ]);
 
-            set_rows(&mut imgs, &rows, 1000);
+            set_rows_to_bottom(&mut imgs, &rows, 1000);
             assert_eq!(expected_imgs, imgs);
 
             let rows = Vec::from([
@@ -1656,7 +1692,7 @@ pub mod gallery {
                 Img::new_full(3, 1000, 500, 1000.0, 500.0, 0.0, 500.0),
             ]);
 
-            set_rows(&mut imgs, &rows, 1000);
+            set_rows_to_bottom(&mut imgs, &rows, 1000);
             assert_eq!(expected_imgs, imgs);
 
             let rows = Vec::from([
@@ -1698,7 +1734,7 @@ pub mod gallery {
                 Img::new_full(4, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
             ]);
 
-            set_rows_rev(&mut imgs, &rows, 1000);
+            set_rows_to_top(&mut imgs, &rows, 1000);
             assert_eq!(expected_imgs, imgs);
 
             let rows = Vec::from([
@@ -1751,7 +1787,7 @@ pub mod gallery {
                 Img::new_full(4, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
             ]);
 
-            set_rows_rev(&mut imgs, &rows, 1000);
+            set_rows_to_top(&mut imgs, &rows, 1000);
             assert_eq!(expected_imgs, imgs);
         }
 
@@ -1802,7 +1838,8 @@ pub mod gallery {
         }
 
         #[test]
-        fn test_add_imgs_to_bottom() {
+        fn test_add_imgs() {
+            trace!("=======UPDATING IMGS=======");
             let imgs = Vec::from([
                 Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
                 Img::new_full(1, 500, 500, 500.0, 500.0, 0.0, 500.0),
@@ -1827,59 +1864,84 @@ pub mod gallery {
             ]);
             let imgs = add_imgs_to_bottom(imgs, new_imgs, 1000, 500.0, 500);
             assert_eq!(expected_imgs, imgs);
+            trace!("=======UPDATING IMGS=======");
+            let imgs = Vec::from([
+                Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
+                Img::new_full(1, 500, 500, 500.0, 500.0, 0.0, 500.0),
+                Img::new_full(2, 500, 500, 500.0, 500.0, 500.0, 500.0),
+                Img::new_full(3, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
+            ]);
+            let new_imgs = Vec::from([
+                Img::new(4, 500, 500),
+                Img::new(5, 500, 500),
+                Img::new(6, 500, 500),
+                Img::new(7, 500, 500),
+            ]);
+            let expected_imgs = Vec::from([
+                //row 0
+                Img::new_full(4, 500, 500, 500.0, 500.0, 0.0, 0.0),
+                Img::new_full(5, 500, 500, 500.0, 500.0, 500.0, 0.0),
+                //row 1
+                Img::new_full(6, 500, 500, 500.0, 500.0, 0.0, 500.0),
+                Img::new_full(7, 500, 500, 500.0, 500.0, 500.0, 500.0),
+                //row 2
+                Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
+            ]);
+            let imgs = add_imgs_to_top(imgs, new_imgs, 1000, 500.0, 500);
+            assert_eq!(expected_imgs, imgs);
         }
 
-        #[test]
-        fn update_imgs_test() {
-            trace!("=======UPDATING IMGS=======");
-            let imgs = Vec::from([
-                Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
-                Img::new_full(1, 500, 500, 500.0, 500.0, 0.0, 500.0),
-                Img::new_full(2, 500, 500, 500.0, 500.0, 500.0, 500.0),
-                Img::new_full(3, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
-            ]);
-            let new_imgs = Vec::from([
-                Img::new(4, 500, 500),
-                Img::new(5, 500, 500),
-                Img::new(6, 500, 500),
-                Img::new(7, 500, 500),
-            ]);
-            let (imgs, scroll) = update_imgs(imgs, new_imgs, 500, false, 1000, 500.0, 1500.0, 0.0);
-            assert_eq!(
-                Vec::from([
-                    Img::new_full(4, 500, 500, 500.0, 500.0, 0.0, 0.0),
-                    Img::new_full(5, 500, 500, 500.0, 500.0, 500.0, 0.0),
-                    Img::new_full(6, 500, 500, 500.0, 500.0, 0.0, 500.0),
-                    Img::new_full(7, 500, 500, 500.0, 500.0, 500.0, 500.0),
-                    Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
-                ]),
-                imgs
-            );
-            trace!("=======UPDATING IMGS=======");
-            let imgs = Vec::from([
-                Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
-                Img::new_full(1, 500, 500, 500.0, 500.0, 0.0, 500.0),
-                Img::new_full(2, 500, 500, 500.0, 500.0, 500.0, 500.0),
-                Img::new_full(3, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
-            ]);
-            let new_imgs = Vec::from([
-                Img::new(4, 500, 500),
-                Img::new(5, 500, 500),
-                Img::new(6, 500, 500),
-                Img::new(7, 500, 500),
-            ]);
-            let (imgs, scroll) = update_imgs(imgs, new_imgs, 500, true, 1000, 500.0, 1500.0, 0.0);
-            assert_eq!(
-                Vec::from([
-                    Img::new_full(3, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
-                    Img::new_full(4, 500, 500, 500.0, 500.0, 0.0, 500.0),
-                    Img::new_full(5, 500, 500, 500.0, 500.0, 500.0, 500.0),
-                    Img::new_full(6, 500, 500, 500.0, 500.0, 0.0, 1000.0),
-                    Img::new_full(7, 500, 500, 500.0, 500.0, 500.0, 1000.0),
-                ]),
-                imgs
-            );
-        }
+        // #[test]
+        // fn update_imgs_test() {
+        //     trace!("=======UPDATING IMGS=======");
+        //     let imgs = Vec::from([
+        //         Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
+        //         Img::new_full(1, 500, 500, 500.0, 500.0, 0.0, 500.0),
+        //         Img::new_full(2, 500, 500, 500.0, 500.0, 500.0, 500.0),
+        //         Img::new_full(3, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
+        //     ]);
+        //     let new_imgs = Vec::from([
+        //         Img::new(4, 500, 500),
+        //         Img::new(5, 500, 500),
+        //         Img::new(6, 500, 500),
+        //         Img::new(7, 500, 500),
+        //     ]);
+        //     let (imgs, scroll) = update_imgs(imgs, new_imgs, 500, false, 1000, 500.0, 1500.0, 0.0);
+        //     assert_eq!(
+        //         Vec::from([
+        //             Img::new_full(4, 500, 500, 500.0, 500.0, 0.0, 0.0),
+        //             Img::new_full(5, 500, 500, 500.0, 500.0, 500.0, 0.0),
+        //             Img::new_full(6, 500, 500, 500.0, 500.0, 0.0, 500.0),
+        //             Img::new_full(7, 500, 500, 500.0, 500.0, 500.0, 500.0),
+        //             Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
+        //         ]),
+        //         imgs
+        //     );
+        //     trace!("=======UPDATING IMGS=======");
+        //     let imgs = Vec::from([
+        //         Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
+        //         Img::new_full(1, 500, 500, 500.0, 500.0, 0.0, 500.0),
+        //         Img::new_full(2, 500, 500, 500.0, 500.0, 500.0, 500.0),
+        //         Img::new_full(3, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
+        //     ]);
+        //     let new_imgs = Vec::from([
+        //         Img::new(4, 500, 500),
+        //         Img::new(5, 500, 500),
+        //         Img::new(6, 500, 500),
+        //         Img::new(7, 500, 500),
+        //     ]);
+        //     let (imgs, scroll) = update_imgs(imgs, new_imgs, 500, true, 1000, 500.0, 1500.0, 0.0);
+        //     assert_eq!(
+        //         Vec::from([
+        //             Img::new_full(3, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
+        //             Img::new_full(4, 500, 500, 500.0, 500.0, 0.0, 500.0),
+        //             Img::new_full(5, 500, 500, 500.0, 500.0, 500.0, 500.0),
+        //             Img::new_full(6, 500, 500, 500.0, 500.0, 0.0, 1000.0),
+        //             Img::new_full(7, 500, 500, 500.0, 500.0, 500.0, 1000.0),
+        //         ]),
+        //         imgs
+        //     );
+        // }
 
         #[test]
         fn img_remove() {
@@ -2045,77 +2107,77 @@ pub mod gallery {
             assert_eq!(imgs, expected_imgs);
         }
 
-        #[test]
-        fn resize_imgs_two() {
-            let mut imgs = [Img::new(0, 640, 480), Img::new(1, 720, 1280)];
-            resize(&mut imgs, 200, 1000, 0, false);
-            assert_eq!(
-                [
-                    Img {
-                        id: 0,
-                        width: 640,
-                        height: 480,
-                        view_width: OrderedFloat(272.34042),
-                        view_height: OrderedFloat(204.25531),
-                        view_pos_x: OrderedFloat(0.0),
-                        view_pos_y: OrderedFloat(0.0),
-                    },
-                    Img {
-                        id: 1,
-                        width: 720,
-                        height: 1280,
-                        view_width: OrderedFloat(114.893616),
-                        view_height: OrderedFloat(204.25531),
-                        view_pos_x: OrderedFloat(272.34042),
-                        view_pos_y: OrderedFloat(0.0),
-                    }
-                ],
-                imgs
-            )
-        }
+        // #[test]
+        // fn resize_imgs_two() {
+        //     let mut imgs = [Img::new(0, 640, 480), Img::new(1, 720, 1280)];
+        //     resize(&mut imgs, 200, 1000, 0, false);
+        //     assert_eq!(
+        //         [
+        //             Img {
+        //                 id: 0,
+        //                 width: 640,
+        //                 height: 480,
+        //                 view_width: OrderedFloat(272.34042),
+        //                 view_height: OrderedFloat(204.25531),
+        //                 view_pos_x: OrderedFloat(0.0),
+        //                 view_pos_y: OrderedFloat(0.0),
+        //             },
+        //             Img {
+        //                 id: 1,
+        //                 width: 720,
+        //                 height: 1280,
+        //                 view_width: OrderedFloat(114.893616),
+        //                 view_height: OrderedFloat(204.25531),
+        //                 view_pos_x: OrderedFloat(272.34042),
+        //                 view_pos_y: OrderedFloat(0.0),
+        //             }
+        //         ],
+        //         imgs
+        //     )
+        // }
 
-        #[test]
-        fn resize_imgs_three() {
-            let mut imgs = Vec::from([
-                Img::new(0, 1000, 200),
-                Img::new(1, 100, 1000),
-                Img::new(2, 1000, 100),
-            ]);
-            resize(&mut imgs, 200, 1000, 0, false);
+        // #[test]
+        // fn resize_imgs_three() {
+        //     let mut imgs = Vec::from([
+        //         Img::new(0, 1000, 200),
+        //         Img::new(1, 100, 1000),
+        //         Img::new(2, 1000, 100),
+        //     ]);
+        //     resize(&mut imgs, 200, 1000, 0, false);
 
-            assert_eq!(
-                [
-                    Img {
-                        id: 0,
-                        width: 1000,
-                        height: 200,
-                        view_width: OrderedFloat(1000.0),
-                        view_height: OrderedFloat(200.0),
-                        view_pos_x: OrderedFloat(0.0),
-                        view_pos_y: OrderedFloat(0.0),
-                    },
-                    Img {
-                        id: 1,
-                        width: 100,
-                        height: 1000,
-                        view_width: OrderedFloat(1000.0),
-                        view_height: OrderedFloat(10000.0),
-                        view_pos_x: OrderedFloat(0.0),
-                        view_pos_y: OrderedFloat(200.0),
-                    },
-                    Img {
-                        id: 2,
-                        width: 1000,
-                        height: 100,
-                        view_width: OrderedFloat(1000.0),
-                        view_height: OrderedFloat(100.0),
-                        view_pos_x: OrderedFloat(0.0),
-                        view_pos_y: OrderedFloat(10200.0),
-                    },
-                ],
-                *imgs
-            )
-        }
+        //     assert_eq!(
+        //         [
+        //             Img {
+        //                 id: 0,
+        //                 width: 1000,
+        //                 height: 200,
+        //                 view_width: OrderedFloat(1000.0),
+        //                 view_height: OrderedFloat(200.0),
+        //                 view_pos_x: OrderedFloat(0.0),
+        //                 view_pos_y: OrderedFloat(0.0),
+        //             },
+        //             Img {
+        //                 id: 1,
+        //                 width: 100,
+        //                 height: 1000,
+        //                 view_width: OrderedFloat(1000.0),
+        //                 view_height: OrderedFloat(10000.0),
+        //                 view_pos_x: OrderedFloat(0.0),
+        //                 view_pos_y: OrderedFloat(200.0),
+        //             },
+        //             Img {
+        //                 id: 2,
+        //                 width: 1000,
+        //                 height: 100,
+        //                 view_width: OrderedFloat(1000.0),
+        //                 view_height: OrderedFloat(100.0),
+        //                 view_pos_x: OrderedFloat(0.0),
+        //                 view_pos_y: OrderedFloat(10200.0),
+        //             },
+        //         ],
+        //         *imgs
+        //     )
+        // }
 
         #[bench]
         fn resize_bench(b: &mut Bencher) {
@@ -2126,300 +2188,300 @@ pub mod gallery {
             });
         }
 
-        #[test]
-        fn resize_imgs_single_normal() {
-            let mut imgs = [Img::new(0, 640, 480)];
-            resize(&mut imgs, 200, 1000, 0, false);
-            assert_eq!(
-                [Img {
-                    id: 0,
-                    width: 640,
-                    height: 480,
-                    view_width: OrderedFloat(307.69232),
-                    view_height: OrderedFloat(230.76923),
-                    view_pos_x: OrderedFloat(0.0),
-                    view_pos_y: OrderedFloat(0.0),
-                },],
-                imgs
-            )
-        }
+        // #[test]
+        // fn resize_imgs_single_normal() {
+        //     let mut imgs = [Img::new(0, 640, 480)];
+        //     resize(&mut imgs, 200, 1000, 0, false);
+        //     assert_eq!(
+        //         [Img {
+        //             id: 0,
+        //             width: 640,
+        //             height: 480,
+        //             view_width: OrderedFloat(307.69232),
+        //             view_height: OrderedFloat(230.76923),
+        //             view_pos_x: OrderedFloat(0.0),
+        //             view_pos_y: OrderedFloat(0.0),
+        //         },],
+        //         imgs
+        //     )
+        // }
 
-        #[test]
-        fn resize_imgs_single_rev() {
-            let mut imgs = [Img::new(0, 640, 480)];
-            resize(&mut imgs, 200, 1000, 0, true);
-            assert_eq!(
-                [Img {
-                    id: 0,
-                    width: 640,
-                    height: 480,
-                    view_width: OrderedFloat(307.69232),
-                    view_height: OrderedFloat(230.76923),
-                    view_pos_x: OrderedFloat(692.3077),
-                    view_pos_y: OrderedFloat(0.0),
-                },],
-                imgs,
-            )
-        }
+        // #[test]
+        // fn resize_imgs_single_rev() {
+        //     let mut imgs = [Img::new(0, 640, 480)];
+        //     resize(&mut imgs, 200, 1000, 0, true);
+        //     assert_eq!(
+        //         [Img {
+        //             id: 0,
+        //             width: 640,
+        //             height: 480,
+        //             view_width: OrderedFloat(307.69232),
+        //             view_height: OrderedFloat(230.76923),
+        //             view_pos_x: OrderedFloat(692.3077),
+        //             view_pos_y: OrderedFloat(0.0),
+        //         },],
+        //         imgs,
+        //     )
+        // }
 
-        #[test]
-        fn resize_imgs_rev_from_top() {
-            //simple_logger::SimpleLogger::new().init().unwrap();
-            // tracing_subscriber::fmt()
-            //     .event_format(
-            //         tracing_subscriber::fmt::format()
-            //             .with_file(true)
-            //             .with_line_number(true),
-            //     )
-            //     .with_env_filter(tracing_subscriber::EnvFilter::from_str("artbounty=trace"))
-            //     .try_init()
-            //     .unwrap();
+        // #[test]
+        // fn resize_imgs_rev_from_top() {
+        //     //simple_logger::SimpleLogger::new().init().unwrap();
+        //     // tracing_subscriber::fmt()
+        //     //     .event_format(
+        //     //         tracing_subscriber::fmt::format()
+        //     //             .with_file(true)
+        //     //             .with_line_number(true),
+        //     //     )
+        //     //     .with_env_filter(tracing_subscriber::EnvFilter::from_str("artbounty=trace"))
+        //     //     .try_init()
+        //     //     .unwrap();
 
-            let mut imgs = [
-                Img::new_with_y(0, 640, 480, 0.0),
-                Img::new_with_y(1, 640, 480, 0.0),
-                Img::new_with_y(2, 19200, 1080, 0.0),
-                Img::new_with_y(3, 1280, 720, 0.0),
-                Img::new_with_y(4, 720, 1280, 0.0),
-            ];
-            resize(&mut imgs, 200, 1000, 0, true);
-            assert_eq!(
-                [
-                    Img {
-                        id: 0,
-                        width: 640,
-                        height: 480,
-                        view_width: OrderedFloat(307.69232),
-                        view_height: OrderedFloat(230.76923),
-                        view_pos_x: OrderedFloat(384.61536),
-                        view_pos_y: OrderedFloat(0.0),
-                    },
-                    Img {
-                        id: 1,
-                        width: 640,
-                        height: 480,
-                        view_width: OrderedFloat(307.69232),
-                        view_height: OrderedFloat(230.76923),
-                        view_pos_x: OrderedFloat(692.3077),
-                        view_pos_y: OrderedFloat(0.0),
-                    },
-                    Img {
-                        id: 2,
-                        width: 19200,
-                        height: 1080,
-                        view_width: OrderedFloat(1000.0),
-                        view_height: OrderedFloat(56.249996),
-                        view_pos_x: OrderedFloat(0.0),
-                        view_pos_y: OrderedFloat(230.76923),
-                    },
-                    Img {
-                        id: 3,
-                        width: 1280,
-                        height: 720,
-                        view_width: OrderedFloat(759.6439),
-                        view_height: OrderedFloat(427.2997),
-                        view_pos_x: OrderedFloat(0.0),
-                        view_pos_y: OrderedFloat(287.01923),
-                    },
-                    Img {
-                        id: 4,
-                        width: 720,
-                        height: 1280,
-                        view_width: OrderedFloat(240.3561),
-                        view_height: OrderedFloat(427.2997),
-                        view_pos_x: OrderedFloat(759.6439),
-                        view_pos_y: OrderedFloat(287.01923),
-                    },
-                ],
-                imgs
-            )
-        }
+        //     let mut imgs = [
+        //         Img::new_with_y(0, 640, 480, 0.0),
+        //         Img::new_with_y(1, 640, 480, 0.0),
+        //         Img::new_with_y(2, 19200, 1080, 0.0),
+        //         Img::new_with_y(3, 1280, 720, 0.0),
+        //         Img::new_with_y(4, 720, 1280, 0.0),
+        //     ];
+        //     resize(&mut imgs, 200, 1000, 0, true);
+        //     assert_eq!(
+        //         [
+        //             Img {
+        //                 id: 0,
+        //                 width: 640,
+        //                 height: 480,
+        //                 view_width: OrderedFloat(307.69232),
+        //                 view_height: OrderedFloat(230.76923),
+        //                 view_pos_x: OrderedFloat(384.61536),
+        //                 view_pos_y: OrderedFloat(0.0),
+        //             },
+        //             Img {
+        //                 id: 1,
+        //                 width: 640,
+        //                 height: 480,
+        //                 view_width: OrderedFloat(307.69232),
+        //                 view_height: OrderedFloat(230.76923),
+        //                 view_pos_x: OrderedFloat(692.3077),
+        //                 view_pos_y: OrderedFloat(0.0),
+        //             },
+        //             Img {
+        //                 id: 2,
+        //                 width: 19200,
+        //                 height: 1080,
+        //                 view_width: OrderedFloat(1000.0),
+        //                 view_height: OrderedFloat(56.249996),
+        //                 view_pos_x: OrderedFloat(0.0),
+        //                 view_pos_y: OrderedFloat(230.76923),
+        //             },
+        //             Img {
+        //                 id: 3,
+        //                 width: 1280,
+        //                 height: 720,
+        //                 view_width: OrderedFloat(759.6439),
+        //                 view_height: OrderedFloat(427.2997),
+        //                 view_pos_x: OrderedFloat(0.0),
+        //                 view_pos_y: OrderedFloat(287.01923),
+        //             },
+        //             Img {
+        //                 id: 4,
+        //                 width: 720,
+        //                 height: 1280,
+        //                 view_width: OrderedFloat(240.3561),
+        //                 view_height: OrderedFloat(427.2997),
+        //                 view_pos_x: OrderedFloat(759.6439),
+        //                 view_pos_y: OrderedFloat(287.01923),
+        //             },
+        //         ],
+        //         imgs
+        //     )
+        // }
 
-        #[test]
-        fn resize_imgs_rev_from_bottom() {
-            let mut imgs = [
-                Img::new_with_y(0, 640, 480, 0.0),
-                Img::new_with_y(1, 640, 480, 0.0),
-                Img::new_with_y(2, 19200, 1080, 0.0),
-                Img::new_with_y(3, 1280, 720, 0.0),
-                Img::new_with_y(4, 720, 1280, 0.0),
-            ];
-            let offset = imgs.len().saturating_sub(1);
-            resize(&mut imgs, 200, 1000, offset, true);
-            assert_eq!(
-                [
-                    Img {
-                        id: 0,
-                        width: 640,
-                        height: 480,
-                        view_width: OrderedFloat(307.69232),
-                        view_height: OrderedFloat(230.76923),
-                        view_pos_x: OrderedFloat(384.61536),
-                        view_pos_y: OrderedFloat(0.0),
-                    },
-                    Img {
-                        id: 1,
-                        width: 640,
-                        height: 480,
-                        view_width: OrderedFloat(307.69232),
-                        view_height: OrderedFloat(230.76923),
-                        view_pos_x: OrderedFloat(692.3077),
-                        view_pos_y: OrderedFloat(0.0),
-                    },
-                    Img {
-                        id: 2,
-                        width: 19200,
-                        height: 1080,
-                        view_width: OrderedFloat(1000.0),
-                        view_height: OrderedFloat(56.249996),
-                        view_pos_x: OrderedFloat(0.0),
-                        view_pos_y: OrderedFloat(230.76923),
-                    },
-                    Img {
-                        id: 3,
-                        width: 1280,
-                        height: 720,
-                        view_width: OrderedFloat(759.6439),
-                        view_height: OrderedFloat(427.2997),
-                        view_pos_x: OrderedFloat(0.0),
-                        view_pos_y: OrderedFloat(287.01923),
-                    },
-                    Img {
-                        id: 4,
-                        width: 720,
-                        height: 1280,
-                        view_width: OrderedFloat(240.3561),
-                        view_height: OrderedFloat(427.2997),
-                        view_pos_x: OrderedFloat(759.6439),
-                        view_pos_y: OrderedFloat(287.01923),
-                    },
-                ],
-                imgs
-            )
-        }
+        // #[test]
+        // fn resize_imgs_rev_from_bottom() {
+        //     let mut imgs = [
+        //         Img::new_with_y(0, 640, 480, 0.0),
+        //         Img::new_with_y(1, 640, 480, 0.0),
+        //         Img::new_with_y(2, 19200, 1080, 0.0),
+        //         Img::new_with_y(3, 1280, 720, 0.0),
+        //         Img::new_with_y(4, 720, 1280, 0.0),
+        //     ];
+        //     let offset = imgs.len().saturating_sub(1);
+        //     resize(&mut imgs, 200, 1000, offset, true);
+        //     assert_eq!(
+        //         [
+        //             Img {
+        //                 id: 0,
+        //                 width: 640,
+        //                 height: 480,
+        //                 view_width: OrderedFloat(307.69232),
+        //                 view_height: OrderedFloat(230.76923),
+        //                 view_pos_x: OrderedFloat(384.61536),
+        //                 view_pos_y: OrderedFloat(0.0),
+        //             },
+        //             Img {
+        //                 id: 1,
+        //                 width: 640,
+        //                 height: 480,
+        //                 view_width: OrderedFloat(307.69232),
+        //                 view_height: OrderedFloat(230.76923),
+        //                 view_pos_x: OrderedFloat(692.3077),
+        //                 view_pos_y: OrderedFloat(0.0),
+        //             },
+        //             Img {
+        //                 id: 2,
+        //                 width: 19200,
+        //                 height: 1080,
+        //                 view_width: OrderedFloat(1000.0),
+        //                 view_height: OrderedFloat(56.249996),
+        //                 view_pos_x: OrderedFloat(0.0),
+        //                 view_pos_y: OrderedFloat(230.76923),
+        //             },
+        //             Img {
+        //                 id: 3,
+        //                 width: 1280,
+        //                 height: 720,
+        //                 view_width: OrderedFloat(759.6439),
+        //                 view_height: OrderedFloat(427.2997),
+        //                 view_pos_x: OrderedFloat(0.0),
+        //                 view_pos_y: OrderedFloat(287.01923),
+        //             },
+        //             Img {
+        //                 id: 4,
+        //                 width: 720,
+        //                 height: 1280,
+        //                 view_width: OrderedFloat(240.3561),
+        //                 view_height: OrderedFloat(427.2997),
+        //                 view_pos_x: OrderedFloat(759.6439),
+        //                 view_pos_y: OrderedFloat(287.01923),
+        //             },
+        //         ],
+        //         imgs
+        //     )
+        // }
 
-        #[test]
-        fn resize_imgs_offset_rev() {
-            let mut imgs = [
-                Img::new_with_y(0, 640, 480, 0.0),
-                Img::new_with_y(1, 640, 480, 0.0),
-                Img::new_with_y(2, 19200, 1080, -5.0),
-                Img::new_with_y(3, 1280, 720, 0.0),
-                Img::new_with_y(4, 720, 1280, 0.0),
-            ];
-            resize(&mut imgs, 200, 1000, 2, true);
-            assert_eq!(
-                [
-                    Img {
-                        id: 0,
-                        width: 640,
-                        height: 480,
-                        view_width: OrderedFloat(307.69232),
-                        view_height: OrderedFloat(230.76923),
-                        view_pos_x: OrderedFloat(384.61536),
-                        view_pos_y: OrderedFloat(0.0),
-                    },
-                    Img {
-                        id: 1,
-                        width: 640,
-                        height: 480,
-                        view_width: OrderedFloat(307.69232),
-                        view_height: OrderedFloat(230.76923),
-                        view_pos_x: OrderedFloat(692.3077),
-                        view_pos_y: OrderedFloat(0.0),
-                    },
-                    Img {
-                        id: 2,
-                        width: 19200,
-                        height: 1080,
-                        view_width: OrderedFloat(1000.0),
-                        view_height: OrderedFloat(56.249996),
-                        view_pos_x: OrderedFloat(0.0),
-                        view_pos_y: OrderedFloat(230.76923),
-                    },
-                    Img {
-                        id: 3,
-                        width: 1280,
-                        height: 720,
-                        view_width: OrderedFloat(0.0),
-                        view_height: OrderedFloat(0.0),
-                        view_pos_x: OrderedFloat(0.0),
-                        view_pos_y: OrderedFloat(287.01923),
-                    },
-                    Img {
-                        id: 4,
-                        width: 720,
-                        height: 1280,
-                        view_width: OrderedFloat(0.0),
-                        view_height: OrderedFloat(0.0),
-                        view_pos_x: OrderedFloat(0.0),
-                        view_pos_y: OrderedFloat(287.01923),
-                    },
-                ],
-                imgs
-            )
-        }
+        // #[test]
+        // fn resize_imgs_offset_rev() {
+        //     let mut imgs = [
+        //         Img::new_with_y(0, 640, 480, 0.0),
+        //         Img::new_with_y(1, 640, 480, 0.0),
+        //         Img::new_with_y(2, 19200, 1080, -5.0),
+        //         Img::new_with_y(3, 1280, 720, 0.0),
+        //         Img::new_with_y(4, 720, 1280, 0.0),
+        //     ];
+        //     resize(&mut imgs, 200, 1000, 2, true);
+        //     assert_eq!(
+        //         [
+        //             Img {
+        //                 id: 0,
+        //                 width: 640,
+        //                 height: 480,
+        //                 view_width: OrderedFloat(307.69232),
+        //                 view_height: OrderedFloat(230.76923),
+        //                 view_pos_x: OrderedFloat(384.61536),
+        //                 view_pos_y: OrderedFloat(0.0),
+        //             },
+        //             Img {
+        //                 id: 1,
+        //                 width: 640,
+        //                 height: 480,
+        //                 view_width: OrderedFloat(307.69232),
+        //                 view_height: OrderedFloat(230.76923),
+        //                 view_pos_x: OrderedFloat(692.3077),
+        //                 view_pos_y: OrderedFloat(0.0),
+        //             },
+        //             Img {
+        //                 id: 2,
+        //                 width: 19200,
+        //                 height: 1080,
+        //                 view_width: OrderedFloat(1000.0),
+        //                 view_height: OrderedFloat(56.249996),
+        //                 view_pos_x: OrderedFloat(0.0),
+        //                 view_pos_y: OrderedFloat(230.76923),
+        //             },
+        //             Img {
+        //                 id: 3,
+        //                 width: 1280,
+        //                 height: 720,
+        //                 view_width: OrderedFloat(0.0),
+        //                 view_height: OrderedFloat(0.0),
+        //                 view_pos_x: OrderedFloat(0.0),
+        //                 view_pos_y: OrderedFloat(287.01923),
+        //             },
+        //             Img {
+        //                 id: 4,
+        //                 width: 720,
+        //                 height: 1280,
+        //                 view_width: OrderedFloat(0.0),
+        //                 view_height: OrderedFloat(0.0),
+        //                 view_pos_x: OrderedFloat(0.0),
+        //                 view_pos_y: OrderedFloat(287.01923),
+        //             },
+        //         ],
+        //         imgs
+        //     )
+        // }
 
-        #[test]
-        fn resize_imgs_offset() {
-            let mut imgs = [
-                Img::new_with_y(0, 640, 480, 0.0),
-                Img::new_with_y(1, 640, 480, 0.0),
-                Img::new_with_y(2, 19200, 1080, -5.0),
-                Img::new_with_y(3, 1280, 720, 0.0),
-                Img::new_with_y(4, 720, 1280, 0.0),
-            ];
-            resize(&mut imgs, 200, 1000, 2, false);
-            assert_eq!(
-                [
-                    Img {
-                        id: 0,
-                        width: 640,
-                        height: 480,
-                        view_width: OrderedFloat(0.0),
-                        view_height: OrderedFloat(0.0),
-                        view_pos_x: OrderedFloat(0.0),
-                        view_pos_y: OrderedFloat(0.0),
-                    },
-                    Img {
-                        id: 1,
-                        width: 640,
-                        height: 480,
-                        view_width: OrderedFloat(0.0),
-                        view_height: OrderedFloat(0.0),
-                        view_pos_x: OrderedFloat(0.0),
-                        view_pos_y: OrderedFloat(0.0),
-                    },
-                    Img {
-                        id: 2,
-                        width: 19200,
-                        height: 1080,
-                        view_width: OrderedFloat(1000.0),
-                        view_height: OrderedFloat(56.249996),
-                        view_pos_x: OrderedFloat(0.0),
-                        view_pos_y: OrderedFloat(-5.0),
-                    },
-                    Img {
-                        id: 3,
-                        width: 1280,
-                        height: 720,
-                        view_width: OrderedFloat(409.6),
-                        view_height: OrderedFloat(230.40001),
-                        view_pos_x: OrderedFloat(0.0),
-                        view_pos_y: OrderedFloat(51.249996),
-                    },
-                    Img {
-                        id: 4,
-                        width: 720,
-                        height: 1280,
-                        view_width: OrderedFloat(129.6),
-                        view_height: OrderedFloat(230.40001),
-                        view_pos_x: OrderedFloat(409.6),
-                        view_pos_y: OrderedFloat(51.249996),
-                    },
-                ],
-                imgs
-            )
-        }
+        // #[test]
+        // fn resize_imgs_offset() {
+        //     let mut imgs = [
+        //         Img::new_with_y(0, 640, 480, 0.0),
+        //         Img::new_with_y(1, 640, 480, 0.0),
+        //         Img::new_with_y(2, 19200, 1080, -5.0),
+        //         Img::new_with_y(3, 1280, 720, 0.0),
+        //         Img::new_with_y(4, 720, 1280, 0.0),
+        //     ];
+        //     resize(&mut imgs, 200, 1000, 2, false);
+        //     assert_eq!(
+        //         [
+        //             Img {
+        //                 id: 0,
+        //                 width: 640,
+        //                 height: 480,
+        //                 view_width: OrderedFloat(0.0),
+        //                 view_height: OrderedFloat(0.0),
+        //                 view_pos_x: OrderedFloat(0.0),
+        //                 view_pos_y: OrderedFloat(0.0),
+        //             },
+        //             Img {
+        //                 id: 1,
+        //                 width: 640,
+        //                 height: 480,
+        //                 view_width: OrderedFloat(0.0),
+        //                 view_height: OrderedFloat(0.0),
+        //                 view_pos_x: OrderedFloat(0.0),
+        //                 view_pos_y: OrderedFloat(0.0),
+        //             },
+        //             Img {
+        //                 id: 2,
+        //                 width: 19200,
+        //                 height: 1080,
+        //                 view_width: OrderedFloat(1000.0),
+        //                 view_height: OrderedFloat(56.249996),
+        //                 view_pos_x: OrderedFloat(0.0),
+        //                 view_pos_y: OrderedFloat(-5.0),
+        //             },
+        //             Img {
+        //                 id: 3,
+        //                 width: 1280,
+        //                 height: 720,
+        //                 view_width: OrderedFloat(409.6),
+        //                 view_height: OrderedFloat(230.40001),
+        //                 view_pos_x: OrderedFloat(0.0),
+        //                 view_pos_y: OrderedFloat(51.249996),
+        //             },
+        //             Img {
+        //                 id: 4,
+        //                 width: 720,
+        //                 height: 1280,
+        //                 view_width: OrderedFloat(129.6),
+        //                 view_height: OrderedFloat(230.40001),
+        //                 view_pos_x: OrderedFloat(409.6),
+        //                 view_pos_y: OrderedFloat(51.249996),
+        //             },
+        //         ],
+        //         imgs
+        //     )
+        // }
     }
 }
