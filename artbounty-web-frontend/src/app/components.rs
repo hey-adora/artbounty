@@ -27,169 +27,30 @@ pub mod gallery {
     }
 
     #[component]
-    pub fn Gallery(imgs: RwSignal<Vec<Img>>) -> impl IntoView {
+    pub fn Gallery() -> impl IntoView {
+        let gallery = RwSignal::<Vec<Img>>::new(Vec::new());
         let gallery_ref = NodeRef::<Div>::new();
-        let top_bar_ref = NodeRef::<Div>::new();
-        let first_ref = NodeRef::<Div>::new();
-        let top_bar_is_visible = StoredValue::new(false);
-        let scroll_offset: StoredValue<f32> = StoredValue::new(0.0_f32);
-
-        // let handle = interval::new(
-        //     move || {
-        //         let Some(gallery_elm) = gallery_ref.get_untracked() else {
-        //             return;
-        //         };
-        //         let width = gallery_elm.client_width() as u32;
-        //         let heigth = gallery_elm.client_height() as f32;
-        //         let scroll_heigth = gallery_elm.scroll_height() as f32;
-        //         let scroll_top = gallery_elm.scroll_top() as f32;
-
-        //         if !top_bar_is_visible.get_value() {
-        //             return;
-        //         }
-
-        //         let can_fit_count = calc_fit_count(width, heigth as u32, NEW_IMG_HEIGHT) * 2;
-        //         let mut new_imgs = Img::rand_vec(can_fit_count as usize);
-        //         imgs.update(|old_imgs| {
-        //             let removed_height = if let Some((cut_to, removed_height)) =
-        //                 remove_imgs(old_imgs, heigth * 3.0, scroll_heigth, false)
-        //             {
-        //                 *old_imgs = old_imgs[..cut_to].to_vec();
-        //                 removed_height
-        //             } else {
-        //                 0.0
-        //             };
-
         //             let old_imgs_len = old_imgs.len();
-        //             let new_imgs_len = new_imgs.len();
-        //             let offset = new_imgs_len.saturating_sub(old_imgs_len);
-
-        //             new_imgs.extend_from_slice(old_imgs);
-        //             *old_imgs = new_imgs;
-
-        //             let y = if old_imgs_len > 0 {
-        //                 debug!("running {NEW_IMG_HEIGHT} {width} {offset} {}", false);
-        //                 resize(old_imgs, NEW_IMG_HEIGHT, width, offset, true)
-        //             } else {
-        //                 debug!("running {NEW_IMG_HEIGHT} {width} {} {}", 0, false);
-        //                 resize(old_imgs, NEW_IMG_HEIGHT, width, 0, false)
-        //             };
-
-        //             let diff = y - scroll_heigth ;
-        //             let new_scroll_top = diff + removed_height + 100.0 ;
-        //             trace!("SCROLL: y {y}: removed height {removed_height} : scroll top {scroll_top}: scroll height {scroll_heigth}: diff {diff}: new_scroll_top {new_scroll_top}");
-        //             gallery_elm.scroll_by_with_x_and_y(0.0, new_scroll_top as f64);
-        //         });
-
-        //         //first_ref.scroll_into_view();
-        //         //trace!("beep boop");
-        //     },
-        //     Duration::from_secs(1),
-        // )
-        // .unwrap();
-
-        //let imggg = RwSignal::<Vec<(usize, Img)>>::new(Vec::new());
-
-        // Effect::new(move || {
-        //     let Some(gallery_elm) = gallery_ref.get() else {
-        //         return;
-        //     };
-        //     let resize_observer = resize_observer::new_raw(move |entries, observer| {
-        //         imgs.update_untracked(|imgs| {
-        //             // let Some(width) = gallery_ref.get_untracked().map(|v| v.client_width() as u32)
-        //             // else {
-        //             //     return;
-        //             // };
-        //             //resize_imgs(NEW_IMG_HEIGHT, width, imgs);
-        //         });
-        //         trace!("yo yo yo");
-        //     });
-        //     let intersection_observer = intersection_observer::new(move |entries, observer| {});
-        //     resize_observer.observe(&gallery_elm);
-        // });
+        // let scroll_offset: StoredValue<f32> = StoredValue::new(0.0_f32);
 
         gallery_ref.add_resize_observer(move |entry, observer| {
-            let width = entry.content_rect().width();
-            imgs.update_untracked(|imgs| {
-                // fast_img_resize(NEW_IMG_HEIGHT, width as u32, imgs);
-            });
+            trace!("RESIZINGGGGGG");
+            let width = entry.content_rect().width() as u32;
+            let heigth = entry.content_rect().height() as f32;
+
+            let prev_imgs = gallery.get_untracked();
+            // let new_imgs = Vec::from([Img::rand()]);
+            let resized_imgs = resize_v2(prev_imgs, width, 250);
+            gallery.set(resized_imgs);
         });
 
-        top_bar_ref.observe_intersection_with_options(
-            move |entry, observer| {
-                // let Some(first_ref) = first_ref.get_untracked() else {
-                //     return;
-                // };
-
-                let is_interescting = entry.is_intersecting();
-                top_bar_is_visible.set_value(is_interescting);
-
-                // if is_interescting {
-                //     let mut new_imgs = Img::rand_vec(1);
-                //     imgs.update(|v| {
-                //         new_imgs.extend_from_slice(v);
-                //         *v = new_imgs;
-                //     });
-                // }
-                // if is_interescting {
-                //     first_ref.scroll_into_view();
-                // }
-                // trace!("wowza, its intersecting: {}", is_interescting);
-            },
-            intersection_observer::Options::<Div>::default().set_threshold(0.1),
-        );
-
         let get_imgs = move || {
-            let mut imgs = imgs.get();
-            // let Some(width) = gallery_ref.get().map(|v| v.client_width() as u32) else {
-            //     return view! {""};
-            // };
-            // trace!("resizing!!!! {}", width);
-            // if width > 0 {
-            //     resize_imgs(NEW_IMG_HEIGHT, width, &mut imgs);
-            // }
+            let mut imgs = gallery.get();
 
             imgs.into_iter()
                 .enumerate()
-                .map(|(i, img)| view! {<GalleryImg index=i img first_ref />})
+                .map(|(i, img)| view! {<GalleryImg index=i img  />})
                 .collect_view()
-        };
-
-        let big_btn = move |_| {
-            let Some(gallery_elm) = gallery_ref.get_untracked() else {
-                return;
-            };
-            let width = gallery_elm.client_width() as u32;
-            let scroll_top = gallery_elm.scroll_top();
-            // let mut new_imgs = Vec::from([
-            //     Img::new(1000, 200),
-            //     Img::new(100, 1000),
-            //     Img::new(1000, 100),
-            // ]);
-
-            // imgs.update(|v| {
-            //     let old_imgs_count = v.len();
-            //     let new_imgs_count = new_imgs.len();
-            //     let offset = new_imgs.len();
-            //     //let offset = new_imgs.len().saturating_sub(v.len());
-            //     //new_imgs.extend_from_slice(v);
-            //     //new_imgs.extend_from_slice(v);
-
-            //     let y = resize(&mut new_imgs, NEW_IMG_HEIGHT, width, 0, false);
-            //     let diff = (y - scroll_offset.get_value()).abs();
-            //     // if old_y > 0 {
-            //     //     let diff = old_y - y;
-            //     //     println!("old_y: {}",);
-            //     // }
-            //     scroll_offset.set_value(y);
-            //     let scroll_by = scroll_top as f64 + (diff / 2.0) as f64;
-            //     trace!("SCROLL_BY: {} + ({} / 2.0) = {}", scroll_top, diff,scroll_by );
-            //     trace!("totalllllllllllllll y: {y} diff: {diff} scroll_top: {scroll_top} scroll_by: {scroll_by}");
-            //     gallery_elm.scroll_by_with_x_and_y(0.0, diff as f64);
-
-            //     // fast_img_resize(NEW_IMG_HEIGHT, width, &mut new_imgs[..new_imgs_count]);
-            //     *v = new_imgs;
-            // });
         };
 
         let update_imgs = move |gallery_elm: &HtmlDivElement,
@@ -206,29 +67,36 @@ pub mod gallery {
                 return;
             };
             trace!("gallery elm found");
-            let width = gallery_elm.client_width() as f32;
+            let width = gallery_elm.client_width() as u32;
             let heigth = gallery_elm.client_height() as f32;
             let scroll_heigth = gallery_elm.scroll_height() as f32;
             let scroll_top = gallery_elm.scroll_top() as f32;
 
-            update_imgs(
-                &gallery_elm,
-                false,
-                width,
-                heigth,
-                scroll_heigth,
-                scroll_top,
-            );
+            let prev_imgs = gallery.get_untracked();
+            let new_imgs = Img::rand_vec(50);
+            let (resized_imgs, scroll_by) =
+                add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth, 250);
+            gallery.set(resized_imgs);
+
+            // update_imgs(
+            //     &gallery_elm,
+            //     false,
+            //     width,
+            //     heigth,
+            //     scroll_heigth,
+            //     scroll_top,
+            // );
         });
 
         let on_scroll = move |_: web_sys::Event| {
+            trace!("SCROLLINGGG");
             // trace!("ON SCROLL");
             let Some(gallery_elm) = gallery_ref.get_untracked() else {
                 trace!("gallery NOT found");
                 return;
             };
             trace!("gallery elm found");
-            let width = gallery_elm.client_width() as f32;
+            let width = gallery_elm.client_width() as u32;
             let heigth = gallery_elm.client_height() as f32;
             let scroll_heigth = gallery_elm.scroll_height() as f32;
             let scroll_top = gallery_elm.scroll_top() as f32;
@@ -237,18 +105,40 @@ pub mod gallery {
             let scroll_at_top = scroll_top <= heigth;
             let scroll_at_bottom = scroll_heigth - scroll_top <= heigth;
             if scroll_at_top {
-                update_imgs(
-                    &gallery_elm,
-                    false,
-                    width,
-                    heigth,
-                    scroll_heigth,
-                    scroll_top,
-                );
+                return;
+                let prev_imgs = gallery.get_untracked();
+                let new_imgs = Img::rand_vec(50);
+                let prev_total_height = get_total_height(&prev_imgs);
+                let resized_imgs = add_imgs_to_top(prev_imgs, new_imgs, width, heigth * 3.0, 250);
+                let new_total_height = get_total_height(&resized_imgs);
+                let diff = prev_total_height - new_total_height;
+                trace!("scroll master: {diff}");
+                gallery_elm.scroll_by_with_x_and_y(0.0, diff);
+                gallery.set(resized_imgs);
+            // gallery.set(resized_imgs);
+            //     update_imgs(
+            //         &gallery_elm,
+            //         false,
+            //         width,
+            //         heigth,
+            //         scroll_heigth,
+            //         scroll_top,
+            //     );
             } else if scroll_at_bottom {
-                update_imgs(&gallery_elm, true, width, heigth, scroll_heigth, scroll_top);
-                let len = imgs.with(|imgs| imgs.len());
-                trace!("img count: {len}");
+                let prev_imgs = gallery.get_untracked();
+                let new_imgs = Img::rand_vec(50);
+                let prev_total_height = get_total_height(&prev_imgs);
+                let _span = trace_span!("ON_SCROLL", scroll_top).entered();
+                let (resized_imgs, scroll_by) =
+                    add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth * 3.0, 250);
+                let new_total_height = get_total_height(&resized_imgs);
+                // let diff = new_total_height - prev_total_height;
+                trace!("scroll master: {scroll_by}");
+                gallery.set(resized_imgs);
+                gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
+                // update_imgs(&gallery_elm, true, width, heigth, scroll_heigth, scroll_top);
+                // let len = gallery.with(|imgs| imgs.len());
+                // trace!("img count: {len}");
             }
         };
 
@@ -259,20 +149,9 @@ pub mod gallery {
                 on:scroll=on_scroll
                 class="relative overflow-y-scroll overflow-x-hidden"
             >
-                // style:width=move || format!("{}px", gallery_wdith.get())
-                <div node_ref=top_bar_ref class="bg-red-600 h-[100px] w-full ">
-                    <button on:click=big_btn>"click me"</button>
-                </div>
                 {
                     get_imgs
                 }
-                // <For
-                //     each=get_imgs
-                //     key=|img| img.1.id
-                //     children=move |(i, img)| {
-                //         view! { <GalleryImg index=i img first_ref /> }
-                //     }
-                // />
             </div>
         };
 
@@ -280,25 +159,7 @@ pub mod gallery {
     }
 
     #[component]
-    pub fn GalleryImg(img: Img, index: usize, first_ref: NodeRef<Div>) -> impl IntoView {
-        let gallery_img_ref = NodeRef::<Div>::new();
-
-        gallery_img_ref.on_load(move |e| {
-            trace!("did i load or what? o.O");
-        });
-
-        Effect::new(move || {
-            if index != 0 {
-                return;
-            }
-
-            let Some(gallery_img_ref) = gallery_img_ref.get() else {
-                return;
-            };
-            first_ref.load(&gallery_img_ref);
-            trace!("FIRST REF SET");
-        });
-
+    pub fn GalleryImg(img: Img, index: usize) -> impl IntoView {
         let view_left = img.view_pos_x.clone();
         let view_left2 = img.view_pos_x;
         let view_top = img.view_pos_y.clone();
@@ -308,18 +169,17 @@ pub mod gallery {
         let img_width = img.width;
         let img_height = img.height;
 
-        let fn_background =
-            move || format!("rgb({}, {}, {})", random_u8(), random_u8(), random_u8());
+        let fn_background = move || format!("rgb({}, {}, {})", 50, 50, 50);
         let fn_left = move || format!("{}px", view_left.get());
-        let fn_top = move || format!("{}px", view_top.get() + 100.0);
+        // let fn_top = move || format!("{}px", view_top.get() + 100.0);
+        let fn_top = move || format!("{}px", view_top.get());
         let fn_width = move || format!("{}px", view_width.get());
         let fn_height = move || format!("{}px", view_height.get());
         let fn_text = move || format!("{}x{}", img_width, img_height);
-        let fn_text2 = move || format!("{}x{}", view_left2.get(), view_top2.get() + 100.0);
+        let fn_text2 = move || format!("{}x{}", view_left2.get(), view_top2.get());
 
         view! {
             <div
-                node_ref=gallery_img_ref
                 // class="transition-all duration-300 ease-in-out text-white grid place-items-center bg-blue-950 absolute border border-red-600 overflow-hidden"
                 class="text-white grid place-items-center bg-blue-950 absolute border border-red-600 overflow-hidden"
                 style:background-color=fn_background
@@ -342,10 +202,10 @@ pub mod gallery {
         pub row_id: usize,
         pub width: u32,
         pub height: u32,
-        pub view_width: ArcRwSignal<f32>,
-        pub view_height: ArcRwSignal<f32>,
-        pub view_pos_x: ArcRwSignal<f32>,
-        pub view_pos_y: ArcRwSignal<f32>,
+        pub view_width: RwSignal<f32>,
+        pub view_height: RwSignal<f32>,
+        pub view_pos_x: RwSignal<f32>,
+        pub view_pos_y: RwSignal<f32>,
     }
 
     impl Display for Img {
@@ -405,10 +265,10 @@ pub mod gallery {
                 row_id: 0,
                 width,
                 height,
-                view_width: ArcRwSignal::new(0.0),
-                view_height: ArcRwSignal::new(0.0),
-                view_pos_x: ArcRwSignal::new(0.0),
-                view_pos_y: ArcRwSignal::new(0.0),
+                view_width: RwSignal::new(0.0),
+                view_height: RwSignal::new(0.0),
+                view_pos_x: RwSignal::new(0.0),
+                view_pos_y: RwSignal::new(0.0),
             }
         }
 
@@ -422,10 +282,10 @@ pub mod gallery {
                 row_id: 0,
                 width,
                 height,
-                view_width: ArcRwSignal::new(0.0),
-                view_height: ArcRwSignal::new(0.0),
-                view_pos_x: ArcRwSignal::new(0.0),
-                view_pos_y: ArcRwSignal::new(0.0),
+                view_width: RwSignal::new(0.0),
+                view_height: RwSignal::new(0.0),
+                view_pos_x: RwSignal::new(0.0),
+                view_pos_y: RwSignal::new(0.0),
             }
         }
 
@@ -454,37 +314,73 @@ pub mod gallery {
         }
     }
 
+    pub fn resize_v2<IMG>(mut imgs: Vec<IMG>, width: u32, row_height: u32) -> Vec<IMG>
+    where
+        IMG: ResizableImage + Clone + Display + Debug,
+    {
+        let rows = get_rows_to_bottom(&imgs, 0, width, row_height);
+        set_rows_to_bottom(&mut imgs, &rows, width);
+        imgs
+    }
+
+    pub fn get_total_height<IMG>(mut imgs: &[IMG]) -> f64
+    where
+        IMG: ResizableImage + Clone + Display + Debug,
+    {
+        imgs.last()
+            .map(|img| img.get_pos_y() + img.get_view_height())
+            .unwrap_or_default() as f64
+    }
+
     pub fn add_imgs_to_bottom<IMG>(
         mut imgs: Vec<IMG>,
         new_imgs: Vec<IMG>,
         width: u32,
         heigth: f32,
         row_height: u32,
-    ) -> Vec<IMG>
+    ) -> (Vec<IMG>, f64)
     where
         IMG: ResizableImage + Clone + Display + Debug,
     {
-        trace!("stage 0: {imgs:#?}");
+        let height_before_remove = get_total_height(&imgs);
+        trace!("stage 0(KOKheight_before_remove: {height_before_remove}): {imgs:#?}");
         if let Some(cut_index) = remove_until_fit_from_top(&mut imgs, heigth) {
             imgs = imgs[cut_index..].to_vec();
             trace!("stage 1 ({cut_index}): {imgs:#?}");
         }
         normalize_imgs_y_v2(&mut imgs);
-        trace!("stage 2: {imgs:#?}");
-        let Some(offset) = imgs
+        let height_after_remove = get_total_height(&imgs);
+        trace!(
+            "stage 2(KOKheight_before_remove: {height_before_remove}, height_after_remove: {height_after_remove}): {imgs:#?}"
+        );
+        let offset = imgs
             .len()
             .checked_sub(1)
             .map(|offset| get_row_start(&mut imgs, offset))
-        else {
-            return imgs;
-        };
+            .unwrap_or_default();
+        // let Some(offset) = imgs
+        //     .len()
+        //     .checked_sub(1)
+        //     .map(|offset| get_row_start(&mut imgs, offset))
+        // else {
+        //     return imgs;
+        // };
         // trace!("stage 3: {imgs:#?}");
         imgs.extend(new_imgs);
         trace!("stage 4: {imgs:#?}");
         let rows = get_rows_to_bottom(&imgs, offset, width, row_height);
         set_rows_to_bottom(&mut imgs, &rows, width);
-        trace!("stage 5: {imgs:#?}");
-        imgs
+        let height_final = get_total_height(&imgs);
+        // let scroll_by =
+        //     (height_final - height_before_remove) - (height_before_remove - height_after_remove);
+        // let scroll_by =
+        //     (height_before_remove - height_final) - (height_before_remove - height_after_remove);
+        let scroll_by = height_after_remove - height_before_remove;
+        trace!(
+            "stage 5(KOKheight_before_remove: {height_before_remove}, height_after_remove: {height_after_remove}, height_final: {height_final}, scroll_by: {scroll_by}): {imgs:#?}"
+        );
+
+        (imgs, scroll_by)
     }
 
     pub fn add_imgs_to_top<IMG>(
@@ -1349,20 +1245,28 @@ pub mod gallery {
 
     #[cfg(test)]
     mod resize_tests {
-        use crate::app::components::gallery::{
-            Row, add_imgs_to_bottom, add_imgs_to_top, get_row_end, get_row_start,
-            get_row_start_or_end, get_rows_to_bottom, get_rows_to_top, normalize_imgs_y_v2,
-            remove_imgs, remove_until_fit_from_bottom, remove_until_fit_from_top, resize,
-            set_rows_to_bottom, set_rows_to_top, update_imgs,
+        use crate::{
+            app::components::gallery::{
+                Gallery, Row, add_imgs_to_bottom, add_imgs_to_top, get_row_end, get_row_start,
+                get_row_start_or_end, get_rows_to_bottom, get_rows_to_top, normalize_imgs_y_v2,
+                remove_imgs, remove_until_fit_from_bottom, remove_until_fit_from_top, resize,
+                set_rows_to_bottom, set_rows_to_top, update_imgs,
+            },
+            logger,
         };
+        use leptos::{mount::mount_to, prelude::*, task::tick};
         use ordered_float::OrderedFloat;
         use pretty_assertions::{assert_eq, assert_ne};
         use std::{fmt::Display, str::FromStr};
         use test::Bencher;
         use test_log::test;
-        use tracing::trace;
+        use tracing::{level_filters::LevelFilter, trace};
+        use wasm_bindgen::JsCast;
+        use wasm_bindgen_test::*;
 
         use super::ResizableImage;
+
+        wasm_bindgen_test_configure!(run_in_browser);
 
         #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq)]
         struct Img {
@@ -1445,8 +1349,10 @@ pub mod gallery {
                 self.width - (self.height.saturating_sub(desired_height) as f32 * ratio) as u32
             }
             pub fn rand(id: u32) -> Self {
-                let width = rand::random_range(500..=1000);
-                let height = rand::random_range(500..=1000);
+                let width = (id + 500) % 500;
+                let height = (id + 500) % 500;
+                // let width = rand::random_range(500..=1000);
+                // let height = rand::random_range(500..=1000);
 
                 Self {
                     id,
@@ -1496,6 +1402,100 @@ pub mod gallery {
                 *self.view_pos_y = pos_y;
             }
         }
+
+        // pub const STATIC_UNIT: &&() = &&();
+
+        // #[inline(never)]
+        // pub fn lifetime_translator_mut<'a, 'b, T: ?Sized>(
+        //     _val_a: &'a &'b (),
+        //     val_b: &'b mut T,
+        // ) -> &'a mut T {
+        //     val_b
+        // }
+
+        // pub fn null_mut<'a, T: 'static>() -> &'a mut T {
+        //     transmute(0usize)
+        // }
+
+        // pub fn transmute<A, B>(obj: A) -> B {
+        //     use std::hint::black_box;
+
+        //     // The layout of `DummyEnum` is approximately
+        //     // DummyEnum {
+        //     //     is_a_or_b: u8,
+        //     //     data: usize,
+        //     // }
+        //     // Note that `data` is shared between `DummyEnum::A` and `DummyEnum::B`.
+        //     // This should hopefully be more reliable than spamming the stack with a value and hoping the memory
+        //     // is placed correctly by the compiler.
+        //     #[allow(dead_code)]
+        //     enum DummyEnum<A, B> {
+        //         A(Option<Box<A>>),
+        //         B(Option<Box<B>>),
+        //     }
+
+        //     #[inline(never)]
+        //     fn transmute_inner<A, B>(dummy: &mut DummyEnum<A, B>, obj: A) -> B {
+        //         let DummyEnum::B(ref_to_b) = dummy else {
+        //             unreachable!()
+        //         };
+        //         let ref_to_b = expand_mut(ref_to_b);
+        //         *dummy = DummyEnum::A(Some(Box::new(obj)));
+        //         black_box(dummy);
+
+        //         *ref_to_b.take().unwrap()
+        //     }
+
+        //     transmute_inner(black_box(&mut DummyEnum::B(None)), obj)
+        // }
+
+        // pub fn expand_mut<'a, 'b, T: ?Sized>(x: &'a mut T) -> &'b mut T {
+        //     let f: for<'x> fn(_, &'x mut T) -> &'b mut T = lifetime_translator_mut;
+        //     f(STATIC_UNIT, x)
+        // }
+
+        // pub fn segfault() -> ! {
+        //     let null = null_mut::<u8>();
+        //     *null = 42;
+
+        //     unreachable!("Sorry, your platform is too strong.")
+        // }
+
+        // #[test]
+        // fn seg() {
+        //     segfault();
+        // }
+
+        // #[wasm_bindgen_test]
+        // async fn test_component_gallery() {
+        //     console_error_panic_hook::set_once();
+        //     logger::simple_shell_logger_init();
+
+        //     mount_to_body(|| view! { <Gallery /> });
+
+        //     let document = document();
+        //     let window = window();
+        //     let gallery = document.get_element_by_id("gallery").unwrap();
+
+        //     tick().await;
+        //     gallery.set_scroll_top(500);
+        //     tick().await;
+        //     tick().await;
+        //     gallery
+        //         .dispatch_event(&web_sys::Event::new("resize").unwrap())
+        //         .unwrap();
+        //     tick().await;
+        //     gallery
+        //         .dispatch_event(&web_sys::Event::new("resize").unwrap())
+        //         .unwrap();
+        //     tick().await;
+
+        //     let html1 = gallery.outer_html();
+        //     let html2 = view! { <div>"hello"</div> }.build().outer_html();
+
+        //     trace!("wow");
+        //     assert_eq!(html2, html1);
+        // }
 
         #[test]
         fn test_get_rows_forward() {
@@ -1840,6 +1840,41 @@ pub mod gallery {
         #[test]
         fn test_add_imgs() {
             trace!("=======UPDATING IMGS=======");
+            let imgs = Vec::from([]);
+            let new_imgs = Vec::from([
+                Img::new(4, 500, 500),
+                Img::new(5, 500, 500),
+                Img::new(6, 500, 500),
+                Img::new(7, 500, 500),
+            ]);
+            let expected_imgs = Vec::from([
+                //row 1
+                Img::new_full(4, 500, 500, 500.0, 500.0, 0.0, 0.0),
+                Img::new_full(5, 500, 500, 500.0, 500.0, 500.0, 0.0),
+                //row 2
+                Img::new_full(6, 500, 500, 500.0, 500.0, 0.0, 500.0),
+                Img::new_full(7, 500, 500, 500.0, 500.0, 500.0, 500.0),
+            ]);
+            let (imgs, scroll_by) = add_imgs_to_bottom(imgs, new_imgs, 1000, 500.0, 500);
+            trace!("=======UPDATING IMGS=======");
+            let imgs = Vec::from([]);
+            let new_imgs = Vec::from([
+                Img::new(4, 500, 500),
+                Img::new(5, 500, 500),
+                Img::new(6, 500, 500),
+                Img::new(7, 500, 500),
+            ]);
+            let expected_imgs = Vec::from([
+                //row 1
+                Img::new_full(4, 500, 500, 500.0, 500.0, 0.0, 0.0),
+                Img::new_full(5, 500, 500, 500.0, 500.0, 500.0, 0.0),
+                //row 2
+                Img::new_full(6, 500, 500, 500.0, 500.0, 0.0, 500.0),
+                Img::new_full(7, 500, 500, 500.0, 500.0, 500.0, 500.0),
+            ]);
+            let imgs = add_imgs_to_top(imgs, new_imgs, 1000, 500.0, 500);
+            assert_eq!(expected_imgs, imgs);
+            trace!("=======UPDATING IMGS=======");
             let imgs = Vec::from([
                 Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
                 Img::new_full(1, 500, 500, 500.0, 500.0, 0.0, 500.0),
@@ -1862,7 +1897,7 @@ pub mod gallery {
                 Img::new_full(6, 500, 500, 500.0, 500.0, 0.0, 1000.0),
                 Img::new_full(7, 500, 500, 500.0, 500.0, 500.0, 1000.0),
             ]);
-            let imgs = add_imgs_to_bottom(imgs, new_imgs, 1000, 500.0, 500);
+            let (imgs, scroll_by) = add_imgs_to_bottom(imgs, new_imgs, 1000, 500.0, 500);
             assert_eq!(expected_imgs, imgs);
             trace!("=======UPDATING IMGS=======");
             let imgs = Vec::from([

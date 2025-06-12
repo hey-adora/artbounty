@@ -1,3 +1,4 @@
+use colored::Colorize;
 use tracing::span;
 use tracing_subscriber::field::RecordFields;
 use tracing_subscriber::fmt::format::PrettyVisitor;
@@ -14,15 +15,37 @@ pub struct WASMTracingLayer {
 pub struct WASMTracingConfig {
     pub target: bool,
     pub line: bool,
+    pub colors: ColorKind,
 }
 
-pub fn simple_logger_init() {
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ColorKind {
+    Web,
+    Ascii,
+}
+
+pub fn simple_web_logger_init() {
     tracing::subscriber::set_global_default(
         tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt::with(
             tracing_subscriber::Registry::default(),
             WASMTracingLayer::new(WASMTracingConfig {
                 line: false,
                 target: false,
+                colors: ColorKind::Web,
+            }),
+        ),
+    )
+    .unwrap();
+}
+
+pub fn simple_shell_logger_init() {
+    tracing::subscriber::set_global_default(
+        tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt::with(
+            tracing_subscriber::Registry::default(),
+            WASMTracingLayer::new(WASMTracingConfig {
+                line: false,
+                target: false,
+                colors: ColorKind::Ascii,
             }),
         ),
     )
@@ -76,6 +99,7 @@ impl<S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'
 
         let meta = event.metadata();
         let level = *meta.level();
+        let colors = self.config.colors;
         let target = if self.config.target {
             format!(" {}", meta.target())
         } else {
@@ -92,19 +116,39 @@ impl<S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'
             String::new()
         };
 
-        log5(
-            format!("%c{level}%c{spans_combined}%c{target}{origin}%c: {value}"),
-            match level {
-                tracing::Level::TRACE => "color: dodgerblue; background: #444",
-                tracing::Level::DEBUG => "color: lawngreen; background: #444",
-                tracing::Level::INFO => "color: whitesmoke; background: #444",
-                tracing::Level::WARN => "color: orange; background: #444",
-                tracing::Level::ERROR => "color: red; background: #444",
-            },
-            "color: inherit; font-weight: bold",
-            "color: gray; font-style: italic",
-            "color: inherit",
-        );
+        match colors {
+            ColorKind::Web => {
+                log5(
+                    format!("%c{level}%c{spans_combined}%c{target}{origin}%c: {value}"),
+                    match level {
+                        tracing::Level::TRACE => "color: dodgerblue; background: #444",
+                        tracing::Level::DEBUG => "color: lawngreen; background: #444",
+                        tracing::Level::INFO => "color: whitesmoke; background: #444",
+                        tracing::Level::WARN => "color: orange; background: #444",
+                        tracing::Level::ERROR => "color: red; background: #444",
+                    },
+                    "color: inherit; font-weight: bold",
+                    "color: gray; font-style: italic",
+                    "color: inherit",
+                );
+            }
+            ColorKind::Ascii => {
+                log1(format!(
+                    "{}{}{}{}: {}",
+                    match level {
+                        tracing::Level::TRACE => "TRACE".on_blue(),
+                        tracing::Level::DEBUG => "TRACE".on_green(),
+                        tracing::Level::INFO => "TRACE".on_white(),
+                        tracing::Level::WARN => "TRACE".on_yellow(),
+                        tracing::Level::ERROR => "TRACE".on_red(),
+                    },
+                    spans_combined.bold(),
+                    target.bright_black(),
+                    origin.bright_black(),
+                    value
+                ));
+            }
+        }
     }
 
     fn on_new_span(
@@ -128,6 +172,9 @@ impl<S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'
 
 #[wasm_bindgen]
 extern "C" {
+    #[wasm_bindgen(js_namespace = console, js_name = log)]
+    pub fn log1(message1: String);
+
     #[wasm_bindgen(js_namespace = console, js_name = log)]
     pub fn log5(message1: String, message2: &str, message3: &str, message4: &str, message5: &str);
 }

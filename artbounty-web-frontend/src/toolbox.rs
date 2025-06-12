@@ -29,13 +29,29 @@ pub mod random {
 }
 
 pub mod uuid {
-    use std::str::FromStr;
+    use std::{ptr, str::FromStr};
 
     use tracing::{error, trace, trace_span};
     use uuid::Uuid;
+    use wasm_bindgen::JsCast;
     use web_sys::Element;
 
+    fn debug(log: &str, elm: &Element) {
+        // let node = elm.node_type();
+        // trace!(node);
+        // unsafe {
+        //     let p = &raw const elm as *const [usize; 64];
+        //     let r = *p;
+        //     // let p = ptr::read(r[0]);
+        //     let p = r[0] as *const [usize; 64];
+        //     let r = *p;
+        //     trace!("{log} ID: {r:x?}");
+        // }
+    }
+
     pub fn get_id(target: &Element, field_name: &str) -> Option<Uuid> {
+        debug("GET", target);
+
         let Some(id) = target.get_attribute(field_name) else {
             error!(
                 "{} was not set {:?}",
@@ -60,6 +76,8 @@ pub mod uuid {
     }
 
     pub fn set_id(target: &Element, field_name: &str, id: Uuid) {
+        debug("SET", target);
+
         target.set_attribute(field_name, &id.to_string()).unwrap();
     }
 }
@@ -506,8 +524,9 @@ pub mod resize_observer {
     use leptos::{
         html::ElementType,
         prelude::{
-            Effect, Get, GetUntracked, LocalStorage, NodeRef, RwSignal, Set, Storage, StoredValue,
-            UpdateValue, With, expect_context, on_cleanup, provide_context,
+            Effect, Get, GetUntracked, GetValue, LocalStorage, NodeRef, RwSignal, Set, SetValue,
+            Storage, StoredValue, UpdateValue, With, expect_context, on_cleanup, provide_context,
+            use_context,
         },
     };
     use send_wrapper::SendWrapper;
@@ -558,7 +577,7 @@ pub mod resize_observer {
 
     #[derive(Default, Clone)]
     pub struct GlobalState {
-        pub observer: RwSignal<Option<SendWrapper<ResizeObserver>>>,
+        pub observer: StoredValue<Option<SendWrapper<ResizeObserver>>>,
         pub callbacks: StoredValue<
             HashMap<
                 Uuid,
@@ -567,31 +586,61 @@ pub mod resize_observer {
         >,
     }
 
-    pub fn init_global_state() {
-        provide_context(GlobalState::default());
+    // impl Default for GlobalState {
+    //     fn default() -> Self {
+    //         provide_context(GlobalState {
+    //             callbacks: StoredValue::new(HashMap::new()),
+    //             observer: StoredValue::new(None),
+    //         });
+    //         let ctx = expect_context::<GlobalState>();
 
-        Effect::new(move || {
-            let ctx = expect_context::<GlobalState>();
+    //         let observer = new_raw(move |entries, observer| {
+    //             ctx.callbacks.update_value(|callbacks| {
+    //                 for entry in entries {
+    //                     let target = entry.target();
+    //                     let Some(id) = get_id(&target, ID_FIELD_NAME) else {
+    //                         continue;
+    //                     };
 
-            let observer = new_raw(move |entries, observer| {
-                ctx.callbacks.update_value(|callbacks| {
-                    for entry in entries {
-                        let target = entry.target();
-                        let Some(id) = get_id(&target, ID_FIELD_NAME) else {
-                            continue;
-                        };
+    //                     let Some(callback) = callbacks.get_mut(&id) else {
+    //                         continue;
+    //                     };
+    //                     callback(entry, observer.clone());
+    //                 }
+    //             });
+    //         });
+    //         GlobalState {
+    //             callbacks: StoredValue::new(HashMap::new()),
+    //             observer: StoredValue::new(Some(SendWrapper::new(observer))),
+    //         }
+    //     }
+    // }
 
-                        let Some(callback) = callbacks.get_mut(&id) else {
-                            continue;
-                        };
-                        callback(entry, observer.clone());
-                    }
-                });
-            });
+    // pub fn init_global_state() {
+    //     provide_context(GlobalState::default());
 
-            ctx.observer.set(Some(SendWrapper::new(observer)));
-        });
-    }
+    //     Effect::new(move || {
+    //         let ctx = expect_context::<GlobalState>();
+
+    //         let observer = new_raw(move |entries, observer| {
+    //             ctx.callbacks.update_value(|callbacks| {
+    //                 for entry in entries {
+    //                     let target = entry.target();
+    //                     let Some(id) = get_id(&target, ID_FIELD_NAME) else {
+    //                         continue;
+    //                     };
+
+    //                     let Some(callback) = callbacks.get_mut(&id) else {
+    //                         continue;
+    //                     };
+    //                     callback(entry, observer.clone());
+    //                 }
+    //             });
+    //         });
+
+    //         ctx.observer.set(Some(SendWrapper::new(observer)));
+    //     });
+    // }
 
     pub fn new<E, F>(target: NodeRef<E>, mut callback: F)
     where
@@ -599,13 +648,43 @@ pub mod resize_observer {
         E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
         F: FnMut(ResizeObserverEntry, web_sys::ResizeObserver) + Clone + Send + Sync + 'static,
     {
-        let ctx = expect_context::<GlobalState>();
+        let ctx = match use_context::<GlobalState>() {
+            Some(v) => v,
+            None => {
+                provide_context(GlobalState::default());
+                expect_context::<GlobalState>()
+            }
+        };
+        // let ctx = expect_context::<GlobalState>();
         let id = Uuid::new_v4();
 
         Effect::new(move || {
             let span = trace_span!("resize observer").entered();
 
-            let (Some(target), Some(observer)) = (target.get(), ctx.observer.get()) else {
+            let observer = match ctx.observer.get_value() {
+                Some(observer) => observer,
+                None => {
+                    let observer = new_raw(move |entries, observer| {
+                        ctx.callbacks.update_value(|callbacks| {
+                            for entry in entries {
+                                let target = entry.target();
+                                let Some(id) = get_id(&target, ID_FIELD_NAME) else {
+                                    continue;
+                                };
+
+                                let Some(callback) = callbacks.get_mut(&id) else {
+                                    continue;
+                                };
+                                callback(entry, observer.clone());
+                            }
+                        });
+                    });
+                    ctx.observer.set_value(Some(SendWrapper::new(observer)));
+                    ctx.observer.get_value().unwrap()
+                }
+            };
+
+            let Some(target) = target.get() else {
                 return;
             };
 
@@ -626,8 +705,7 @@ pub mod resize_observer {
         on_cleanup(move || {
             let span = trace_span!("resize observer").entered();
 
-            let (Some(target), Some(observer)) =
-                (target.get_untracked(), ctx.observer.get_untracked())
+            let (Some(target), Some(observer)) = (target.get_untracked(), ctx.observer.get_value())
             else {
                 return;
             };

@@ -24,6 +24,8 @@ panic = "abort"
 [features]
 hydrate = ["leptos/hydrate"]
 ssr = ["leptos/ssr", "leptos_router/ssr"]
+csr = ["leptos/csr"]
+# csr = ["leptos/csr", "leptos_meta/csr", "leptos_router/csr"]
 
 [dependencies]
 wasm-bindgen = { workspace = true }
@@ -48,8 +50,12 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 pretty_assertions = { workspace = true }
 itertools = { workspace = true }
+colored = { workspace = true }
+log = { workspace = true }
 
 [dev-dependencies]
+wasm-bindgen-test = { workspace = true }
 simple_logger = { workspace = true }
 test-log = { workspace = true }
-rand = { workspace = true }
+# rand = { workspace = true }
+# getrandom = { workspace = true }
