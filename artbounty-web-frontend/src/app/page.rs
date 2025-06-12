@@ -61,7 +61,7 @@ pub mod home {
                     </a>
                     <a href="/two">"two"</a>
                 </nav>
-                <Gallery imgs=imgs />
+                <Gallery  />
             </main>
         }
     }

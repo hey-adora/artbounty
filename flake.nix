@@ -34,6 +34,8 @@
               rust
               mold
               cargo-leptos
+              wasm-pack
+              # wasm-bindgen-cli_0_2_100
               tailwindcss_4
               yarn
               pre-commit

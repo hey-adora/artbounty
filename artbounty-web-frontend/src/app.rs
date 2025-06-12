@@ -33,7 +33,7 @@ pub struct GlobalState {
 pub fn App() -> impl IntoView {
     provide_context(GlobalState::default());
 
-    resize_observer::init_global_state();
+    // resize_observer::init_global_state();
     //intersection_observer::init_global_state();
 
     // Effect::new(move || {
