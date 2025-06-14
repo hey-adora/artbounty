@@ -1,4 +1,23 @@
 [toolchain]
 channel = "nightly-2025-05-23"
-components = ["rustfmt", "clippy", "rust-src", "rust-analysis", "rustc-codegen-cranelift-preview"]
+components = [
+    "rust-src",
+    "cargo",
+    "clippy",
+    "llvm-bitcode-linker",
+    "llvm-tools",
+    "miri",
+    "reproducible-artifacts",
+    "rust",
+    "rust-analysis",
+    "rust-analyzer",
+    "rust-docs",
+    "rust-docs-json",
+    "rust-std",
+    "rustc",
+    "rustc-codegen-cranelift-preview",
+    "rustc-dev",
+    "rustc-docs",
+    "rustfmt",
+]
 targets = ["wasm32-unknown-unknown", "x86_64-unknown-linux-gnu"]
