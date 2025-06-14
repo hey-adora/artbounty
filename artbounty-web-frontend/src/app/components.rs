@@ -30,7 +30,6 @@ pub mod gallery {
     pub fn Gallery() -> impl IntoView {
         let gallery = RwSignal::<Vec<Img>>::new(Vec::new());
         let gallery_ref = NodeRef::<Div>::new();
-        //             let old_imgs_len = old_imgs.len();
         // let scroll_offset: StoredValue<f32> = StoredValue::new(0.0_f32);
 
         gallery_ref.add_resize_observer(move |entry, observer| {
@@ -40,7 +39,9 @@ pub mod gallery {
 
             let prev_imgs = gallery.get_untracked();
             // let new_imgs = Vec::from([Img::rand()]);
+            trace!("stage r1: width:{width} {prev_imgs:#?} ");
             let resized_imgs = resize_v2(prev_imgs, width, 250);
+            trace!("stage r2 {resized_imgs:#?}");
             gallery.set(resized_imgs);
         });
 
@@ -62,7 +63,7 @@ pub mod gallery {
 
         Effect::new(move || {
             trace!("ON LOAD");
-            let Some(gallery_elm) = gallery_ref.get_untracked() else {
+            let Some(gallery_elm) = gallery_ref.get() else {
                 trace!("gallery NOT found");
                 return;
             };
@@ -103,28 +104,30 @@ pub mod gallery {
 
             // let scroll_at_bottom = scroll_heigth / 2.0 < scroll_top + heigth / 2.0;
             let scroll_at_top = scroll_top <= heigth;
-            let scroll_at_bottom = scroll_heigth - scroll_top <= heigth;
-            if scroll_at_top {
-                return;
-                let prev_imgs = gallery.get_untracked();
-                let new_imgs = Img::rand_vec(50);
-                let prev_total_height = get_total_height(&prev_imgs);
-                let resized_imgs = add_imgs_to_top(prev_imgs, new_imgs, width, heigth * 3.0, 250);
-                let new_total_height = get_total_height(&resized_imgs);
-                let diff = prev_total_height - new_total_height;
-                trace!("scroll master: {diff}");
-                gallery_elm.scroll_by_with_x_and_y(0.0, diff);
-                gallery.set(resized_imgs);
-            // gallery.set(resized_imgs);
-            //     update_imgs(
-            //         &gallery_elm,
-            //         false,
-            //         width,
-            //         heigth,
-            //         scroll_heigth,
-            //         scroll_top,
-            //     );
-            } else if scroll_at_bottom {
+            let scroll_at_bottom = scroll_heigth - (scroll_top + heigth) <= 100.0;
+            // if scroll_at_top && false {
+            //     // return;
+            //     let prev_imgs = gallery.get_untracked();
+            //     let new_imgs = Img::rand_vec(50);
+            //     let prev_total_height = get_total_height(&prev_imgs);
+            //     let resized_imgs = add_imgs_to_top(prev_imgs, new_imgs, width, heigth * 3.0, 250);
+            //     let new_total_height = get_total_height(&resized_imgs);
+            //     let diff = prev_total_height - new_total_height;
+            //     trace!("scroll master: {diff}");
+            //     gallery_elm.scroll_by_with_x_and_y(0.0, diff);
+            //     gallery.set(resized_imgs);
+            //     // gallery.set(resized_imgs);
+            //     //     update_imgs(
+            //     //         &gallery_elm,
+            //     //         false,
+            //     //         width,
+            //     //         heigth,
+            //     //         scroll_heigth,
+            //     //         scroll_top,
+            //     //     );
+            // }
+
+            if scroll_at_bottom {
                 let prev_imgs = gallery.get_untracked();
                 let new_imgs = Img::rand_vec(50);
                 let prev_total_height = get_total_height(&prev_imgs);
@@ -170,13 +173,13 @@ pub mod gallery {
         let img_height = img.height;
 
         let fn_background = move || format!("rgb({}, {}, {})", 50, 50, 50);
-        let fn_left = move || format!("{}px", view_left.get());
+        let fn_left = move || format!("{}px", view_left);
         // let fn_top = move || format!("{}px", view_top.get() + 100.0);
-        let fn_top = move || format!("{}px", view_top.get());
-        let fn_width = move || format!("{}px", view_width.get());
-        let fn_height = move || format!("{}px", view_height.get());
+        let fn_top = move || format!("{}px", view_top);
+        let fn_width = move || format!("{}px", view_width);
+        let fn_height = move || format!("{}px", view_height);
         let fn_text = move || format!("{}x{}", img_width, img_height);
-        let fn_text2 = move || format!("{}x{}", view_left2.get(), view_top2.get());
+        let fn_text2 = move || format!("{}x{}", view_left2, view_top2);
 
         view! {
             <div
@@ -196,16 +199,16 @@ pub mod gallery {
         }
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone)]
     pub struct Img {
         pub id: u64,
         pub row_id: usize,
         pub width: u32,
         pub height: u32,
-        pub view_width: RwSignal<f32>,
-        pub view_height: RwSignal<f32>,
-        pub view_pos_x: RwSignal<f32>,
-        pub view_pos_y: RwSignal<f32>,
+        pub view_width: f32,
+        pub view_height: f32,
+        pub view_pos_x: f32,
+        pub view_pos_y: f32,
     }
 
     impl Display for Img {
@@ -216,10 +219,10 @@ pub mod gallery {
                 "Img {{ width: {}, height: {}, view_width: OrderedFloat({:.5}), view_height: OrderedFloat({:.5}), view_pos_x: OrderedFloat({:.5}), view_pos_y: OrderedFloat({:.5})}}",
                 self.width,
                 self.height,
-                self.view_width.get(),
-                self.view_height.get(),
-                self.view_pos_x.get(),
-                self.view_pos_y.get()
+                self.view_width,
+                self.view_height,
+                self.view_pos_x,
+                self.view_pos_y
             )
         }
     }
@@ -229,18 +232,18 @@ pub mod gallery {
             self.id
         }
         fn set_size(&mut self, view_width: f32, view_height: f32, pos_x: f32, pos_y: f32) {
-            self.view_width.set(view_width);
-            self.view_height.set(view_height);
-            self.view_pos_x.set(pos_x);
-            self.view_pos_y.set(pos_y);
+            self.view_width = view_width;
+            self.view_height = view_height;
+            self.view_pos_x = pos_x;
+            self.view_pos_y = pos_y;
         }
 
         fn set_pos_y(&mut self, pos_y: f32) {
-            self.view_pos_y.set(pos_y);
+            self.view_pos_y = pos_y;
         }
 
         fn get_pos_y(&self) -> f32 {
-            self.view_pos_y.get_untracked()
+            self.view_pos_y
         }
 
         fn get_size(&self) -> (u32, u32) {
@@ -252,7 +255,7 @@ pub mod gallery {
         // }
 
         fn get_view_height(&self) -> f32 {
-            self.view_height.get_untracked()
+            self.view_height
         }
     }
 
@@ -265,10 +268,10 @@ pub mod gallery {
                 row_id: 0,
                 width,
                 height,
-                view_width: RwSignal::new(0.0),
-                view_height: RwSignal::new(0.0),
-                view_pos_x: RwSignal::new(0.0),
-                view_pos_y: RwSignal::new(0.0),
+                view_width: 0.0,
+                view_height: 0.0,
+                view_pos_x: 0.0,
+                view_pos_y: 0.0,
             }
         }
 
@@ -282,10 +285,10 @@ pub mod gallery {
                 row_id: 0,
                 width,
                 height,
-                view_width: RwSignal::new(0.0),
-                view_height: RwSignal::new(0.0),
-                view_pos_x: RwSignal::new(0.0),
-                view_pos_y: RwSignal::new(0.0),
+                view_width: 0.0,
+                view_height: 0.0,
+                view_pos_x: 0.0,
+                view_pos_y: 0.0,
             }
         }
 
@@ -319,6 +322,7 @@ pub mod gallery {
         IMG: ResizableImage + Clone + Display + Debug,
     {
         let rows = get_rows_to_bottom(&imgs, 0, width, row_height);
+        trace!("rows inbetween: {rows:#?}");
         set_rows_to_bottom(&mut imgs, &rows, width);
         imgs
     }
@@ -738,11 +742,15 @@ pub mod gallery {
             .map(|(i, img)| (i, img.scaled_by_height(row_height)))
             .fold(
                 (
-                    Vec::<Row>::from([Row {
-                        start_at: offset,
-                        end_at: offset,
-                        ..Default::default()
-                    }]),
+                    if imgs.is_empty() {
+                        Vec::new()
+                    } else {
+                        Vec::<Row>::from([Row {
+                            start_at: offset,
+                            end_at: offset,
+                            ..Default::default()
+                        }])
+                    },
                     0.0,
                 ),
                 |(mut rows, mut row_width_total), (i, (scaled_width, ratio))| {
@@ -887,14 +895,23 @@ pub mod gallery {
     //         .0
     // }
 
-    pub fn set_rows_to_bottom(imgs: &mut [impl ResizableImage], rows: &[Row], max_width: u32) {
+    pub fn set_rows_to_bottom(
+        imgs: &mut [impl ResizableImage + Display],
+        rows: &[Row],
+        max_width: u32,
+    ) {
         let mut row_pos_y = rows
             .first()
             .and_then(|row| row.start_at.checked_sub(1))
             .and_then(|i| imgs.get(i))
             .map(|img| img.get_pos_y() + img.get_view_height())
             .unwrap_or(0.0);
-        trace!("row_pos_y: {}, {:#?}", row_pos_y, rows);
+        trace!(
+            "row_pos_y: {}, {:#?} {}",
+            row_pos_y,
+            rows,
+            vec_img_to_string(imgs)
+        );
 
         rows.iter().for_each(|row| {
             let row_height: f32 = max_width as f32 / row.aspect_ratio;
@@ -1250,7 +1267,7 @@ pub mod gallery {
                 Gallery, Row, add_imgs_to_bottom, add_imgs_to_top, get_row_end, get_row_start,
                 get_row_start_or_end, get_rows_to_bottom, get_rows_to_top, normalize_imgs_y_v2,
                 remove_imgs, remove_until_fit_from_bottom, remove_until_fit_from_top, resize,
-                set_rows_to_bottom, set_rows_to_top, update_imgs,
+                resize_v2, set_rows_to_bottom, set_rows_to_top, update_imgs,
             },
             logger,
         };
@@ -1579,6 +1596,14 @@ pub mod gallery {
                 end_at: 0,
             }]);
             assert_eq!(expected_imgs, rows);
+        }
+
+        #[test]
+        fn test_resize() {
+            let mut imgs = Vec::<Img>::from([
+                //row 0
+            ]);
+            let resized_imgs = resize_v2(imgs, 1000, 500);
         }
 
         #[test]
