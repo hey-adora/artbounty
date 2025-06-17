@@ -1,3 +1,18 @@
+pub mod nav {
+    use leptos::prelude::*;
+
+    #[component]
+    pub fn Nav() -> impl IntoView {
+        view! {
+            <nav class="text-gray-200 pb-1 flex gap-2 px-2 py-1 items-center justify-between">
+                <a href="/" class="font-black text-xl">
+                    "ArtBounty"
+                </a>
+                <a href="/login">"Login"</a>
+            </nav>
+        }
+    }
+}
 pub mod gallery {
     use futures::io::Cursor;
     use itertools::{FoldWhile, Itertools};
@@ -7,8 +22,11 @@ pub mod gallery {
         tachys::html::node_ref::NodeRefContainer,
     };
     use ordered_float::OrderedFloat;
-    use std::fmt::{Debug, Display};
     use std::{default::Default, time::Duration};
+    use std::{
+        fmt::{Debug, Display},
+        rc::Rc,
+    };
     use tracing::{debug, error, trace, trace_span};
     use web_sys::HtmlDivElement;
 
@@ -27,7 +45,16 @@ pub mod gallery {
     }
 
     #[component]
-    pub fn Gallery() -> impl IntoView {
+    pub fn Gallery(
+        #[prop(optional)] fetch_top: Option<
+            Rc<dyn Fn(usize, Img) -> Vec<Img> + Send + Sync + 'static>,
+        >,
+        #[prop(optional)] fetch_bottom: Option<
+            Rc<dyn Fn(usize, Img) -> Vec<Img> + Send + Sync + 'static>,
+        >,
+        #[prop(optional)] fetch_init: Option<Rc<dyn Fn(usize) -> Vec<Img> + Send + Sync + 'static>>,
+        #[prop(default = 250)] row_height: u32,
+    ) -> impl IntoView {
         let gallery = RwSignal::<Vec<Img>>::new(Vec::new());
         let gallery_ref = NodeRef::<Div>::new();
         // let scroll_offset: StoredValue<f32> = StoredValue::new(0.0_f32);
@@ -74,9 +101,19 @@ pub mod gallery {
             let scroll_top = gallery_elm.scroll_top() as f32;
 
             let prev_imgs = gallery.get_untracked();
-            let new_imgs = Img::rand_vec(50);
+            let count = calc_fit_count(width, heigth, row_height) * 3;
+            let new_imgs = match fetch_init.clone() {
+                Some(fetch_init) => {
+                    let imgs = fetch_init(count);
+                    if imgs.is_empty() {
+                        return;
+                    }
+                    imgs
+                }
+                None => Img::rand_vec(count),
+            };
             let (resized_imgs, scroll_by) =
-                add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth, 250);
+                add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth, row_height);
             gallery.set(resized_imgs);
 
             // update_imgs(
@@ -101,39 +138,53 @@ pub mod gallery {
             let heigth = gallery_elm.client_height() as f32;
             let scroll_heigth = gallery_elm.scroll_height() as f32;
             let scroll_top = gallery_elm.scroll_top() as f32;
+            let is_empty = gallery.with_untracked(|v| v.is_empty());
+            let count = calc_fit_count(width, heigth, row_height) * 3;
+            if is_empty || count == 0 {
+                return;
+            }
 
             // let scroll_at_bottom = scroll_heigth / 2.0 < scroll_top + heigth / 2.0;
             let scroll_at_top = scroll_top <= heigth;
             let scroll_at_bottom = scroll_heigth - (scroll_top + heigth) <= 100.0;
-            // if scroll_at_top && false {
-            //     // return;
-            //     let prev_imgs = gallery.get_untracked();
-            //     let new_imgs = Img::rand_vec(50);
-            //     let prev_total_height = get_total_height(&prev_imgs);
-            //     let resized_imgs = add_imgs_to_top(prev_imgs, new_imgs, width, heigth * 3.0, 250);
-            //     let new_total_height = get_total_height(&resized_imgs);
-            //     let diff = prev_total_height - new_total_height;
-            //     trace!("scroll master: {diff}");
-            //     gallery_elm.scroll_by_with_x_and_y(0.0, diff);
-            //     gallery.set(resized_imgs);
-            //     // gallery.set(resized_imgs);
-            //     //     update_imgs(
-            //     //         &gallery_elm,
-            //     //         false,
-            //     //         width,
-            //     //         heigth,
-            //     //         scroll_heigth,
-            //     //         scroll_top,
-            //     //     );
-            // }
+            if scroll_at_top && !is_empty && fetch_top.is_some() {
+                let prev_imgs = gallery.get_untracked();
+                let first_img = prev_imgs.first().cloned().unwrap();
+                let fetch_top = fetch_top.clone().unwrap();
+                let new_imgs = fetch_top(count, first_img);
+                // return;
+
+                // let new_imgs = Img::rand_vec(50);
+
+                // let prev_total_height = get_total_height(&prev_imgs);
+                let (resized_imgs, scroll_by) =
+                    add_imgs_to_top(prev_imgs, new_imgs, width, heigth * 3.0, row_height);
+                // let new_total_height = get_total_height(&resized_imgs);
+                // let diff = prev_total_height - new_total_height;
+                // trace!("scroll master: {diff}");
+                gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
+                gallery.set(resized_imgs);
+                // gallery.set(resized_imgs);
+                //     update_imgs(
+                //         &gallery_elm,
+                //         false,
+                //         width,
+                //         heigth,
+                //         scroll_heigth,
+                //         scroll_top,
+                //     );
+            }
 
             if scroll_at_bottom {
                 let prev_imgs = gallery.get_untracked();
-                let new_imgs = Img::rand_vec(50);
+                let new_imgs = match fetch_bottom.clone() {
+                    Some(fetch_bottom) => fetch_bottom(count, prev_imgs.last().cloned().unwrap()),
+                    None => Img::rand_vec(count),
+                };
                 let prev_total_height = get_total_height(&prev_imgs);
                 let _span = trace_span!("ON_SCROLL", scroll_top).entered();
                 let (resized_imgs, scroll_by) =
-                    add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth * 3.0, 250);
+                    add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth * 3.0, row_height);
                 let new_total_height = get_total_height(&resized_imgs);
                 // let diff = new_total_height - prev_total_height;
                 trace!("scroll master: {scroll_by}");
@@ -163,23 +214,23 @@ pub mod gallery {
 
     #[component]
     pub fn GalleryImg(img: Img, index: usize) -> impl IntoView {
-        let view_left = img.view_pos_x.clone();
-        let view_left2 = img.view_pos_x;
-        let view_top = img.view_pos_y.clone();
-        let view_top2 = img.view_pos_y;
+        let view_left = img.view_pos_x;
+        let view_top = img.view_pos_y;
         let view_width = img.view_width;
         let view_height = img.view_height;
         let img_width = img.width;
         let img_height = img.height;
+        let img_id = img.id;
 
         let fn_background = move || format!("rgb({}, {}, {})", 50, 50, 50);
-        let fn_left = move || format!("{}px", view_left);
+        let fn_left = move || format!("{view_left}px");
         // let fn_top = move || format!("{}px", view_top.get() + 100.0);
-        let fn_top = move || format!("{}px", view_top);
-        let fn_width = move || format!("{}px", view_width);
-        let fn_height = move || format!("{}px", view_height);
-        let fn_text = move || format!("{}x{}", img_width, img_height);
-        let fn_text2 = move || format!("{}x{}", view_left2, view_top2);
+        let fn_top = move || format!("{view_top}px");
+        let fn_width = move || format!("{view_width}px");
+        let fn_height = move || format!("{view_height}px");
+        let fn_text = move || format!("{img_width}x{img_height}");
+        let fn_text2 = move || format!("{view_left}x{view_top}");
+        let fn_text3 = move || format!("{img_id}");
 
         view! {
             <div
@@ -192,6 +243,7 @@ pub mod gallery {
                 style:height=fn_height
             >
                 <div>
+                    <div>{fn_text3}</div>
                     <div>{fn_text}</div>
                     <div>{fn_text2}</div>
                 </div>
@@ -275,13 +327,13 @@ pub mod gallery {
             }
         }
 
-        pub fn rand() -> Self {
-            let id = random_u64();
+        pub fn rand(id: usize) -> Self {
+            // let id = random_u64();
             let width = random_u32_ranged(500, 1000);
             let height = random_u32_ranged(500, 1000);
 
             Self {
-                id,
+                id: id as u64,
                 row_id: 0,
                 width,
                 height,
@@ -294,8 +346,8 @@ pub mod gallery {
 
         pub fn rand_vec(n: usize) -> Vec<Self> {
             let mut output = Vec::new();
-            for _ in 0..n {
-                output.push(Img::rand());
+            for i in 0..n {
+                output.push(Img::rand(i));
             }
             output
         }
@@ -393,18 +445,23 @@ pub mod gallery {
         width: u32,
         heigth: f32,
         row_height: u32,
-    ) -> Vec<IMG>
+    ) -> (Vec<IMG>, f64)
     where
         IMG: ResizableImage + Clone + Display + Debug,
     {
+        if new_imgs.is_empty() {
+            return (imgs, 0.0);
+        }
+        let height_before_remove = get_total_height(&imgs);
         trace!("stage 0: {imgs:#?}");
         if let Some(cut_index) = remove_until_fit_from_bottom(&mut imgs, heigth) {
             imgs = imgs[..cut_index].to_vec();
             trace!("stage 1 ({cut_index}): {imgs:#?}");
         }
 
+        let height_after_remove = get_total_height(&imgs);
         let Some(offset) = imgs.len().strict_add(new_imgs.len()).checked_sub(2) else {
-            return imgs;
+            return (imgs, 0.0);
         };
         // .inspect(|offset| trace!(offset))
 
@@ -417,10 +474,19 @@ pub mod gallery {
         set_rows_to_top(&mut imgs, &rows, width);
         trace!("stage 2: {imgs:#?}");
         normalize_imgs_y_v2(&mut imgs);
-        trace!("stage 5: {imgs:#?}");
+        let height_final = get_total_height(&imgs);
+        // let scroll_by = (height_final - height_before_remove) ;
+        // let scroll_by =
+        //     (height_final - height_before_remove) + (height_before_remove + height_after_remove);
+        let scroll_by = height_final - height_after_remove;
+
+        trace!(
+            "stage 5(KOKheight_before_remove: {height_before_remove}, height_after_remove: {height_after_remove}, height_final: {height_final}, scroll_by: {scroll_by}): {imgs:#?}"
+        );
+        // trace!("stage 5: {imgs:#?}");
+        (imgs, scroll_by)
         // trace!("stage 3: {imgs:#?}");
         // trace!("stage 4(offset: {offset}): {imgs:#?}");
-        imgs
     }
 
     fn update_imgs<IMG: ResizableImage + Clone + Display>(
@@ -756,7 +822,7 @@ pub mod gallery {
                 |(mut rows, mut row_width_total), (i, (scaled_width, ratio))| {
                     let row = rows.last_mut().unwrap();
                     let img_fits_in_row = row_width_total + scaled_width <= max_width as f32;
-                    if img_fits_in_row {
+                    if img_fits_in_row && (row.aspect_ratio + ratio) < 5.0 {
                         row.aspect_ratio += ratio;
                         row.end_at = i;
                         row_width_total += scaled_width;
@@ -1256,8 +1322,8 @@ pub mod gallery {
             .unwrap_or(0.0)
     }
 
-    pub fn calc_fit_count(width: u32, height: u32, img_height: u32) -> u32 {
-        (width * height) / (img_height * img_height)
+    pub fn calc_fit_count(width: u32, height: f32, img_height: u32) -> usize {
+        ((width * height as u32) / (img_height * img_height)) as usize
     }
 
     #[cfg(test)]
@@ -1897,7 +1963,7 @@ pub mod gallery {
                 Img::new_full(6, 500, 500, 500.0, 500.0, 0.0, 500.0),
                 Img::new_full(7, 500, 500, 500.0, 500.0, 500.0, 500.0),
             ]);
-            let imgs = add_imgs_to_top(imgs, new_imgs, 1000, 500.0, 500);
+            let (imgs, scroll_by) = add_imgs_to_top(imgs, new_imgs, 1000, 500.0, 500);
             assert_eq!(expected_imgs, imgs);
             trace!("=======UPDATING IMGS=======");
             let imgs = Vec::from([
@@ -1947,7 +2013,7 @@ pub mod gallery {
                 //row 2
                 Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
             ]);
-            let imgs = add_imgs_to_top(imgs, new_imgs, 1000, 500.0, 500);
+            let (imgs, scroll_by) = add_imgs_to_top(imgs, new_imgs, 1000, 500.0, 500);
             assert_eq!(expected_imgs, imgs);
         }
 

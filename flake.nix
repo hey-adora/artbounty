@@ -33,37 +33,41 @@
             packages = [
               rust
               mold
-              cargo-leptos
-              wasm-pack
-              # wasm-bindgen-cli_0_2_100
-              tailwindcss_4
-              yarn
-              pre-commit
-              openssl.dev
-              pkg-config
-              alsa-lib
-              libudev-zero
               clang
-              # lld
-              sqlite
-              fontconfig
-              freetype
-              #wayland
-              wayland
-              libxkbcommon
-              #x11
-              # xorg.libX11
-              # xorg.libX11
-              # xorg.libXcursor
-              # xorg.libXi
-              # xorg.libXrandr
-              #vulkan
-              vulkan-tools
-              vulkan-headers
-              vulkan-loader
-              vulkan-validation-layers
-              #opengl
-              libGL
+	      # dioxus-cli
+              wasm-pack
+              wasm-bindgen-cli_0_2_100
+              tailwindcss_4
+	      watchman
+              yarn
+	      # bun
+	      # nodejs_24
+              cargo-leptos
+              # pre-commit
+              # openssl.dev
+              # pkg-config
+              # alsa-lib
+              # libudev-zero
+              # # lld
+              # sqlite
+              # fontconfig
+              # freetype
+              # #wayland
+              # wayland
+              # libxkbcommon
+              # #x11
+              # # xorg.libX11
+              # # xorg.libX11
+              # # xorg.libXcursor
+              # # xorg.libXi
+              # # xorg.libXrandr
+              # #vulkan
+              # vulkan-tools
+              # vulkan-headers
+              # vulkan-loader
+              # vulkan-validation-layers
+              # #opengl
+              # libGL
               #playwrith
               python312Packages.playwright
               playwright-driver.browsers
