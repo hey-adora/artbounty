@@ -1,25 +1,27 @@
 pub mod home {
-    use crate::toolbox::prelude::*;
+    use std::rc::Rc;
+
+    use crate::{
+        app::{
+            GlobalState,
+            components::{
+                gallery::{Gallery, Img},
+                nav::Nav,
+            },
+        },
+        toolbox::prelude::*,
+    };
     use leptos::prelude::*;
     use reactive_stores::Store;
     use tracing::trace;
     use web_sys::{HtmlDivElement, HtmlElement};
 
-    use crate::app::{
-        GlobalState,
-        components::gallery::{Gallery, Img},
-    };
-
     #[component]
     pub fn Page() -> impl IntoView {
         let main_ref = NodeRef::new();
         let global_state = expect_context::<GlobalState>();
-        let imgs = global_state.imgs;
-
-        // Effect::new(move || {
-        //     let new_imgs = Img::rand_vec(10);
-        //     imgs.set(new_imgs);
-        // });
+        let fake_imgs = RwSignal::new(Vec::<Img>::new());
+        // let imgs = global_state.imgs;
 
         main_ref.on_file_drop(async |event, data| {
             for file in data.get_files() {
@@ -33,35 +35,95 @@ pub mod home {
             }
 
             Ok(())
-            // for file in data.files().iter() {
-            //     let data = file.data().await;
-            //     let data = data.map(|data| String::from_utf8_lossy(&data).to_string());
-            //     trace!("file! {:?}", data);
-            // }
         });
 
-        // let get_imgs = move || {
-        //     let Some(gallery_elm): Option<HtmlElement> = main_ref.get() else {
-        //         trace!("refresh target not found");
-        //         return Vec::new();
-        //     };
-        //     trace!("refreshing...");
-        //     let width = gallery_elm.client_width() as u32;
+        Effect::new(move || {
+            let imgs = Img::rand_vec(1000);
+            fake_imgs.set(imgs);
+        });
 
-        //     let mut imgs = imgs.get();
-        //     resize_imgs(200, width, &mut imgs);
-        //     imgs.into_iter().enumerate().collect::<Vec<(usize, Img)>>()
-        // };
+        let fetch_init = Rc::new(move |count| -> Vec<Img> {
+            trace!("gog1");
+            if count == 0 || count > fake_imgs.with(|v| v.len()) {
+                Vec::new()
+            } else {
+                fake_imgs.with(|v| v[..count].to_vec())
+            }
+        });
+
+        let fetch_bottom = Rc::new(move |count: usize, last_img: Img| -> Vec<Img> {
+            trace!("gog2");
+
+            fake_imgs
+                .with_untracked(|imgs| {
+                    imgs.iter()
+                        .position(|img| img.id == last_img.id)
+                        .and_then(|pos_start| {
+                            let len = imgs.len();
+                            if len == pos_start + 1 {
+                                return None;
+                            }
+                            let pos_end = pos_start + count;
+                            let pos_end = if pos_start + count > len {
+                                len
+                            } else {
+                                pos_end
+                            };
+                            Some(imgs[pos_start..pos_end].to_vec())
+                        })
+                })
+                .unwrap_or_default()
+        });
+        let fetch_top = Rc::new(move |count: usize, last_img: Img| -> Vec<Img> {
+            trace!("gog2");
+
+            fake_imgs
+                .with_untracked(|imgs| {
+                    imgs.iter()
+                        .position(|img| img.id == last_img.id)
+                        .and_then(|pos_end| {
+                            if pos_end == 0 {
+                                return None;
+                            }
+                            let pos_start = pos_end.saturating_sub(count);
+                            Some(imgs[pos_start..pos_end].to_vec())
+                        })
+                })
+                .unwrap_or_default()
+        });
 
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen">
-                <nav class="text-gray-200 pb-1">
-                    <a href="/" class="font-black text-xl">
-                        "ArtBounty"
-                    </a>
-                    <a href="/two">"two"</a>
-                </nav>
-                <Gallery  />
+                <Nav/>
+                <Gallery fetch_init fetch_bottom fetch_top />
+            </main>
+        }
+    }
+}
+
+pub mod login {
+    use crate::{
+        app::{
+            GlobalState,
+            components::{gallery::Gallery, nav::Nav},
+        },
+        toolbox::prelude::*,
+    };
+    use leptos::prelude::*;
+    use reactive_stores::Store;
+    use tracing::trace;
+    use web_sys::{HtmlDivElement, HtmlElement};
+
+    #[component]
+    pub fn Page() -> impl IntoView {
+        let main_ref = NodeRef::new();
+        let global_state = expect_context::<GlobalState>();
+        // let imgs = global_state.imgs;
+
+        view! {
+            <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen">
+                <Nav/>
+                <div>"hello login"</div>
             </main>
         }
     }
