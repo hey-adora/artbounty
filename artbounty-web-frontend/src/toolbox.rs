@@ -2,7 +2,7 @@ pub mod prelude {
     pub use super::dropzone::{self, AddDropZone};
     pub use super::event_listener::{self, AddEventListener};
     pub use super::file::{self, GetFileStream, GetFiles, GetStreamChunk, PushChunkToVec};
-    pub use super::intersection_observer::{self, AddIntersectionObserver};
+    pub use super::intersection_observer::{self, AddIntersectionObserver, IntersectionOptions};
     pub use super::interval::{self};
     pub use super::random::{random_u8, random_u32, random_u32_ranged, random_u64};
     pub use super::resize_observer::{self, AddResizeObserver, GetContentBoxSize};
@@ -195,12 +195,16 @@ pub mod interval {
 }
 
 pub mod intersection_observer {
+    use std::cell::RefCell;
     use std::collections::HashMap;
     use std::hash::{DefaultHasher, Hash, Hasher};
     use std::ops::Deref;
+    use std::sync::{LazyLock, RwLock};
 
-    use leptos::html;
-    use leptos::{html::ElementType, prelude::*};
+    use leptos::html::ElementType;
+    use leptos::prelude::*;
+    // use leptos::html;
+    // use leptos::{html::ElementType, prelude::*};
     use ordered_float::OrderedFloat;
     use send_wrapper::SendWrapper;
     use sha2::Digest;
@@ -217,10 +221,45 @@ pub mod intersection_observer {
 
     const ID_FIELD_NAME: &str = "data-leptos_toolbox_intersection_observer_id";
     const ID_FIELD_ROOT_NAME: &str = "data-leptos_toolbox_intersection_observer_root_id";
+    // static OBSERVERS: LazyLock<RwLock<HashMap<u64, SendWrapper<IntersectionObserver>>>> =
+    //     LazyLock::new(|| RwLock::new(HashMap::new()));
+    // static CALLBACKS: LazyLock<
+    //     RwLock<
+    //         HashMap<
+    //             Uuid,
+    //             Box<
+    //                 dyn FnMut(IntersectionObserverEntry, IntersectionObserver)
+    //                     + Send
+    //                     + Sync
+    //                     + 'static,
+    //             >,
+    //         >,
+    //     >,
+    // > = LazyLock::new(|| RwLock::new(HashMap::new()));
+    #[thread_local]
+    static OBSERVERS: LazyLock<RefCell<HashMap<u64, SendWrapper<IntersectionObserver>>>> =
+        LazyLock::new(|| RefCell::new(HashMap::new()));
+    #[thread_local]
+    static CALLBACKS: LazyLock<
+        RefCell<
+            HashMap<
+                Uuid,
+                Box<
+                    dyn FnMut(IntersectionObserverEntry, IntersectionObserver)
+                        + Send
+                        + Sync
+                        + 'static,
+                >,
+            >,
+        >,
+    > = LazyLock::new(|| RefCell::new(HashMap::new()));
 
     pub trait AddIntersectionObserver {
-        fn observe_intersection_with_options<F, R>(&self, callback: F, options: Options<R>)
-        where
+        fn add_intersection_observer_with_options<F, R>(
+            &self,
+            callback: F,
+            options: IntersectionOptions<R>,
+        ) where
             R: ElementType,
             R::Output: JsCast + Clone + 'static + Into<HtmlElement>,
             F: FnMut(IntersectionObserverEntry, IntersectionObserver)
@@ -235,8 +274,11 @@ pub mod intersection_observer {
         E: ElementType,
         E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
     {
-        fn observe_intersection_with_options<F, R>(&self, callback: F, options: Options<R>)
-        where
+        fn add_intersection_observer_with_options<F, R>(
+            &self,
+            callback: F,
+            options: IntersectionOptions<R>,
+        ) where
             R: ElementType,
             R::Output: JsCast + Clone + 'static + Into<HtmlElement>,
             F: FnMut(IntersectionObserverEntry, IntersectionObserver)
@@ -249,24 +291,24 @@ pub mod intersection_observer {
         }
     }
 
-    #[derive(Default, Clone)]
-    pub struct GlobalState {
-        pub observer: StoredValue<HashMap<u64, SendWrapper<IntersectionObserver>>>,
-        pub callbacks: StoredValue<
-            HashMap<
-                Uuid,
-                Box<
-                    dyn FnMut(IntersectionObserverEntry, IntersectionObserver)
-                        + Send
-                        + Sync
-                        + 'static,
-                >,
-            >,
-        >,
-    }
+    // #[derive(Default, Clone)]
+    // pub struct GlobalState {
+    //     pub observer: StoredValue<HashMap<u64, SendWrapper<IntersectionObserver>>>,
+    //     pub callbacks: StoredValue<
+    //         HashMap<
+    //             Uuid,
+    //             Box<
+    //                 dyn FnMut(IntersectionObserverEntry, IntersectionObserver)
+    //                     + Send
+    //                     + Sync
+    //                     + 'static,
+    //             >,
+    //         >,
+    //     >,
+    // }
 
     #[derive(Clone)]
-    pub struct Options<E = leptos::html::Div>
+    pub struct IntersectionOptions<E = leptos::html::Div>
     where
         E: ElementType,
         E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
@@ -276,7 +318,7 @@ pub mod intersection_observer {
         threshold: Option<OrderedFloat<f64>>,
     }
 
-    impl<E> Default for Options<E>
+    impl<E> Default for IntersectionOptions<E>
     where
         E: ElementType,
         E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
@@ -290,7 +332,7 @@ pub mod intersection_observer {
         }
     }
 
-    impl<E> Options<E>
+    impl<E> IntersectionOptions<E>
     where
         E: ElementType,
         E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
@@ -311,7 +353,7 @@ pub mod intersection_observer {
         }
     }
 
-    impl<E> Hash for Options<E>
+    impl<E> Hash for IntersectionOptions<E>
     where
         E: ElementType,
         E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
@@ -329,7 +371,7 @@ pub mod intersection_observer {
         }
     }
 
-    pub fn new<E, R, F>(target: NodeRef<E>, mut callback: F, options: Options<R>)
+    pub fn new<E, R, F>(target: NodeRef<E>, mut callback: F, options: IntersectionOptions<R>)
     where
         E: ElementType,
         E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
@@ -337,13 +379,13 @@ pub mod intersection_observer {
         R::Output: JsCast + Clone + 'static + Into<HtmlElement>,
         F: FnMut(IntersectionObserverEntry, IntersectionObserver) + Clone + Send + Sync + 'static,
     {
-        let ctx = match use_context::<GlobalState>() {
-            Some(v) => v,
-            None => {
-                provide_context(GlobalState::default());
-                expect_context::<GlobalState>()
-            }
-        };
+        // let ctx = match use_context::<GlobalState>() {
+        //     Some(v) => v,
+        //     None => {
+        //         provide_context(GlobalState::default());
+        //         expect_context::<GlobalState>()
+        //     }
+        // };
         let id = Uuid::new_v4();
         let options_hash = StoredValue::new(None::<u64>);
 
@@ -380,13 +422,21 @@ pub mod intersection_observer {
             let target: HtmlElement = target.into();
 
             set_id(&target, ID_FIELD_NAME, id);
+            trace!("id set");
 
-            ctx.callbacks.update_value(|v| {
-                v.insert(id, Box::new(callback.clone()));
+            {
+                let mut callbacks = LazyLock::force(&CALLBACKS).borrow_mut();
+                callbacks.insert(id, Box::new(callback.clone()));
                 trace!("created callback");
-            });
+            }
+            // LazyLock::force(&CALLBACKS).borrow_mut()(|v| {
+            //     v.insert(id, Box::new(callback.clone()));
+            //     trace!("created callback");
+            // });
+            trace!("callback set");
 
-            ctx.observer.update_value(|observers| {
+            {
+                let mut observers = LazyLock::force(&OBSERVERS).borrow_mut();
                 trace!("getting observer...");
                 match observers.get_mut(&hash) {
                     Some(observer) => {
@@ -416,19 +466,20 @@ pub mod intersection_observer {
                         trace!("creating raw observer");
                         let observer = new_with_options_raw(
                             move |entries, observer| {
-                                ctx.callbacks.update_value(|callbacks| {
-                                    for entry in entries {
-                                        let target = entry.target();
-                                        let Some(id) = get_id(&target, ID_FIELD_NAME) else {
-                                            continue;
-                                        };
+                                let mut callbacks = LazyLock::force(&CALLBACKS).borrow_mut();
+                                for entry in entries {
+                                    let target = entry.target();
+                                    let Some(id) = get_id(&target, ID_FIELD_NAME) else {
+                                        continue;
+                                    };
 
-                                        let Some(callback) = callbacks.get_mut(&id) else {
-                                            continue;
-                                        };
-                                        callback(entry, observer.clone());
-                                    }
-                                });
+                                    let Some(callback) = callbacks.get_mut(&id) else {
+                                        continue;
+                                    };
+                                    callback(entry, observer.clone());
+                                }
+                                // ctx.callbacks.update_value(|callbacks| {
+                                // });
                             },
                             &observer_settings,
                         );
@@ -439,7 +490,9 @@ pub mod intersection_observer {
                         trace!("observer created");
                     }
                 };
-            });
+            }
+            // ctx.observer.update_value(|observers| {
+            // });
 
             span.exit();
         });
@@ -461,20 +514,36 @@ pub mod intersection_observer {
                 return;
             };
 
-            ctx.observer
-                .with_value(|observers| match observers.get(&options_hash) {
+            {
+                let observers = LazyLock::force(&OBSERVERS).borrow_mut();
+                match observers.get(&options_hash) {
                     Some(observer) => {
                         observer.unobserve(&target);
                     }
                     None => {
                         warn!("observer not found with hash {} for {}", options_hash, id);
                     }
-                });
+                }
+            }
+            // ctx.observer
+            //     .with_value(|observers| match observers.get(&options_hash) {
+            //         Some(observer) => {
+            //             observer.unobserve(&target);
+            //         }
+            //         None => {
+            //             warn!("observer not found with hash {} for {}", options_hash, id);
+            //         }
+            //     });
 
-            ctx.callbacks.update_value(|callbacks| {
+            {
+                let mut callbacks = LazyLock::force(&CALLBACKS).borrow_mut();
                 callbacks.remove(&id);
                 trace!("removed {}", &id);
-            });
+            }
+            // ctx.callbacks.update_value(|callbacks| {
+            //     callbacks.remove(&id);
+            //     trace!("removed {}", &id);
+            // });
 
             span.exit();
         });

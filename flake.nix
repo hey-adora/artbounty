@@ -19,6 +19,39 @@
       let
         overlays = [
           (import rust-overlay)
+          (final: prev: {
+            dioxus-cli-0_7 = final.rustPlatform.buildRustPackage {
+              pname = "dioxus-cli";
+              version = "0.7.0-alpha.1";
+              nativeCheckInputs = [ final.rustfmt ];
+              OPENSSL_NO_VENDOR = 1;
+              useFetchCargoVendor = true;
+              cargoHash = "sha256-r42Z6paBVC2YTlUr4590dSA5RJJEjt5gfKWUl91N/ac=";
+              buildFeatures = [
+                "no-downloads"
+                "optimizations"
+              ];
+
+              nativeBuildInputs = [
+                final.pkg-config
+                final.cacert
+              ];
+
+              buildInputs = [ final.openssl ];
+              src = final.fetchCrate {
+                pname = "dioxus-cli";
+                version = "0.7.0-alpha.1";
+                hash = "sha256-3b82XlxffgbtYbEYultQMzJRRwY/I36E1wgzrKoS8BU=";
+              };
+
+              checkFlags = [
+                # requires network access
+                "--skip=serve::proxy::test"
+                "--skip=wasm_bindgen::test"
+              ];
+            };
+          })
+
         ];
 
         pkgs = import nixpkgs { inherit system overlays; };
@@ -34,18 +67,19 @@
               rust
               mold
               clang
-	      # dioxus-cli
+              dioxus-cli-0_7
+              cargo-leptos
               wasm-pack
               wasm-bindgen-cli_0_2_100
               tailwindcss_4
-	      watchman
+              watchman
               yarn
-	      # bun
-	      # nodejs_24
-              cargo-leptos
-              # pre-commit
+              pkg-config
+              openssl
               # openssl.dev
-              # pkg-config
+              # bun
+              # nodejs_24
+              # pre-commit
               # alsa-lib
               # libudev-zero
               # # lld
@@ -75,13 +109,15 @@
             RUST_BACKTRACE = 1;
             RUST_SRC_PATH = rustPlatform.rustLibSrc;
             # RUSTFLAGS = "-C linker=clang -C link-arg=-fuse-ld=${pkgs.mold}/bin/mold -Z share-generics=y";
-            # LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
-            #   pkgs.wayland
-            #   pkgs.libxkbcommon
-            #   pkgs.vulkan-loader
-            #   pkgs.alsa-lib
-            #   pkgs.udev
-            # ];
+            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
+              # pkgs.openssl
+              # pkgs.openssl.dev
+              # pkgs.wayland
+              # pkgs.libxkbcommon
+              # pkgs.vulkan-loader
+              # pkgs.alsa-lib
+              # pkgs.udev
+            ];
             PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
             PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = true;
           };
