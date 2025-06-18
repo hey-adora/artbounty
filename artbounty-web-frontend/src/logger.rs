@@ -15,6 +15,7 @@ pub struct WASMTracingLayer {
 pub struct WASMTracingConfig {
     pub target: bool,
     pub line: bool,
+    pub max_level: tracing::Level,
     pub colors: ColorKind,
 }
 
@@ -31,6 +32,7 @@ pub fn simple_web_logger_init() {
             WASMTracingLayer::new(WASMTracingConfig {
                 line: false,
                 target: false,
+                max_level: tracing::Level::TRACE,
                 colors: ColorKind::Web,
             }),
         ),
@@ -45,6 +47,7 @@ pub fn simple_shell_logger_init() {
             WASMTracingLayer::new(WASMTracingConfig {
                 line: false,
                 target: false,
+                max_level: tracing::Level::TRACE,
                 colors: ColorKind::Ascii,
             }),
         ),
@@ -62,6 +65,14 @@ impl<S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'
     tracing_subscriber::Layer<S> for WASMTracingLayer
 {
     fn on_event(&self, event: &tracing::Event<'_>, ctx: tracing_subscriber::layer::Context<'_, S>) {
+        let max_level = self.config.max_level;
+        let meta = event.metadata();
+        let level = *meta.level();
+        if level > max_level {
+            return;
+        }
+        let colors = self.config.colors;
+
         let mut spans_combined = String::new();
         {
             let mut span_text: Vec<String> = Vec::new();
@@ -97,9 +108,6 @@ impl<S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'
             event.record(&mut visitor);
         }
 
-        let meta = event.metadata();
-        let level = *meta.level();
-        let colors = self.config.colors;
         let target = if self.config.target {
             format!(" {}", meta.target())
         } else {

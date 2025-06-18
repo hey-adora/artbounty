@@ -38,7 +38,7 @@ pub mod home {
         });
 
         Effect::new(move || {
-            let imgs = Img::rand_vec(1000);
+            let imgs = Img::rand_vec(200);
             fake_imgs.set(imgs);
         });
 
@@ -51,8 +51,8 @@ pub mod home {
             }
         });
 
-        let fetch_bottom = Rc::new(move |count: usize, last_img: Img| -> Vec<Img> {
-            trace!("gog2");
+        let fetch_bottom = move |count: usize, last_img: Img| -> Vec<Img> {
+            trace!("gogbtm");
 
             fake_imgs
                 .with_untracked(|imgs| {
@@ -73,15 +73,16 @@ pub mod home {
                         })
                 })
                 .unwrap_or_default()
-        });
-        let fetch_top = Rc::new(move |count: usize, last_img: Img| -> Vec<Img> {
-            trace!("gog2");
+        };
+        let fetch_top = move |count: usize, last_img: Img| -> Vec<Img> {
+            trace!("gogtop");
 
             fake_imgs
                 .with_untracked(|imgs| {
                     imgs.iter()
                         .position(|img| img.id == last_img.id)
                         .and_then(|pos_end| {
+                            trace!("FETCH_TOP: POS_END {pos_end}");
                             if pos_end == 0 {
                                 return None;
                             }
@@ -90,7 +91,7 @@ pub mod home {
                         })
                 })
                 .unwrap_or_default()
-        });
+        };
 
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen">
