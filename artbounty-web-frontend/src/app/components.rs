@@ -93,7 +93,7 @@ pub mod gallery {
                 return;
             }
             let (resized_imgs, scroll_by) =
-                add_imgs_to_top(prev_imgs, new_imgs, width, heigth, row_height);
+                add_imgs_to_top(prev_imgs, new_imgs, width, heigth * 3.0, row_height);
             trace!("scroll master: {scroll_by}");
             gallery.set(resized_imgs);
             gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
@@ -124,7 +124,7 @@ pub mod gallery {
             // let new_total_height = get_total_height(&resized_imgs);
             // let diff = new_total_height - prev_total_height;
             let (resized_imgs, scroll_by) =
-                add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth, row_height);
+                add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth * 3.0, row_height);
             trace!("scroll master: {scroll_by}");
             gallery.set(resized_imgs);
             gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
@@ -508,7 +508,7 @@ pub mod gallery {
     {
         let height_before_remove = get_total_height(&imgs);
         trace!("stage 0(KOKheight_before_remove: {height_before_remove}): {imgs:#?}");
-        if let Some(cut_index) = remove_until_fit_from_top(&mut imgs, heigth * 3.0) {
+        if let Some(cut_index) = remove_until_fit_from_top(&mut imgs, heigth) {
             imgs = imgs[cut_index..].to_vec();
             trace!("stage 1 ({cut_index}): {imgs:#?}");
         }
@@ -562,7 +562,7 @@ pub mod gallery {
         }
         let height_before_remove = get_total_height(&imgs);
         trace!("stage 0: {imgs:#?}");
-        if let Some(cut_index) = remove_until_fit_from_bottom(&mut imgs, heigth * 3.0) {
+        if let Some(cut_index) = remove_until_fit_from_bottom(&mut imgs, heigth) {
             imgs = imgs[..cut_index].to_vec();
             trace!("stage 1 ({cut_index}): {imgs:#?}");
         }
@@ -1099,6 +1099,32 @@ pub mod gallery {
     //         .0
     // }
 
+    // fn yyy<'a>(i: &'a usize) -> &'static [&'a usize] {
+    //     if *i == 0 { &[&i, &i, &i] } else { &[&i] }
+    // }
+
+    // pub fn get_chunks<'a>(rows: &'a [Row], max_width: u32) -> Vec<((&'a [Row], f64))> {
+    //     let len = rows.len();
+    //     let last_row_width_is_small = rows
+    //         .last()
+    //         .map(|v| v.total_scaled_width <= max_width as f64)
+    //         .unwrap_or(false);
+    //     let chunks: Vec<(&'a [Row], f64)> = if len > 1 && last_row_width_is_small {
+    //         Vec::from([
+    //             (&rows[..len - 1], max_width as f64),
+    //             (
+    //                 &rows[len - 1..],
+    //                 rows.last().map(|v| v.total_scaled_width).unwrap(),
+    //             ),
+    //         ])
+    //     } else if last_row_width_is_small {
+    //         Vec::from([(rows, rows.last().map(|v| v.total_scaled_width).unwrap())])
+    //     } else {
+    //         Vec::from([(rows, max_width as f64)])
+    //     };
+    //     chunks
+    // }
+
     pub fn set_rows_to_bottom(
         imgs: &mut [impl ResizableImage + Display],
         rows: &[Row],
@@ -1120,11 +1146,13 @@ pub mod gallery {
             rows,
             vec_img_to_string(imgs)
         );
+        // let chunks = get_chunks(rows, max_width);
         let len = rows.len();
         let last_row_width_is_small = rows
             .last()
             .map(|v| v.total_scaled_width <= max_width as f64)
             .unwrap_or(false);
+
         let chunks: &[(&[Row], f64)] = if len > 1 && last_row_width_is_small {
             &[
                 (&rows[..len - 1], max_width as f64),
@@ -1138,12 +1166,13 @@ pub mod gallery {
         } else {
             &[(rows, max_width as f64)]
         };
+
         // let last_row_width_is_small = rows
         //     .last()
         //     .map(|v| v.total_width <= max_width as f64)
         //     .unwrap_or(false);
         // let chunks: &[(&[Row], f64)] = &[(rows, max_width as f64)];
-        trace!("chunks {chunks:#?}");
+        trace!("chunks bottom {chunks:#?}");
         // trace!("chunks2 {chunks2:#?}");
         chunks.iter().for_each(|(rows, max_width)| {
             rows.iter().for_each(|row| {
@@ -1174,15 +1203,41 @@ pub mod gallery {
             .unwrap_or(0.0);
         trace!("row_pos_y: {}, {:#?}", row_pos_y, rows);
 
-        rows.iter().for_each(|row| {
-            let row_height: f64 = max_width as f64 / row.aspect_ratio;
-            let mut row_pos_x = 0.0;
-            row_pos_y -= row_height;
-            imgs[row.start_at..=row.end_at].iter_mut().for_each(|img| {
-                let (width, height) = img.get_size();
-                let new_width = row_height * (width as f64 / height as f64);
-                img.set_size(new_width, row_height, row_pos_x, row_pos_y);
-                row_pos_x += new_width;
+        let len = rows.len();
+        let last_row_width_is_small = rows
+            .last()
+            .map(|v| v.total_scaled_width <= max_width as f64)
+            .unwrap_or(false);
+
+        let chunks: &[(&[Row], f64)] = if len > 1 && last_row_width_is_small {
+            &[
+                (&rows[..len - 1], max_width as f64),
+                (
+                    &rows[len - 1..],
+                    rows.last().map(|v| v.total_scaled_width).unwrap(),
+                ),
+            ]
+        } else if last_row_width_is_small {
+            &[(rows, rows.last().map(|v| v.total_scaled_width).unwrap())]
+        } else {
+            &[(rows, max_width as f64)]
+        };
+        debug!("DEBUGGGGGGGGGGGGGGGG {chunks:#?}");
+        // let chunks = &[(rows, max_width as f64)];
+        // let chunks = get_chunks(rows, max_width);
+        trace!("chunks top {chunks:#?}");
+
+        chunks.iter().for_each(|(rows, max_width)| {
+            rows.iter().for_each(|row| {
+                let row_height: f64 = max_width / row.aspect_ratio;
+                let mut row_pos_x = 0.0;
+                row_pos_y -= row_height;
+                imgs[row.start_at..=row.end_at].iter_mut().for_each(|img| {
+                    let (width, height) = img.get_size();
+                    let new_width = row_height * (width as f64 / height as f64);
+                    img.set_size(new_width, row_height, row_pos_x, row_pos_y);
+                    row_pos_x += new_width;
+                });
             });
         });
     }
@@ -1859,7 +1914,7 @@ pub mod gallery {
 
             let rows = Vec::from([
                 Row::new(2, 3, 2.0, 0, 0.0),
-                Row::new(4, 4, 2.0, 1000, 500.0),
+                Row::new(4, 4, 2.0, 1000, 1000.0),
             ]);
 
             let mut imgs = Vec::from([
@@ -1881,7 +1936,7 @@ pub mod gallery {
                 Img::new_full(2, 500, 500, 500.0, 500.0, 0.0, 500.0),
                 Img::new_full(3, 500, 500, 500.0, 500.0, 500.0, 500.0),
                 //row 2
-                Img::new_full(4, 1000, 500, 500.0, 250.0, 0.0, 1000.0),
+                Img::new_full(4, 1000, 500, 1000.0, 500.0, 0.0, 1000.0),
             ]);
 
             set_rows_to_bottom(&mut imgs, &rows, 1000);
@@ -1911,7 +1966,10 @@ pub mod gallery {
             set_rows_to_bottom(&mut imgs, &rows, 1000);
             assert_eq!(expected_imgs, imgs);
 
-            let rows = Vec::from([Row::new(1, 2, 2.0, 0, 0.0), Row::new(0, 0, 2.0, 0, 0.0)]);
+            let rows = Vec::from([
+                Row::new(1, 2, 2.0, 1000, 1000.0),
+                Row::new(0, 0, 2.0, 1000, 1000.0),
+            ]);
 
             let mut imgs = Vec::from([
                 //row 0
@@ -1943,9 +2001,9 @@ pub mod gallery {
             assert_eq!(expected_imgs, imgs);
 
             let rows = Vec::from([
-                Row::new(3, 4, 2.0, 0, 0.0),
-                Row::new(2, 2, 2.0, 0, 0.0),
-                Row::new(0, 1, 2.0, 0, 0.0),
+                Row::new(3, 4, 2.0, 1000, 1000.0),
+                Row::new(2, 2, 2.0, 1000, 1000.0),
+                Row::new(0, 1, 2.0, 1000, 1000.0),
             ]);
 
             let mut imgs = Vec::from([
