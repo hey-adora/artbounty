@@ -1,8 +1,8 @@
-#![feature(test)]
-#![feature(strict_overflow_ops)]
-#![feature(lazy_get)]
-#![feature(thread_local)]
-extern crate test;
+// #![feature(test)]
+// #![feature(strict_overflow_ops)]
+// #![feature(lazy_get)]
+// #![feature(thread_local)]
+// extern crate test;
 
 use leptos::prelude::*;
 use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};

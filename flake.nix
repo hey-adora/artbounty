@@ -56,7 +56,7 @@
 
         pkgs = import nixpkgs { inherit system overlays; };
         naersk-lib = pkgs.callPackage naersk { };
-        rust = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+        rust_toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
       in
       {
         defaultPackage = naersk-lib.buildPackage ./.;
@@ -64,10 +64,10 @@
           with pkgs;
           mkShell {
             packages = [
-              rust
+              rust_toolchain
               mold
               clang
-              dioxus-cli-0_7
+              # dioxus-cli-0_7
               cargo-leptos
               wasm-pack
               wasm-bindgen-cli_0_2_100
@@ -107,7 +107,7 @@
               playwright-driver.browsers
             ];
             RUST_BACKTRACE = 1;
-            RUST_SRC_PATH = rustPlatform.rustLibSrc;
+            RUST_SRC_PATH = "${rust_toolchain}/lib/rustlib/src/rust/library";
             # RUSTFLAGS = "-C linker=clang -C link-arg=-fuse-ld=${pkgs.mold}/bin/mold -Z share-generics=y";
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
               # pkgs.openssl

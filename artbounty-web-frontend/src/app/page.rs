@@ -113,18 +113,42 @@ pub mod login {
     use leptos::prelude::*;
     use reactive_stores::Store;
     use tracing::trace;
-    use web_sys::{HtmlDivElement, HtmlElement};
+    use web_sys::{HtmlDivElement, HtmlElement, SubmitEvent};
 
     #[component]
     pub fn Page() -> impl IntoView {
         let main_ref = NodeRef::new();
         let global_state = expect_context::<GlobalState>();
+        let on_login = |e: SubmitEvent| {
+            e.prevent_default();
+
+            trace!("oh hello");
+        };
         // let imgs = global_state.imgs;
 
         view! {
-            <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen">
+            <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen  ">
                 <Nav/>
-                <div>"hello login"</div>
+                <div class="grid place-items-center text-white">
+                    <div class="bg-gray-900  flex flex-col gap-4 px-3 py-4">
+                        <h1 class="text-2xl font-bold">"Register"</h1>
+                        <form method="POST" action="" on:submit=on_login class="flex flex-col gap-2">
+                            <div class="flex flex-col gap-0">
+                                <label>"Username"</label>
+                                <input type="text" class="border-b-2 border-white" />
+                            </div>
+                            <div class="flex flex-col gap-0">
+                                <label>"Password"</label>
+                                <input type="password" class="border-b-2 border-white" />
+                            </div>
+                            <div class="flex flex-col gap-0">
+                                <label>"Invite Token"</label>
+                                <input type="password" class="border-b-2 border-white" />
+                            </div>
+                            <input type="submit" value="Register" class="border-2 border-white mt-2"/>
+                        </form>
+                    </div>
+                </div>
             </main>
         }
     }
