@@ -1,12 +1,9 @@
-cargo-features = ["codegen-backend"]
-
 [package]
 name = "artbounty-web-backend"
 version = "0.1.0"
 edition = "2024"
 
 [profile.dev]
-codegen-backend = "cranelift"
 opt-level = 0
 incremental = true
 codegen-units = 256
@@ -25,3 +22,7 @@ tower-http = { workspace = true }
 surrealdb = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+test-log = { workspace = true }

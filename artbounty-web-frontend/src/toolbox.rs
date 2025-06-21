@@ -236,23 +236,34 @@ pub mod intersection_observer {
     //         >,
     //     >,
     // > = LazyLock::new(|| RwLock::new(HashMap::new()));
-    #[thread_local]
-    static OBSERVERS: LazyLock<RefCell<HashMap<u64, SendWrapper<IntersectionObserver>>>> =
-        LazyLock::new(|| RefCell::new(HashMap::new()));
-    #[thread_local]
-    static CALLBACKS: LazyLock<
-        RefCell<
-            HashMap<
-                Uuid,
-                Box<
-                    dyn FnMut(IntersectionObserverEntry, IntersectionObserver)
-                        + Send
-                        + Sync
-                        + 'static,
+    thread_local! {
+        // #[thread_local]
+        // #[thread_local]
+        static OBSERVERS: LazyLock<RefCell<HashMap<u64, SendWrapper<IntersectionObserver>>>> =
+            LazyLock::new(|| RefCell::new(HashMap::new()));
+        // static OBSERVERS: LazyLock<RefCell<HashMap<u64, SendWrapper<IntersectionObserver>>>> =
+        //     MutStat;
+        static CALLBACKS: LazyLock<
+            RefCell<
+                HashMap<
+                    Uuid,
+                    Box<
+                        dyn FnMut(IntersectionObserverEntry, IntersectionObserver)
+                            + Send
+                            + Sync
+                            + 'static,
+                    >,
                 >,
             >,
-        >,
-    > = LazyLock::new(|| RefCell::new(HashMap::new()));
+        > = LazyLock::new(|| RefCell::new(HashMap::new()));
+    // static HASHMAP: LazyLock<HashMap<u32, &str>> = LazyLock::new(|| {
+    //     let mut m = HashMap::new();
+    //     m.insert(0, "foo");
+    //     m.insert(1, "bar");
+    //     m.insert(2, "baz");
+    //     m
+    // });
+    }
 
     pub trait AddIntersectionObserver {
         fn add_intersection_observer_with_options<F, R>(
@@ -425,9 +436,12 @@ pub mod intersection_observer {
             trace!("id set");
 
             {
-                let mut callbacks = LazyLock::force(&CALLBACKS).borrow_mut();
-                callbacks.insert(id, Box::new(callback.clone()));
-                trace!("created callback");
+                // HASHMAP.get(k);
+                CALLBACKS.with(|callbacks| {
+                    let mut callbacks = callbacks.borrow_mut();
+                    callbacks.insert(id, Box::new(callback.clone()));
+                    trace!("created callback");
+                });
             }
             // LazyLock::force(&CALLBACKS).borrow_mut()(|v| {
             //     v.insert(id, Box::new(callback.clone()));
@@ -436,60 +450,67 @@ pub mod intersection_observer {
             trace!("callback set");
 
             {
-                let mut observers = LazyLock::force(&OBSERVERS).borrow_mut();
-                trace!("getting observer...");
-                match observers.get_mut(&hash) {
-                    Some(observer) => {
-                        observer.observe(&target);
-                        trace!("observer already exists");
-                    }
-                    None => {
-                        trace!("no observer found");
-
-                        let observer_settings = IntersectionObserverInit::new();
-
-                        if let Some(root) = root {
-                            trace!("root option set");
-                            observer_settings.set_root(Some(&root));
+                // let mut observers = LazyLock::force(&OBSERVERS).borrow_mut();
+                OBSERVERS.with(|observers| {
+                    let mut observers = observers.borrow_mut();
+                    trace!("getting observer...");
+                    match observers.get_mut(&hash) {
+                        Some(observer) => {
+                            observer.observe(&target);
+                            trace!("observer already exists");
                         }
+                        None => {
+                            trace!("no observer found");
 
-                        if let Some(margin) = &options.root_margin {
-                            trace!("margin option set");
-                            observer_settings.set_root_margin(margin);
+                            let observer_settings = IntersectionObserverInit::new();
+
+                            if let Some(root) = root {
+                                trace!("root option set");
+                                observer_settings.set_root(Some(&root));
+                            }
+
+                            if let Some(margin) = &options.root_margin {
+                                trace!("margin option set");
+                                observer_settings.set_root_margin(margin);
+                            }
+
+                            if let Some(threshold) = options.threshold {
+                                trace!("threshold option set");
+                                observer_settings.set_threshold(&JsValue::from_f64(*threshold));
+                            }
+
+                            trace!("creating raw observer");
+                            let observer = new_with_options_raw(
+                                move |entries, observer| {
+                                    CALLBACKS.with(|v| {
+                                        let mut callbacks = v.borrow_mut();
+
+                                        for entry in entries {
+                                            let target = entry.target();
+                                            let Some(id) = get_id(&target, ID_FIELD_NAME) else {
+                                                continue;
+                                            };
+
+                                            let Some(callback) = callbacks.get_mut(&id) else {
+                                                continue;
+                                            };
+                                            callback(entry, observer.clone());
+                                        }
+                                    });
+                                    // ctx.callbacks.update_value(|callbacks| {
+                                    // });
+                                },
+                                &observer_settings,
+                            );
+
+                            trace!("inserting raw observer...");
+                            let observer =
+                                observers.entry(hash).or_insert(SendWrapper::new(observer));
+                            observer.observe(&target);
+                            trace!("observer created");
                         }
-
-                        if let Some(threshold) = options.threshold {
-                            trace!("threshold option set");
-                            observer_settings.set_threshold(&JsValue::from_f64(*threshold));
-                        }
-
-                        trace!("creating raw observer");
-                        let observer = new_with_options_raw(
-                            move |entries, observer| {
-                                let mut callbacks = LazyLock::force(&CALLBACKS).borrow_mut();
-                                for entry in entries {
-                                    let target = entry.target();
-                                    let Some(id) = get_id(&target, ID_FIELD_NAME) else {
-                                        continue;
-                                    };
-
-                                    let Some(callback) = callbacks.get_mut(&id) else {
-                                        continue;
-                                    };
-                                    callback(entry, observer.clone());
-                                }
-                                // ctx.callbacks.update_value(|callbacks| {
-                                // });
-                            },
-                            &observer_settings,
-                        );
-
-                        trace!("inserting raw observer...");
-                        let observer = observers.entry(hash).or_insert(SendWrapper::new(observer));
-                        observer.observe(&target);
-                        trace!("observer created");
-                    }
-                };
+                    };
+                });
             }
             // ctx.observer.update_value(|observers| {
             // });
@@ -515,15 +536,17 @@ pub mod intersection_observer {
             };
 
             {
-                let observers = LazyLock::force(&OBSERVERS).borrow_mut();
-                match observers.get(&options_hash) {
-                    Some(observer) => {
-                        observer.unobserve(&target);
+                OBSERVERS.with(|observers| {
+                    let mut observers = observers.borrow_mut();
+                    match observers.get(&options_hash) {
+                        Some(observer) => {
+                            observer.unobserve(&target);
+                        }
+                        None => {
+                            warn!("observer not found with hash {} for {}", options_hash, id);
+                        }
                     }
-                    None => {
-                        warn!("observer not found with hash {} for {}", options_hash, id);
-                    }
-                }
+                });
             }
             // ctx.observer
             //     .with_value(|observers| match observers.get(&options_hash) {
@@ -536,9 +559,11 @@ pub mod intersection_observer {
             //     });
 
             {
-                let mut callbacks = LazyLock::force(&CALLBACKS).borrow_mut();
-                callbacks.remove(&id);
-                trace!("removed {}", &id);
+                CALLBACKS.with(|callbacks| {
+                    let mut callbacks = callbacks.borrow_mut();
+                    callbacks.remove(&id);
+                    trace!("removed {}", &id);
+                });
             }
             // ctx.callbacks.update_value(|callbacks| {
             //     callbacks.remove(&id);

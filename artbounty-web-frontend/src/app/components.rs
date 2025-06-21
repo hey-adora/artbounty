@@ -568,7 +568,11 @@ pub mod gallery {
         }
 
         let height_after_remove = get_total_height(&imgs);
-        let Some(offset) = imgs.len().strict_add(new_imgs.len()).checked_sub(2) else {
+        let Some(offset) = imgs
+            .len()
+            .checked_add(new_imgs.len())
+            .and_then(|v| v.checked_sub(2))
+        else {
             return (imgs, 0.0);
         };
         // .inspect(|offset| trace!(offset))
@@ -736,7 +740,7 @@ pub mod gallery {
             .position(|current_row_height| current_row_height <= view_height)
             .and_then(|i| if i == 0 { None } else { Some(i) })
             .inspect(|i| trace!("remove i: {i}"))
-            .map(|i| imgs.len().strict_sub(i))
+            .and_then(|i| imgs.len().checked_sub(i))
     }
 
     pub fn remove_until_fit_from_top<IMG>(imgs: &[IMG], view_height: f64) -> Option<usize>
@@ -1569,7 +1573,6 @@ pub mod gallery {
         use ordered_float::OrderedFloat;
         use pretty_assertions::{assert_eq, assert_ne};
         use std::{fmt::Display, str::FromStr};
-        use test::Bencher;
         use test_log::test;
         use tracing::{level_filters::LevelFilter, trace};
         use wasm_bindgen::JsCast;
