@@ -21,7 +21,6 @@ pub mod gallery {
         prelude::*,
         tachys::html::node_ref::NodeRefContainer,
     };
-    use ordered_float::OrderedFloat;
     use std::{default::Default, time::Duration};
     use std::{
         fmt::{Debug, Display},
