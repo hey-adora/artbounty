@@ -1,6 +1,6 @@
 @import "tailwindcss" source(none);
 
-@source "../artbounty-web-frontend/**/*.rs";
+@source "../artbounty-frontend/**/*.rs";
 /* @import "tailwindcss"; */
 
 @theme {

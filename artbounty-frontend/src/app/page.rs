@@ -110,22 +110,65 @@ pub mod login {
         },
         toolbox::prelude::*,
     };
-    use leptos::prelude::*;
+    use artbounty_api::api;
+    use leptos::{
+        html::{Input, div, h1, main},
+        prelude::*,
+        task::spawn_local,
+    };
     use reactive_stores::Store;
-    use tracing::trace;
+    use tracing::{debug, trace};
     use web_sys::{HtmlDivElement, HtmlElement, SubmitEvent};
 
     #[component]
     pub fn Page() -> impl IntoView {
         let main_ref = NodeRef::new();
-        let global_state = expect_context::<GlobalState>();
-        let on_login = |e: SubmitEvent| {
-            e.prevent_default();
+        let input_username: NodeRef<Input> = NodeRef::new();
+        let input_password: NodeRef<Input> = NodeRef::new();
+        let input_password_confirmation: NodeRef<Input> = NodeRef::new();
 
+        // let data = OnceResource::new(api::register::create());
+        let global_state = expect_context::<GlobalState>();
+        // let g = Action::new(|username: String, password: String, password_confirm: String| {})
+        let register = ServerAction::<api::register::Create>::new();
+        let on_login = move |e: SubmitEvent| {
+            e.prevent_default();
+            let (Some(username), Some(password), Some(password_confirmation)) = (
+                input_username.get(),
+                input_password.get(),
+                input_password_confirmation.get(),
+            ) else {
+                return;
+            };
+
+            let username = username.value();
+            let username_trimmed = username.trim().to_string();
+
+            let password = password.value();
+            // register.dispatch(api::register::Create {  });
             trace!("oh hello");
+            spawn_local(async move {
+                let data = api::register::create(
+                    "hey".to_string(),
+                    "hey@hey.com".to_string(),
+                    "hey".to_string(),
+                )
+                .await;
+                trace!("result: {data:#?}");
+            });
         };
         // let imgs = global_state.imgs;
 
+        let wowza = (0..100).map(|i| div().child(i)).collect_view();
+
+        let v2 = main().class("grid grid-rows-[auto_1fr] h-screen  ").child((
+            Nav(),
+            div().class("grid place-items-center text-white").child(
+                div()
+                    .class("bg-gray-900  flex flex-col gap-4 px-3 py-4")
+                    .child((h1().class("text-2xl font-bold").child("Register"), wowza)),
+            ),
+        ));
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen  ">
                 <Nav/>
@@ -135,15 +178,15 @@ pub mod login {
                         <form method="POST" action="" on:submit=on_login class="flex flex-col gap-2">
                             <div class="flex flex-col gap-0">
                                 <label>"Username"</label>
-                                <input type="text" class="border-b-2 border-white" />
+                                <input node_ref=input_username type="text" class="border-b-2 border-white" />
                             </div>
                             <div class="flex flex-col gap-0">
                                 <label>"Password"</label>
-                                <input type="password" class="border-b-2 border-white" />
+                                <input node_ref=input_password type="password" class="border-b-2 border-white" />
                             </div>
                             <div class="flex flex-col gap-0">
-                                <label>"Invite Token"</label>
-                                <input type="password" class="border-b-2 border-white" />
+                                <label>"Password Confirmation"</label>
+                                <input node_ref=input_password_confirmation type="password" class="border-b-2 border-white" />
                             </div>
                             <input type="submit" value="Register" class="border-2 border-white mt-2"/>
                         </form>
@@ -152,4 +195,26 @@ pub mod login {
             </main>
         }
     }
+
+    // pub mod api2 {
+    //     pub mod register {
+    //         use leptos::{prelude::*, server};
+
+    //         #[server]
+    //         pub async fn create() -> Result<usize, ServerFnError> {
+    //             Ok(69)
+    //         }
+    //     }
+    // }
+
+    // pub mod api {
+    //     pub mod register {
+    //         use leptos::{prelude::*, server};
+
+    //         #[server]
+    //         pub async fn create() -> Result<usize, ServerFnError> {
+    //             Ok(69)
+    //         }
+    //     }
+    // }
 }

@@ -67,6 +67,7 @@
               rust_toolchain
               mold
               clang
+              # llvmPackages.bintools
               # dioxus-cli-0_7
               cargo-leptos
               wasm-pack

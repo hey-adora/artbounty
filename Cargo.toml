@@ -1,8 +1,20 @@
 [workspace]
 resolver = "2"
-members = ["artbounty-web-backend", "artbounty-web-frontend"]
+members = [
+    "artbounty-api",
+    "artbounty-db",
+    "artbounty-backend",
+    "artbounty-frontend",
+]
 
 [workspace.dependencies]
+pin-project-lite = "0.2.16"
+strum = { version = "0.27.1", features = ["strum_macros", "derive"] }
+artbounty-frontend = { path = "artbounty-frontend" }
+artbounty-api = { path = "artbounty-api" }
+artbounty-db = { path = "artbounty-db" }
+tower_governor = "0.7.0"
+cfg-if = "1.0.1"
 password-hash = "0.5.0"
 argon2 = "0.5.3"
 itertools = "0.14.0"
@@ -10,24 +22,23 @@ colored = "3.0.0"
 # rand = "0.9.1"
 # getrandom = { version = "0.3.3", features = ["wasm_js"] }
 serde = "1.0.219"
-artbounty-web-frontend = { path = "artbounty-web-frontend" }
 axum = { version = "0.8.4" }
 leptos_axum = { version = "0.8.2" }
 tokio = { version = "1.45.1", features = ["full"] }
-tower = { version = "0.5.2" }
-tower-http = { version = "0.6.4", features = ["compression-full"] }
+tower = { version = "0.5.2", features = ["timeout"] }
+tower-http = { version = "0.6.4", features = ["compression-full", "timeout"] }
 surrealdb = { version = "2.3.3", features = ["kv-surrealkv", "kv-mem"] }
 console_error_panic_hook = "0.1.7"
 gloo = { version = "0.11.0", features = ["file", "futures"] }
 indexmap = "2.9.0"
 indextree = "4.7.4"
-leptos = { version = "0.8.2", features = ["rkyv", "nightly"] }
+leptos = { version = "0.8.2", features = ["rkyv"] }
 leptos_router = { version = "0.8.2" }
 leptos_meta = "0.8.2"
 ordered-float = { version = "5.0.0", features = ["rkyv"] }
 reactive_stores = "0.2.2"
 rkyv = "0.8.10"
-server_fn = { version = "0.7.7", features = ["rkyv"] }
+server_fn = { version = "0.8.2", features = ["rkyv"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 uuid = { version = "1.17.0", features = ["v4", "js"] }
@@ -36,6 +47,7 @@ wasm-bindgen-futures = { version = "0.4.50" }
 wasm-bindgen-test = "0.3.50"
 send_wrapper = { version = "0.6.0" }
 sha2 = { version = "0.10.9" }
+bytecheck = "0.8.1"
 futures = { version = "0.3.31" }
 thiserror = { version = "2.0.12" }
 anyhow = { version = "1.0.98" }
@@ -68,8 +80,8 @@ web-sys = { version = "0.3.77", features = [
 
 [[workspace.metadata.leptos]]
 name = "artbounty"
-bin-package = "artbounty-web-backend"
-lib-package = "artbounty-web-frontend"
+bin-package = "artbounty-backend"
+lib-package = "artbounty-frontend"
 output-name = "artbounty_1"
 site-root = "target/site"
 site-pkg-dir = "pkg"

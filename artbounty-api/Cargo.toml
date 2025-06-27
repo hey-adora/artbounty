@@ -1,0 +1,34 @@
+[package]
+name = "artbounty-api"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+artbounty-db = { workspace = true, optional = true }
+leptos = { workspace = true }
+server_fn = { workspace = true }
+tracing = { workspace = true }
+bytecheck = { workspace = true }
+rkyv = { workspace = true }
+cfg-if = { workspace = true }
+pin-project-lite = { workspace = true }
+axum = { workspace = true, optional = true }
+leptos_axum = { workspace = true, optional = true }
+tower = { workspace = true, optional = true }
+tower-http = { workspace = true, optional = true }
+tower_governor = { workspace = true, optional = true }
+thiserror = { workspace = true }
+strum = { workspace = true }
+serde = { workspace = true }
+
+[features]
+hydrate = ["leptos/hydrate"]
+ssr = [
+    "leptos/ssr",
+    "dep:axum",
+    "dep:tower",
+    "dep:leptos_axum",
+    "dep:artbounty-db",
+    "dep:tower_governor",
+]
+csr = ["leptos/csr"]

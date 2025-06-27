@@ -1,5 +1,5 @@
 [package]
-name = "artbounty-web-frontend"
+name = "artbounty-frontend"
 version = "0.1.0"
 edition = "2024"
 
@@ -22,12 +22,13 @@ codegen-units = 1
 panic = "abort"
 
 [features]
-hydrate = ["leptos/hydrate"]
-ssr = ["leptos/ssr", "leptos_router/ssr"]
-csr = ["leptos/csr"]
+hydrate = ["leptos/hydrate", "artbounty-api/hydrate"]
+ssr = ["leptos/ssr", "leptos_router/ssr", "artbounty-api/ssr"]
+csr = ["leptos/csr", "artbounty-api/csr"]
 # csr = ["leptos/csr", "leptos_meta/csr", "leptos_router/csr"]
 
 [dependencies]
+artbounty-api = { workspace = true }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
 web-sys = { workspace = true }
@@ -52,6 +53,7 @@ pretty_assertions = { workspace = true }
 itertools = { workspace = true }
 colored = { workspace = true }
 log = { workspace = true }
+server_fn = { workspace = true }
 
 [dev-dependencies]
 wasm-bindgen-test = { workspace = true }
