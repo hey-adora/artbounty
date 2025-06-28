@@ -159,16 +159,16 @@ pub mod login {
         };
         // let imgs = global_state.imgs;
 
-        let wowza = (0..100).map(|i| div().child(i)).collect_view();
+        // let wowza = (0..100).map(|i| div().child(i)).collect_view();
 
-        let v2 = main().class("grid grid-rows-[auto_1fr] h-screen  ").child((
-            Nav(),
-            div().class("grid place-items-center text-white").child(
-                div()
-                    .class("bg-gray-900  flex flex-col gap-4 px-3 py-4")
-                    .child((h1().class("text-2xl font-bold").child("Register"), wowza)),
-            ),
-        ));
+        // let v2 = main().class("grid grid-rows-[auto_1fr] h-screen  ").child((
+        //     Nav(),
+        //     div().class("grid place-items-center text-white").child(
+        //         div()
+        //             .class("bg-gray-900  flex flex-col gap-4 px-3 py-4")
+        //             .child((h1().class("text-2xl font-bold").child("Register"), wowza)),
+        //     ),
+        // ));
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen  ">
                 <Nav/>
