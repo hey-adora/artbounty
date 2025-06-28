@@ -24,7 +24,7 @@ pub mod api {
         use leptos::{prelude::*, server};
         use server_fn::codec::{Json, Rkyv, RkyvEncoding};
         use thiserror::Error;
-        use tower::timeout::TimeoutLayer;
+        // use tower::timeout::TimeoutLayer;
         use std::{string::ToString, time::Duration};
         // static a: std::sync::Arc<tower_governor::governor::GovernorConfig> = std::sync::Arc::new(tower_governor::governor::GovernorConfig::default());
         // use strum::{Display, EnumString};
@@ -35,7 +35,8 @@ pub mod api {
             input = Rkyv,
             output = Rkyv, 
         )]
-        #[middleware(tower_http::timeout::TimeoutLayer::new(std::time::Duration::from_secs(1)))]
+        #[middleware(crate::middleware::auth::AuthLayer)]
+        // #[middleware(tower_http::timeout::TimeoutLayer::new(std::time::Duration::from_secs(2)))]
         // #[middleware((TimeoutLayer::new(Duration::from_secs(5))))]
         // #[middleware((TimeoutLayer::new(Duration::from_secs(5)), crate::middleware::log::LogLayer))]
         // #[middleware(crate::middleware::log::LogLayer)]
@@ -43,8 +44,9 @@ pub mod api {
         pub async fn create(username: String, email: String, password: String) -> Result<String, ServerFnError<CreateErr>> {
         use artbounty_db::db::{DB, AddUserErr};
         use leptos_axum::{extract, extract_with_state};
+        use tokio::time::sleep;
 
-            
+            // sleep(Duration::from_secs(3)).await;
             let res = DB.add_user(username, email, password).await.map_err(|err| match err {
                 AddUserErr::Email(_) => CreateErr::Email,
                 _ => CreateErr::ServerErr
@@ -87,9 +89,10 @@ pub mod middleware {
         };
 
         use axum::{
-            body::Body, extract::Request,  middleware::Next, response::{IntoResponse}
+            body::Body,  http::{Response,Request, StatusCode}, middleware::Next, response::IntoResponse
         };
         use pin_project_lite::pin_project;
+        use server_fn::ServerFnError;
         use tower::{BoxError, Layer, Service};
         use tracing::trace;
         use thiserror::Error;
@@ -116,15 +119,17 @@ pub mod middleware {
             inner: T,
         }
 
-        impl<T> Service<Request<Body>> for AuthService<T>
+        impl<S, ReqBody, ResBody, Err> Service<Request<ReqBody>> for AuthService<S>
         where
-            T: Service<Request>,
-            T::Error: Into<BoxError>
+            S: Service<Request<ReqBody>, Response = Response<ResBody>, Error = ServerFnError<Err>>,
+            ResBody: Default + std::fmt::Debug,
+            Err: std::fmt::Debug
+            // S::Error: std::fmt::Debug+ Default
         {
-            type Response = T::Response;
-            type Error = BoxError;
+            type Response = S::Response;
+            type Error = S::Error;
             // type Future = ResponseF<T::Future>;
-            type Future = AuthServiceFuture<T::Future>;
+            type Future = AuthServiceFuture<S::Future>;
 
             fn poll_ready(
                 &mut self,
@@ -132,11 +137,11 @@ pub mod middleware {
             ) -> std::task::Poll<Result<(), Self::Error>> {
                 // Self::Error::
                 
-                //self.inner.poll_ready(cx)
-                Poll::Ready(Err(Box::new(KaboomErr::Boom)))
+                self.inner.poll_ready(cx)
+                // Poll::Ready(Err(Box::new(KaboomErr::Boom)))
             }
 
-            fn call(&mut self, req: Request<Body>) -> Self::Future {
+            fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
                 // req..
                 trace!("where the hell am i");
                 AuthServiceFuture {
@@ -152,13 +157,14 @@ pub mod middleware {
             }
         }
 
-        impl<F, Res, Err> Future for AuthServiceFuture<F>
+        impl<F, Body, Err> Future for AuthServiceFuture<F>
         where
-            F: Future<Output = Result<Res, Err>>,
-            Err: Into<BoxError>
+            F: Future<Output = Result<Response<Body>, ServerFnError<Err>>>,
+            Body: Default + std::fmt::Debug,
+            Err: std::fmt::Debug 
             
         {
-            type Output = Result<Res, BoxError>;
+            type Output = Result<Response<Body>, ServerFnError<Err>>;
 
             fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
                 let this = self.project();
@@ -166,8 +172,16 @@ pub mod middleware {
                 match this.inner.poll(cx) {
                     Poll::Pending => Poll::Pending,
                     Poll::Ready(output) => {
+                        trace!("OUTPUT: {output:#?}");
+                        // let mut res: Response<ServerFnError<Err>> = Response::new( ServerFnError::MiddlewareError("aaaaaaaaaaaaaaa".to_string()) );
+                        // let mut res = Response::new(Body::default());
+                        // *res.status_mut() = StatusCode::UNAUTHORIZED;
+                        // res.body_mut().push_str("hello world");
+
                         trace!("runing middleware 3");
-                        Poll::Ready(output.map_err(Into::into))
+                        // Poll::Ready(output.map_err(Into::into))
+                        // Poll::Ready(Err(res))
+                        Poll::Ready(Err(ServerFnError::MiddlewareError("aaaaaaaaaaaaaaa".to_string())))
                     }
                 }
             }
