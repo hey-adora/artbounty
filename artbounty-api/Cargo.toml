@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+artbounty-shared = { workspace = true }
 artbounty-db = { workspace = true, optional = true }
 leptos = { workspace = true }
 server_fn = { workspace = true }
@@ -21,6 +22,11 @@ tokio = { workspace = true, optional = true }
 thiserror = { workspace = true }
 strum = { workspace = true }
 serde = { workspace = true }
+http = { workspace = true }
+biscotti = { workspace = true, optional = true }
+
+[dev-dependencies]
+test-log = { workspace = true }
 
 [features]
 hydrate = ["leptos/hydrate"]
@@ -33,5 +39,6 @@ ssr = [
     "dep:tower_governor",
     "dep:tower-http",
     "dep:tokio",
+    "dep:biscotti",
 ]
 csr = ["leptos/csr"]
