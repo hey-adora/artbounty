@@ -4,7 +4,7 @@ use indextree::NodeId;
 use leptos::prelude::*;
 use leptos_router::components::*;
 use leptos_router::path;
-use page::{home, login};
+use page::{home, login, register};
 use reactive_stores::Store;
 use tracing::trace;
 
@@ -30,6 +30,7 @@ pub fn App() -> impl IntoView {
             <Routes fallback=|| "not found">
                 <Route path=path!("") view=home::Page />
                 <Route path=path!("/login") view=login::Page />
+                <Route path=path!("/register") view=register::Page />
             </Routes>
         </Router>
     }

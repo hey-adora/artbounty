@@ -102,6 +102,107 @@ pub mod home {
     }
 }
 
+pub mod register {
+
+    use artbounty_api::api;
+    use artbounty_shared::auth::{proccess_email, proccess_password, proccess_username};
+    use leptos::{
+        html::{Input, div, h1, main},
+        prelude::*,
+        task::spawn_local,
+    };
+    use tracing::{debug, trace};
+    use web_sys::SubmitEvent;
+
+    use crate::app::components::nav::Nav;
+    #[component]
+    pub fn Page() -> impl IntoView {
+        let main_ref = NodeRef::new();
+        let input_username: NodeRef<Input> = NodeRef::new();
+        let input_email: NodeRef<Input> = NodeRef::new();
+        let input_password: NodeRef<Input> = NodeRef::new();
+        let input_password_confirmation: NodeRef<Input> = NodeRef::new();
+        let username_err = RwSignal::new(String::new());
+        let email_err = RwSignal::new(String::new());
+        let password_err = RwSignal::new(String::new());
+        // let register = ServerAction::<api::register::Register>::new();
+        let on_register = move |e: SubmitEvent| {
+            e.prevent_default();
+            let (Some(username), Some(email), Some(password), Some(password_confirmation)) = (
+                input_username.get(),
+                input_email.get(),
+                input_password.get(),
+                input_password_confirmation.get(),
+            ) else {
+                return;
+            };
+
+            let username = proccess_username(username.value());
+            let email = proccess_email(email.value());
+            let password = proccess_password(password.value(), password_confirmation.value());
+
+            if let Err(err) = &username {
+                username_err.set(err.clone());
+            }
+
+            if let Err(err) = &email {
+                email_err.set(err.clone());
+            }
+
+            if let Err(err) = &password {
+                password_err.set(err.clone());
+            }
+
+            let (Ok(username), Ok(email), Ok(password)) = (username, email, password) else {
+                return;
+            };
+
+            // if !username.is_alphanumerc() {}
+
+            // let email = password.value();
+            // let password = password.value();
+            // let password_confirmation = password_confirmation.value();
+
+            // register.dispatch(api::register::Create {  });
+            trace!("oh hello");
+            spawn_local(async move {
+                let data = api::register::register(username, email, password).await;
+                trace!("register result: {data:#?}");
+            });
+        };
+        view! {
+            <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen  ">
+                <Nav/>
+                <div class="grid place-items-center text-white">
+                    <div class="bg-gray-900  flex flex-col gap-4 px-3 py-4">
+                        <h1 class="text-2xl font-bold">"Register"</h1>
+                        <form method="POST" action="" on:submit=on_register class="flex flex-col gap-2">
+                            <div class="flex flex-col gap-0">
+                                <label for="username">"Username"</label>
+                                <Show when=move || username_err.with(|err|!err.is_empty())>{move || username_err.get()}</Show>
+                                <input id="username" node_ref=input_username type="text" class="border-b-2 border-white" />
+                            </div>
+                            <div class="flex flex-col gap-0">
+                                <label for="email">"Email"</label>
+                                <input id="email" node_ref=input_email type="text" class="border-b-2 border-white" />
+                            </div>
+                            <div class="flex flex-col gap-0">
+                                <label for="password">"Password"</label>
+                                <input id="password" node_ref=input_password type="password" class="border-b-2 border-white" />
+                            </div>
+                            <div class="flex flex-col gap-0">
+                                <label for="password_confirmation">"Password Confirmation"</label>
+                                <input id="password_confirmation" node_ref=input_password_confirmation type="password" class="border-b-2 border-white" />
+                            </div>
+                            <input type="submit" value="Register" class="border-2 border-white mt-2"/>
+                        </form>
+                    </div>
+                </div>
+            </main>
+        }
+    }
+}
+
 pub mod login {
     use crate::{
         app::{
@@ -123,38 +224,28 @@ pub mod login {
     #[component]
     pub fn Page() -> impl IntoView {
         let main_ref = NodeRef::new();
-        let input_username: NodeRef<Input> = NodeRef::new();
+        let input_email: NodeRef<Input> = NodeRef::new();
         let input_password: NodeRef<Input> = NodeRef::new();
-        let input_password_confirmation: NodeRef<Input> = NodeRef::new();
+        // let input_password_confirmation: NodeRef<Input> = NodeRef::new();
 
         // let data = OnceResource::new(api::register::create());
         let global_state = expect_context::<GlobalState>();
         // let g = Action::new(|username: String, password: String, password_confirm: String| {})
-        let register = ServerAction::<api::register::Create>::new();
+        let register = ServerAction::<api::register::Register>::new();
         let on_login = move |e: SubmitEvent| {
             e.prevent_default();
-            let (Some(username), Some(password), Some(password_confirmation)) = (
-                input_username.get(),
-                input_password.get(),
-                input_password_confirmation.get(),
-            ) else {
+            let (Some(email), Some(password)) = (input_email.get(), input_password.get()) else {
                 return;
             };
 
-            let username = username.value();
-            let username_trimmed = username.trim().to_string();
-
+            let email = email.value();
             let password = password.value();
+
             // register.dispatch(api::register::Create {  });
             trace!("oh hello");
             spawn_local(async move {
-                let data = api::register::create(
-                    "hey".to_string(),
-                    "hey@hey.com".to_string(),
-                    "hey".to_string(),
-                )
-                .await;
-                trace!("result: {data:#?}");
+                let data = api::login::login("hey@hey.com".to_string(), "hey".to_string()).await;
+                trace!("register result: {data:#?}");
             });
         };
         // let imgs = global_state.imgs;
@@ -174,21 +265,17 @@ pub mod login {
                 <Nav/>
                 <div class="grid place-items-center text-white">
                     <div class="bg-gray-900  flex flex-col gap-4 px-3 py-4">
-                        <h1 class="text-2xl font-bold">"Register"</h1>
+                        <h1 class="text-2xl font-bold">"Login"</h1>
                         <form method="POST" action="" on:submit=on_login class="flex flex-col gap-2">
                             <div class="flex flex-col gap-0">
-                                <label>"Username"</label>
-                                <input node_ref=input_username type="text" class="border-b-2 border-white" />
+                                <label>"Email"</label>
+                                <input node_ref=input_email type="email" class="border-b-2 border-white" />
                             </div>
                             <div class="flex flex-col gap-0">
                                 <label>"Password"</label>
                                 <input node_ref=input_password type="password" class="border-b-2 border-white" />
                             </div>
-                            <div class="flex flex-col gap-0">
-                                <label>"Password Confirmation"</label>
-                                <input node_ref=input_password_confirmation type="password" class="border-b-2 border-white" />
-                            </div>
-                            <input type="submit" value="Register" class="border-2 border-white mt-2"/>
+                            <input type="submit" value="Login" class="border-2 border-white mt-2"/>
                         </form>
                     </div>
                 </div>

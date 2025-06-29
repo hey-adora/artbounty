@@ -85,7 +85,7 @@ pub mod db {
                             -- user
                             DEFINE TABLE user SCHEMAFULL;
                             DEFINE FIELD username ON TABLE user TYPE string;
-                            DEFINE FIELD email ON TABLE user TYPE string ASSERT string::is::email($value);
+                            DEFINE FIELD email ON TABLE user TYPE string;
                             DEFINE FIELD password ON TABLE user TYPE string;
                             DEFINE FIELD modified_at ON TABLE user TYPE datetime DEFAULT time::now();
                             DEFINE FIELD created_at ON TABLE user TYPE datetime DEFAULT time::now();
@@ -135,11 +135,16 @@ pub mod db {
                 .await?;
             trace!("{:#?}", result);
             let mut result = result.check().map_err(|err| match err {
-                surrealdb::Error::Db(surrealdb::error::Db::FieldValue { value, check, .. })
-                    if check == "string::is::email($value)" =>
-                {
-                    AddUserErr::Email(value)
-                }
+                // surrealdb::Error::Db(surrealdb::error::Db::FieldValue { value, check, .. })
+                //     if check == "string::is::email($value)" =>
+                // {
+                //     AddUserErr::EmailInvalid(value)
+                // }
+                // surrealdb::Error::Db(surrealdb::error::Db::FieldValue { value, check, .. })
+                //     if check == "string::is::alphanum($value)" =>
+                // {
+                //     AddUserErr::UsernameInvalid(value)
+                // }
                 surrealdb::Error::Db(surrealdb::error::Db::IndexExists {
                     index, value, ..
                 }) if index == "idx_user_email" => AddUserErr::EmailIsTaken(value),
@@ -173,12 +178,13 @@ pub mod db {
         #[error("hashing error {0}")]
         Hash(#[from] password_hash::Error),
 
-        #[error("invalid email {0}")]
-        Email(String),
-
+        // #[error("invalid email \"{0}\"")]
+        // EmailInvalid(String),
         #[error("email {0} is taken")]
         EmailIsTaken(String),
 
+        // #[error("username \"{0}\" is invalid")]
+        // UsernameInvalid(String),
         #[error("username {0} is taken")]
         UsernameIsTaken(String),
     }
@@ -216,15 +222,15 @@ mod database_tests {
             .unwrap();
         trace!("{user:#?}");
 
-        let user: core::result::Result<User, AddUserErr> = db
-            .add_user(
-                "hey2".to_string(),
-                "heyhey.com".to_string(),
-                "hey".to_string(),
-            )
-            .await;
-        trace!("{user:#?}");
-        assert!(matches!(user, Err(AddUserErr::Email(_))));
+        // let user: core::result::Result<User, AddUserErr> = db
+        //     .add_user(
+        //         "hey2".to_string(),
+        //         "heyhey.com".to_string(),
+        //         "hey".to_string(),
+        //     )
+        //     .await;
+        // trace!("{user:#?}");
+        // assert!(matches!(user, Err(AddUserErr::EmailInvalid(_))));
 
         let user = db
             .add_user(
@@ -245,5 +251,15 @@ mod database_tests {
             .await;
         trace!("{user:#?}");
         assert!(matches!(user, Err(AddUserErr::UsernameIsTaken(_))));
+
+        // let user = db
+        //     .add_user(
+        //         "hey$%".to_string(),
+        //         "hey3@hey.com".to_string(),
+        //         "hey".to_string(),
+        //     )
+        //     .await;
+        // trace!("{user:#?}");
+        // assert!(matches!(user, Err(AddUserErr::UsernameInvalid(_))));
     }
 }

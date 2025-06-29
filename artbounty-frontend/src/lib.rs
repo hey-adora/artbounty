@@ -14,6 +14,7 @@ use tracing::debug;
 pub mod app;
 pub mod logger;
 pub mod toolbox;
+pub mod utils;
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
