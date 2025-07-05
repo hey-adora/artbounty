@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 artbounty-shared = { workspace = true }
 artbounty-db = { workspace = true, optional = true }
+argon2 = { workspace = true, optional = true }
 leptos = { workspace = true }
 server_fn = { workspace = true }
 tracing = { workspace = true }
@@ -24,8 +25,11 @@ strum = { workspace = true }
 serde = { workspace = true }
 http = { workspace = true }
 biscotti = { workspace = true, optional = true }
+jsonwebtoken = { workspace = true, optional = true }
+jiff = { workspace = true }
 
 [dev-dependencies]
+# artbounty-db = { workspace = true, features = ["test"] }
 test-log = { workspace = true }
 
 [features]
@@ -40,5 +44,7 @@ ssr = [
     "dep:tower-http",
     "dep:tokio",
     "dep:biscotti",
+    "dep:argon2",
+    "dep:jsonwebtoken",
 ]
 csr = ["leptos/csr"]

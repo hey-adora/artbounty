@@ -38,13 +38,27 @@ pub mod db {
         pub async fn connect(&self) {
             // TODO make path as env
             let db = &self.db;
-            cfg_if! {
-                if #[cfg(test)] {
-                    db.connect::<Mem>(()).await.unwrap();
-                } else {
-                    db.connect::<SurrealKv>("db5").await.unwrap();
-                }
-            }
+            db.connect::<SurrealKv>("db5").await.unwrap();
+            // #[cfg(feature = "test")]
+            // {
+            //     trace!("USING MEM DB");
+            //     db.connect::<Mem>(()).await.unwrap();
+            // }
+
+            // #[cfg(not(feature = "test"))]
+            // {
+            //     trace!("USING FILE DB");
+            //     db.connect::<SurrealKv>("db5").await.unwrap();
+            // }
+            // cfg_if! {
+            //     if #[cfg(feature = "test")] {
+            //         trace!("USING MEM DB");
+            //         db.connect::<Mem>(()).await.unwrap();
+            //     } else {
+            //         trace!("USING FILE DB");
+            //         db.connect::<SurrealKv>("db5").await.unwrap();
+            //     }
+            // }
             db.use_ns("artbounty").use_db("web").await.unwrap();
         }
     }
@@ -91,6 +105,12 @@ pub mod db {
                             DEFINE FIELD created_at ON TABLE user TYPE datetime DEFAULT time::now();
                             DEFINE INDEX idx_user_username ON TABLE user COLUMNS username UNIQUE;
                             DEFINE INDEX idx_user_email ON TABLE user COLUMNS email UNIQUE;
+                            -- session
+                            DEFINE TABLE session SCHEMAFULL;
+                            DEFINE FIELD access_token ON TABLE session TYPE string;
+                            DEFINE FIELD modified_at ON TABLE session TYPE datetime DEFAULT time::now();
+                            DEFINE FIELD created_at ON TABLE session TYPE datetime DEFAULT time::now();
+                            DEFINE INDEX idx_session_access_token ON TABLE session COLUMNS access_token UNIQUE;
 
                             CREATE migration SET version = 0;
                         };
@@ -105,6 +125,47 @@ pub mod db {
             Ok(())
         }
 
+        // pub async fn verify_user(&self, email: String, password: String) {
+        //     let db = &self.db;
+        // }
+
+        pub async fn get_user_password_hash<S: Into<String>>(
+            &self,
+            email: S,
+        ) -> Result<String, GetUserPasswordErr> {
+            let db = &self.db;
+            let email = email.into();
+            // let mut result = db
+            //     .query(
+            //         r#"
+            //          LET $value = SELECT password FROM user WHERE email = $email;
+            //          $value.password
+            //     "#,
+            //     )
+            //     .bind(("email", email))
+            //     .await?;
+            let mut result = db
+                .query(
+                    r#"
+                    (SELECT password FROM user WHERE email = $email).password
+                "#,
+                )
+                .bind(("email", email))
+                .await?;
+
+            // let mut result = result.check().map_err(|err| match err {
+            //     surrealdb::Error::Db(surrealdb::error::Db::IndexExists { index, .. })
+            //         if index == "idx_session_token" =>
+            //     {
+            //         AddSessionErr::TokenExists
+            //     }
+            //     err => err.into(),
+            // })?;
+
+            let mut password: Vec<String> = result.take(0)?;
+            Ok(password[0].clone())
+        }
+
         pub async fn add_user(
             &self,
             username: String,
@@ -112,14 +173,14 @@ pub mod db {
             password: String,
         ) -> Result<User, AddUserErr> {
             let db = &self.db;
-            let password = {
-                let salt = SaltString::generate(&mut OsRng);
-                let argon2 = Argon2::default();
-                let password_hash = argon2
-                    .hash_password(password.as_bytes(), &salt)?
-                    .to_string();
-                password_hash
-            };
+            // let password = {
+            //     let salt = SaltString::generate(&mut OsRng);
+            //     let argon2 = Argon2::default();
+            //     let password_hash = argon2
+            //         .hash_password(password.as_bytes(), &salt)?
+            //         .to_string();
+            //     password_hash
+            // };
             let mut result = db
                 .query(
                     r#"
@@ -153,8 +214,47 @@ pub mod db {
                 }) if index == "idx_user_username" => AddUserErr::UsernameIsTaken(value),
                 err => err.into(),
             })?;
-            let mut user: Vec<User> = result.take(0)?;
-            Ok(user[0].clone())
+            let mut user = result
+                .take::<Option<User>>(0)?
+                .ok_or(AddUserErr::NotFound)?;
+
+            Ok(user)
+        }
+
+        pub async fn add_session<S: Into<String>>(
+            &self,
+            token: S,
+        ) -> Result<Session, AddSessionErr> {
+            let db = &self.db;
+            let token: String = token.into();
+            let mut result = db
+                .query(
+                    r#"
+                     CREATE session SET access_token = $access_token;
+                "#,
+                )
+                .bind(("access_token", token))
+                .await?;
+
+            trace!("result: {result:#?}");
+
+            let mut result = result.check().map_err(|err| match err {
+                surrealdb::Error::Db(surrealdb::error::Db::IndexExists { index, .. })
+                    if index == "idx_session_access_token" =>
+                {
+                    AddSessionErr::TokenExists
+                }
+                err => err.into(),
+            });
+
+            trace!("result2: {result:#?}");
+            let mut result = result?;
+
+            let mut session = result
+                .take::<Option<Session>>(0)?
+                .ok_or(AddSessionErr::NotFound)?;
+
+            Ok(session)
         }
     }
 
@@ -170,13 +270,24 @@ pub mod db {
         // marketing: bool,
     }
 
+    #[derive(Debug, Serialize, Deserialize, Clone)]
+    pub struct Session {
+        pub id: RecordId,
+        pub access_token: String,
+        pub modified_at: Datetime,
+        pub created_at: Datetime,
+    }
+
     #[derive(Debug, Error)]
     pub enum AddUserErr {
         #[error("DB error {0}")]
         DB(#[from] surrealdb::Error),
 
-        #[error("hashing error {0}")]
-        Hash(#[from] password_hash::Error),
+        #[error("not found")]
+        NotFound,
+
+        // #[error("hashing error {0}")]
+        // Hash(#[from] password_hash::Error),
 
         // #[error("invalid email \"{0}\"")]
         // EmailInvalid(String),
@@ -187,6 +298,27 @@ pub mod db {
         // UsernameInvalid(String),
         #[error("username {0} is taken")]
         UsernameIsTaken(String),
+    }
+
+    #[derive(Debug, Error)]
+    pub enum AddSessionErr {
+        #[error("DB error {0}")]
+        DB(#[from] surrealdb::Error),
+
+        #[error("not found")]
+        NotFound,
+
+        #[error("token already exists")]
+        TokenExists,
+    }
+
+    #[derive(Debug, Error)]
+    pub enum GetUserPasswordErr {
+        #[error("DB error {0}")]
+        DB(#[from] surrealdb::Error),
+
+        #[error("token already exists")]
+        UserNotFound,
     }
 }
 
@@ -200,6 +332,7 @@ mod database_tests {
     // use surrealdb::Surreal;
 
     // // For an in memory database
+    use surrealdb::Datetime;
     use surrealdb::engine::local::Mem;
     use test_log::test;
     use tracing::trace;
@@ -207,6 +340,46 @@ mod database_tests {
     // use crate::db::AddUserErr;
     use crate::db::User;
     use crate::db::{AddUserErr, Db};
+
+    // #[test(tokio::test)]
+    // async fn test_time() {
+    //     let a = Datetime::default();
+    //     let b = a.to_string();
+    //     // let c: u128 = a.try_into().unwrap();
+    //     trace!("{b}");
+    //     // let b = RecordI
+    // }
+    #[test(tokio::test)]
+    async fn test_get_user_password() {
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate().await.unwrap();
+
+        let user = db
+            .add_user(
+                "hey".to_string(),
+                "hey@hey.com".to_string(),
+                "hey".to_string(),
+            )
+            .await
+            .unwrap();
+        let password = db.get_user_password_hash("hey@hey.com").await;
+        trace!("session: {password:?}");
+        assert!(password.is_ok());
+    }
+
+    #[test(tokio::test)]
+    async fn test_add_session() {
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate().await.unwrap();
+
+        let session = db.add_session("token").await;
+        trace!("session: {session:?}");
+        assert!(session.is_ok());
+
+        let session = db.add_session("token").await;
+        trace!("session: {session:?}");
+        assert!(session.is_err());
+    }
 
     #[test(tokio::test)]
     async fn register() {

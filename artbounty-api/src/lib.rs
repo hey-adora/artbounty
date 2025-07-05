@@ -59,12 +59,107 @@ pub mod api {
     // //         }
     // //     }
     // // }
+
+    // pub struct User {
+
+    // }
+
+    pub mod profile {
+        use leptos::{prelude::*, server};
+        use server_fn::codec::Rkyv;
+        use thiserror::Error;
+        use tracing::trace;
+
+        pub struct ApiProfile {
+            pub username: String,
+        }
+
+        #[server(
+            prefix = "/api",
+            endpoint = "profile",
+            input = Rkyv,
+            output = Rkyv, 
+        )]
+        // #[middleware(crate::middleware::auth::AuthLayer)]
+        pub async fn profile() -> Result<(), ServerFnError<ProfileErr>>{
+            use axum::http::{Request};
+            use leptos_axum::extract;
+            use http::HeaderMap;
+
+            let header: HeaderMap = extract().await.unwrap();
+            // let header: HeaderMap = extract().await.map_err(|_| ProfileErr::ServerErr)?;
+            trace!("headermap {header:#?}");
+
+            Ok(())
+        }
+
+        async fn profile_inner() {
+
+        }
+        
+        #[derive(
+            Debug,
+            Error,
+            Clone,
+            strum::Display,
+            strum::EnumString,
+            serde::Serialize,
+            serde::Deserialize,
+            rkyv::Archive,
+            rkyv::Serialize,
+            rkyv::Deserialize,
+        )]
+        pub enum ProfileErr {
+            ServerErr,
+        }
+
+        #[cfg(test)]
+        pub mod test_profile {
+            use artbounty_db::db::DB;
+            use http::{request::Parts, Extensions, HeaderMap, Method, Request, Uri, Version};
+            use leptos::prelude::provide_context;
+            use test_log::test;
+
+            use crate::api::profile::profile;
+
+            #[test(tokio::test)]
+            async fn test_profile() {
+                // DB.connect().await;
+                // DB.migrate().await.unwrap();
+                // let builder = Request::builder();
+                // let r = builder.method(Method::POST).uri("http://localhost:3000/api/login").version(Version::HTTP_11).extension(Extensions::new()).header("Bearer", "foo").body(()).unwrap();
+                // let (parts, ()) = r.into_parts();
+                // provide_context::<Parts>(parts);
+
+                // provide_context(Parts {
+                //     version: Version::HTTP_11,
+                //     extensions: Extensions::new(),
+                //     headers: {
+                //         let map = HeaderMap::new();
+                //         // map.insert(key, val)
+                //         map
+                //     },
+                //     method: Method::POST,
+                //     uri: Uri::from_static("http://localhost:3000/api/login"),
+                //     ..Default::default()
+                // });
+
+                // let result = profile().await.unwrap();
+            }
+        }
+    }
+
     pub mod login {
         use http::HeaderValue;
+        use jiff::Timestamp;
+        // use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation};
         use leptos::{prelude::*, server};
         use server_fn::codec::{Json, Rkyv, RkyvEncoding};
+        use tracing::trace;
         use std::{string::ToString, time::Duration};
         use thiserror::Error;
+
+        // use crate::auth::verify_password;
         #[server(
             prefix = "/api",
             endpoint = "login",
@@ -78,13 +173,37 @@ pub mod api {
         ) -> Result<String, ServerFnError<LoginErr>> {
             use artbounty_db::db::{AddUserErr, DB};
             use leptos_axum::ResponseOptions;
+            use crate::auth::{Claims, encode_token, get_nanos, verify_password};
+
             let response = expect_context::<ResponseOptions>();
             // response.set_status(Sta);
             // response.;
+            trace!("1");
+
+            let password_hash = DB.get_user_password_hash(email).await.map_err(|_| LoginErr::ServerErr)?;
+            let password_correct = verify_password(password, password_hash);
+            if !password_correct {
+                return Err(ServerFnError::from(LoginErr::ServerErr));
+            }
+            
+            trace!("2");
+
+            let time = get_nanos();
+            let token = encode_token("secret", Claims::new("hey", time)).map_err(|_| LoginErr::ServerErr)?;
+            trace!("2.5");
+            let r = DB.add_session(token.clone()).await;
+            trace!("r {r:#?}");
+
+            r.map_err(|_| LoginErr::ServerErr)?;
+            let cookie = format!("Bearer={token}; Secure; HttpOnly");
+
+            trace!("3");
             response.append_header(
                 http::header::SET_COOKIE,
-                HeaderValue::from_str("Bearer=yowza; Secure; HttpOnly").unwrap(),
+                HeaderValue::from_str(&cookie).unwrap(),
             );
+
+
             // response.append_header(
             //     http::header::SET_COOKIE,
             //     HeaderValue::from_str("authorization=yowza; Secure; HttpOnly").unwrap(),
@@ -105,8 +224,8 @@ pub mod api {
             Debug,
             Error,
             Clone,
-            Default,
-            //strum::Display,
+            // Default,
+            strum::Display,
             strum::EnumString,
             //strum::Display,
             //strum::EnumString,
@@ -117,12 +236,14 @@ pub mod api {
             rkyv::Deserialize,
         )]
         pub enum LoginErr {
-            #[default]
-            #[error("internal server error")]
+            // #[default]
+            // #[error("internal server error")]
             ServerErr,
             // #[error("invalid email")]
             // Email,
         }
+
+
     }
     pub mod register {
         // use artbounty_db::db::DbKv;
@@ -130,6 +251,22 @@ pub mod api {
         use server_fn::codec::{Json, Rkyv, RkyvEncoding};
         use std::{string::ToString, time::Duration};
         use thiserror::Error;
+
+
+        // #[derive(
+        //     Debug,
+        //     Error,
+        //     Clone,
+        //     serde::Serialize,
+        //     serde::Deserialize,
+        //     rkyv::Archive,
+        //     rkyv::Serialize,
+        //     rkyv::Deserialize,
+        // )]
+        // pub struct User {
+        //     pub 
+        // }
+
         // use tower::timeout::TimeoutLayer;
 
         // use crate::api::MidErr;
@@ -144,7 +281,7 @@ pub mod api {
             input = Rkyv,
             output = Rkyv, 
         )]
-        #[middleware(crate::middleware::auth::AuthLayer)]
+        // #[middleware(crate::middleware::auth::AuthLayer)]
         // #[middleware(tower_http::timeout::TimeoutLayer::new(std::time::Duration::from_secs(2)))]
         // #[middleware((TimeoutLayer::new(Duration::from_secs(5))))]
         // #[middleware((TimeoutLayer::new(Duration::from_secs(5)), crate::middleware::log::LogLayer))]
@@ -154,25 +291,34 @@ pub mod api {
             username: String,
             email: String,
             password: String,
-        ) -> Result<String, ServerFnError<CreateErr>> {
+        ) -> Result<(), ServerFnError<RegisterErr>> {
             use artbounty_db::db::{AddUserErr, DB};
             use leptos_axum::{extract, extract_with_state};
             use tokio::time::sleep;
 
-            // sleep(Duration::from_secs(3)).await;
+
+            sleep(Duration::from_secs(3)).await;
             let res = DB
                 .add_user(username, email, password)
                 .await
                 .map_err(|err| match err {
                     // AddUserErr::EmailInvalid(_) => CreateErr::EmailInvalid,
-                    AddUserErr::EmailIsTaken(_) => CreateErr::EmailTaken,
-                    AddUserErr::UsernameIsTaken(_) => CreateErr::UsernameTaken,
+                    AddUserErr::EmailIsTaken(_) => RegisterErr::EmailTaken,
+                    AddUserErr::UsernameIsTaken(_) => RegisterErr::UsernameTaken,
                     // AddUserErr::UsernameInvalid(_) => CreateErr::UsernameInvalid,
-                    _ => CreateErr::ServerErr,
+                    _ => RegisterErr::ServerErr,
                 })?;
+            
+
             // let (db):(State<DbKv>) = extract_with_state().await?;
-            Ok(res.id.to_string())
+            // Ok(res.id.to_string())
+            Ok(())
         }
+
+        // #[cfg(feature = "ssr")]
+        // pub async fn register_inner() {
+
+        // }
 
         #[derive(
             Debug,
@@ -189,7 +335,7 @@ pub mod api {
             rkyv::Serialize,
             rkyv::Deserialize,
         )]
-        pub enum CreateErr {
+        pub enum RegisterErr {
             // #[default]
             // #[error("internal server error")]
             ServerErr,
@@ -201,6 +347,10 @@ pub mod api {
             UsernameInvalid,
         }
 
+        // pub fn err_to_string(err: RegisterErr) {
+        //     match err
+        // }
+
         #[cfg(test)]
         mod test_register {
             use test_log::test;
@@ -210,12 +360,104 @@ pub mod api {
 
             #[test(tokio::test)]
             async fn test_api_register() {
-                DB.connect().await;
-                DB.migrate().await.unwrap();
-                let r = register("hey".to_string(), "hey@hey.com".to_string(), "hey".to_string()).await;
-                trace!("API RESULT: {r:#?}");
+                // DB.connect().await;
+                // DB.migrate().await.unwrap();
+                // let r = register("hey".to_string(), "hey@hey.com".to_string(), "hey".to_string()).await.unwrap();
+                // trace!("API RESULT: {r:#?}");
             }
         }
+    }
+}
+
+#[cfg(feature = "ssr")]
+pub mod auth {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use argon2::{password_hash::{self, rand_core::OsRng, SaltString}, Argon2, PasswordHash, PasswordVerifier};
+    use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation};
+    use argon2::PasswordHasher;
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    pub struct Claims {
+        username: String,
+        created_at: u128,
+        exp: u64,
+    }
+
+    impl Claims {
+        pub fn new<S: Into<String>>(username: S, time: u128) -> Self {
+            let username: String = username.into();
+            Claims { username, created_at: time, exp: 0 }
+        }
+    }
+
+    pub fn get_nanos() -> u128 {
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    }
+
+    pub fn verify_password<T: AsRef<[u8]>, S2: AsRef<str>>(password: T, hash: S2) -> bool { 
+        let password = password.as_ref();
+        let hash = hash.as_ref();
+        PasswordHash::new(hash).and_then(|hash|Argon2::default().verify_password(password, &hash) ).is_ok()
+        
+    }
+
+    pub fn hash_password<S: Into<String>>(password: S) -> Result<String, password_hash::Error> {
+        let salt = SaltString::generate(&mut OsRng);
+        let argon2 = Argon2::default();
+        let password = password.into();
+        let password_hash = argon2
+            .hash_password(password.as_bytes(), &salt)?
+            .to_string();
+        Ok(password_hash)
+    }
+
+    // fn foo<S: ToOwned<Owned = String>>(bar: S) -> String {
+    //     bar.to_owned()
+    // }
+
+    pub fn encode_token<Key: AsRef<[u8]>>(key: Key, claims: Claims) -> Result<String, jsonwebtoken::errors::Error> {
+        let header = Header::new(Algorithm::HS512);
+        let key = EncodingKey::from_secret(key.as_ref());
+
+        let token = encode(&header, &claims, &key);
+
+        token
+    }
+
+    pub fn decode_token<Key: AsRef<[u8]>, S: AsRef<str>>(key: Key, token: S)-> Result<TokenData<Claims>, jsonwebtoken::errors::Error> {
+        let token = token.as_ref();
+        let key = DecodingKey::from_secret(key.as_ref());
+        let mut validation = Validation::new(Algorithm::HS512);
+        validation.validate_exp = false;
+        let claims = decode::<Claims>(token, &key, &validation);
+
+        claims
+
+    }
+
+    #[cfg(test)]
+    mod login_auth {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        use jiff::Timestamp;
+        use test_log::test;
+        use tracing::trace;
+        use super::{decode_token, encode_token, Claims};
+
+        #[test]
+        fn test_login() {
+            let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            trace!("time {time}");
+            // let time = Timestamp::now();
+            let claims = Claims::new("hey", time);
+            let token = encode_token("secret", claims).unwrap();
+            trace!("\ntoken: {token}");
+            let decoded_token = decode_token("secret", &token).unwrap();
+            trace!("\ndecoded: {decoded_token:?}");
+            // let token2 = encode_token("secret", time).unwrap();
+        }
+        
     }
 }
 
