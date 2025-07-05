@@ -162,8 +162,11 @@ pub mod db {
             //     err => err.into(),
             // })?;
 
-            let mut password: Vec<String> = result.take(0)?;
-            Ok(password[0].clone())
+            let mut password = result
+                .take::<Option<String>>(0)?
+                .ok_or(GetUserPasswordErr::UserNotFound)?;
+            trace!("result: {password}");
+            Ok(password)
         }
 
         pub async fn add_user(
@@ -173,6 +176,7 @@ pub mod db {
             password: String,
         ) -> Result<User, AddUserErr> {
             let db = &self.db;
+            trace!("add_user input: username {username} email: {email} password: {password}");
             // let password = {
             //     let salt = SaltString::generate(&mut OsRng);
             //     let argon2 = Argon2::default();

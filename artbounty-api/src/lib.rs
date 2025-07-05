@@ -180,10 +180,11 @@ pub mod api {
             // response.;
             trace!("1");
 
-            let password_hash = DB.get_user_password_hash(email).await.map_err(|_| LoginErr::ServerErr)?;
+            let password_hash = DB.get_user_password_hash(email).await.map_err(|_| LoginErr::Incorrect)?;
+            trace!("1.5");
             let password_correct = verify_password(password, password_hash);
             if !password_correct {
-                return Err(ServerFnError::from(LoginErr::ServerErr));
+                return Err(ServerFnError::from(LoginErr::Incorrect));
             }
             
             trace!("2");
@@ -239,6 +240,7 @@ pub mod api {
             // #[default]
             // #[error("internal server error")]
             ServerErr,
+            Incorrect,
             // #[error("invalid email")]
             // Email,
         }
@@ -252,6 +254,19 @@ pub mod api {
         use std::{string::ToString, time::Duration};
         use thiserror::Error;
 
+
+        #[derive(
+            Debug,
+            Clone,
+            serde::Serialize,
+            serde::Deserialize,
+            rkyv::Archive,
+            rkyv::Serialize,
+            rkyv::Deserialize,
+        )]
+        pub struct RegisterResult {
+            pub email: String,
+        }
 
         // #[derive(
         //     Debug,
@@ -291,13 +306,21 @@ pub mod api {
             username: String,
             email: String,
             password: String,
-        ) -> Result<(), ServerFnError<RegisterErr>> {
+        ) -> Result<RegisterResult, ServerFnError<RegisterErr>> {
             use artbounty_db::db::{AddUserErr, DB};
             use leptos_axum::{extract, extract_with_state};
             use tokio::time::sleep;
+            use artbounty_shared::auth::{proccess_email, proccess_username, proccess_password};
+            use crate::auth::hash_password;
 
 
-            sleep(Duration::from_secs(3)).await;
+            // sleep(Duration::from_secs(3)).await;
+
+            let username = proccess_username(username).map_err(|err| RegisterErr::UsernameInvalid(err))?;
+            let email = proccess_email(email).map_err(|err| RegisterErr::EmailInvalid(err))?;
+            let password = proccess_password(password, None).and_then(|pss| hash_password(pss).map_err(|_| "hasher error".to_string())).map_err(|err| RegisterErr::PasswordInvalid(err))?;
+
+
             let res = DB
                 .add_user(username, email, password)
                 .await
@@ -311,8 +334,11 @@ pub mod api {
             
 
             // let (db):(State<DbKv>) = extract_with_state().await?;
-            // Ok(res.id.to_string())
-            Ok(())
+            let result = RegisterResult {
+                email: res.email.to_string(),
+            };
+            Ok(result)
+            // Ok(())
         }
 
         // #[cfg(feature = "ssr")]
@@ -341,10 +367,11 @@ pub mod api {
             ServerErr,
 
             // #[error("invalid email")]
-            EmailInvalid,
+            EmailInvalid(String),
             EmailTaken,
             UsernameTaken,
-            UsernameInvalid,
+            UsernameInvalid(String),
+            PasswordInvalid(String),
         }
 
         // pub fn err_to_string(err: RegisterErr) {
