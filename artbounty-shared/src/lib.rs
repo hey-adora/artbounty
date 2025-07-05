@@ -27,13 +27,13 @@ pub mod auth {
         }
     }
 
-    pub fn proccess_password<S: AsRef<str>>(
+    pub fn proccess_password<S: Into<String>>(
         password: S,
-        password_confirmtion: S,
+        password_confirmation: Option<S>,
     ) -> Result<String, String> {
         let mut errors = String::new();
-        let password = password.as_ref().to_owned();
-        let password_confirmation = password_confirmtion.as_ref().to_owned();
+        let password: String = password.into();
+        // let password_confirmation = password_confirmtion.as_ref().to_owned();
 
         if password.is_smaller_than(12) {
             errors += "password must be at least 12 characters long\n";
@@ -47,7 +47,11 @@ pub mod auth {
         if !password.is_containing_symbol() {
             errors += "password must contain at least one symbol\n";
         }
-        if password != password_confirmation {
+        if password_confirmation
+            .map(|v| v.into() as String)
+            .map(|v| v != password)
+            .unwrap_or_default()
+        {
             errors += "password and password confirmation dont match\n";
         }
 
@@ -93,11 +97,12 @@ pub mod auth {
 
         #[test]
         fn test_proccess_password() {
-            assert!(proccess_password("password", "password").is_err());
-            assert!(proccess_password("password123", "password123").is_err());
-            assert!(proccess_password("passw*rd123", "passw*rd123").is_err());
-            assert!(proccess_password("passw*rd1232", "passw*rd1231").is_err());
-            assert!(proccess_password("passw*rd1232", "passw*rd1232").is_ok());
+            assert!(proccess_password("password", Some("password")).is_err());
+            assert!(proccess_password("password123", Some("password123")).is_err());
+            assert!(proccess_password("passw*rd123", Some("passw*rd123")).is_err());
+            assert!(proccess_password("passw*rd1232", Some("passw*rd1231")).is_err());
+            assert!(proccess_password("passw*rd1232", Some("passw*rd1232")).is_ok());
+            assert!(proccess_password("passw*rd1232", None).is_ok());
         }
 
         #[test]

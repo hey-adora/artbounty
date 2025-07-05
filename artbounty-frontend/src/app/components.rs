@@ -1,3 +1,79 @@
+// pub mod form_input {
+//     use leptos::{html::Input, prelude::*};
+
+//     #[component]
+//     pub fn FormInput<S: Into<String> + Clone>(
+//         input_id: S,
+//         title: S,
+//         input_type: S,
+//         input_ref: NodeRef<Input>,
+//         #[prop(optional)] placeholder: Option<S>,
+//         #[prop(optional)] err: Option<RwSignal<String>>,
+//     ) -> impl IntoView {
+//         // let input_id_1 = input_id.clone().into() as String;
+//         // let input_id_2 = input_id.into() as String;
+//         view! {
+//             <div class="flex flex-col gap-0">
+//                 <label for=input_id.clone().into() as String class="text-[1.2rem]">{title.into() as String}</label>
+//                 <Show when=move || err.is_some()>
+//                     <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if err.unwrap().with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
+//                         <ul class="list-disc ml-[1rem]">
+//                             {move || err.unwrap().get().trim().split("\n").filter(|v| v.len() > 1).into_iter().map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+//                         </ul>
+//                     </div>
+//                 </Show>
+//                 <input id=input_id.into() as String node_ref=input_ref type=input_type.into() as String placeholder=placeholder.map(|v| v.into() as String) class="border-b-2 border-white" />
+//             </div>
+//         }
+//     }
+// }
+// pub mod form_input_wrap {
+
+//     use leptos::prelude::*;
+
+//     #[component]
+//     pub fn FormBtm(children: Children) -> impl IntoView {
+//         view! {
+//             <div class="flex flex-col justify-center gap-[3rem]">
+//                 {children()}
+//             </div>
+//         }
+//     }
+// }
+// pub mod form_btm {
+//     use leptos::prelude::*;
+
+//     #[component]
+//     pub fn FormBtm<S: Into<String> + Clone>(value: S) -> impl IntoView {
+//         view! {
+//             <input type="submit" value=value.into() as String class="border-2 border-white text-[1.3rem] font-bold px-4 py-1 hover:bg-white hover:text-gray-950"/>
+//         }
+//     }
+// }
+// pub mod form_btm_wrap {
+
+//     use leptos::prelude::*;
+
+//     #[component]
+//     pub fn FormBtmWrap(children: Children) -> impl IntoView {
+//         view! {
+//             <div class="flex flex-col gap-[1.3rem] mx-auto my-[4rem] text-center">
+//                 {children()}
+//             </div>
+//         }
+//     }
+// }
+// pub mod form_link {
+
+//     use leptos::prelude::*;
+
+//     #[component]
+//     pub fn FormLink<S: Into<String> + Clone>(href: S, children: Children) -> impl IntoView {
+//         view! {
+//             <a href=href.into() as String class="underline">{children()}</a>
+//         }
+//     }
+// }
 pub mod nav {
     use leptos::prelude::*;
 
