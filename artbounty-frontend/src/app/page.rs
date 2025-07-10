@@ -232,7 +232,7 @@ pub mod register {
                                 <label for="username" class="text-[1.2rem] ">"Username"</label>
                                 <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if username_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
                                     <ul class="list-disc ml-[1rem]">
-                                        {move || username_err.get().trim().split("\n").filter(|v| v.len() > 1).into_iter().map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                        {move || username_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
                                 <input placeholder="Alice" id="username" node_ref=input_username type="text" class="border-b-2 border-white w-full mt-1 " />
@@ -241,7 +241,7 @@ pub mod register {
                                 <label for="email" class="text-[1.2rem] ">"Email"</label>
                                 <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if email_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
                                     <ul class="list-disc ml-[1rem]">
-                                        {move || email_err.get().trim().split("\n").filter(|v| v.len() > 1).into_iter().map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                        {move || email_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
                                 <input placeholder="alice@mail.com" id="email" node_ref=input_email type="text" class="border-b-2 border-white w-full mt-1 " />
@@ -250,7 +250,7 @@ pub mod register {
                                 <label for="password" class="text-[1.2rem] ">"Password"</label>
                                 <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if password_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
                                     <ul class="list-disc ml-[1rem]">
-                                        {move || password_err.get().trim().split("\n").into_iter().filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                        {move || password_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
                                 <input id="password" node_ref=input_password type="password" class="border-b-2 border-white w-full mt-1 " />
@@ -376,7 +376,7 @@ pub mod login {
                                 <label for="email" class="text-[1.2rem] ">"Email"</label>
                                 <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if email_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
                                     <ul class="list-disc ml-[1rem]">
-                                        {move || email_err.get().trim().split("\n").filter(|v| v.len() > 1).into_iter().map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                        {move || email_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
                                 <input placeholder="alice@mail.com" id="email" node_ref=input_email type="email" class="border-b-2 border-white" />

@@ -171,7 +171,7 @@ pub mod valid {
             }
 
             let mut symbol_a: usize = 0;
-            while let Some((i, char)) = email_chars.next() {
+            for (i, char) in email_chars.by_ref() {
                 if char == '@' {
                     symbol_a = i;
                     break;
@@ -196,7 +196,7 @@ pub mod valid {
             }
 
             let mut last_dot: usize = 0;
-            while let Some((i, char)) = email_chars.next() {
+            for (i, char) in email_chars {
                 if char == '.' {
                     last_dot = i;
                 } else if char == '-' || char == '.' || char.is_alphanumeric() {
@@ -212,9 +212,9 @@ pub mod valid {
                 return false;
             }
 
-            let mut email_chars = email.chars().skip(last_dot + 1);
+            let email_chars = email.chars().skip(last_dot + 1);
             let mut count = 0;
-            while let Some(char) = email_chars.next() {
+            for char in email_chars {
                 count += 1;
                 if !char.is_alphanumeric() {
                     trace!("invalid 5");
@@ -222,7 +222,7 @@ pub mod valid {
                 }
             }
 
-            if count < 2 || count > 4 {
+            if !(2..=4).contains(&count) {
                 trace!("invalid 6: {count}");
                 return false;
             }

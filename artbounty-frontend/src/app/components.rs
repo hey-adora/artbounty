@@ -359,8 +359,8 @@ pub mod gallery {
         run_fetch_top: FETCH_TOP_FN,
     ) -> impl IntoView
     where
-        FETCH_BTM_FN: Fn() -> () + Send + Sync + 'static + Clone,
-        FETCH_TOP_FN: Fn() -> () + Send + Sync + 'static + Clone,
+        FETCH_BTM_FN: Fn() + Send + Sync + 'static + Clone,
+        FETCH_TOP_FN: Fn() + Send + Sync + 'static + Clone,
     {
         let img_ref = NodeRef::<Div>::new();
 
@@ -568,7 +568,7 @@ pub mod gallery {
     {
         imgs.last()
             .map(|img| img.get_pos_y() + img.get_view_height())
-            .unwrap_or_default() as f64
+            .unwrap_or_default()
     }
 
     pub fn add_imgs_to_bottom<IMG>(
@@ -756,14 +756,11 @@ pub mod gallery {
     where
         IMG: ResizableImage,
     {
-        imgs.first()
+        if let Some(y) = imgs.first()
             .map(|img| img.get_pos_y())
-            .and_then(|y| if y == 0.0 { None } else { Some(y) })
-            .map(|y| {
-                imgs.iter_mut().for_each(|img| {
+            .and_then(|y| if y == 0.0 { None } else { Some(y) }) { imgs.iter_mut().for_each(|img| {
                     img.set_pos_y(img.get_pos_y() - y);
-                })
-            });
+                }) }
     }
 
     pub fn normalize_y<IMG>(imgs: &mut [IMG])
