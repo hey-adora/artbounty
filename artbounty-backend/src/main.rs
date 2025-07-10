@@ -111,8 +111,8 @@ pub mod middleware2 {
         use tracing::trace;
 
         pub async fn auth(
-            req: axum::extract::Request,
-            next: axum::middleware::Next,
+            _req: axum::extract::Request,
+            _next: axum::middleware::Next,
         ) -> axum::response::Response {
             // let response = next.run(req).await;
             // let bob = Body::empty();

@@ -732,7 +732,7 @@ pub mod auth {
     }
 
     pub fn create_cookie<Key: AsRef<[u8]>, S: Into<String>>(
-        key: Key,
+        _key: Key,
         username: S,
         time: u128,
     ) -> Result<(String, String), jsonwebtoken::errors::Error> {
@@ -771,7 +771,7 @@ pub mod auth {
             // trace!("AUTH BLOCK: {}", req.uri().to_string());
             return Err(ServerFnError::ServerError("unauthorized".to_string()));
         };
-        let session = DB.get_session(token).await;
+        let _session = DB.get_session(token).await;
 
         Ok(data)
     }
@@ -811,7 +811,7 @@ pub mod auth {
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            let (token, cookie) = create_cookie("secret", "hey", time).unwrap();
+            let (_token, cookie) = create_cookie("secret", "hey", time).unwrap();
             let cookie = cookie.split(";").next().unwrap();
             trace!("cookie {cookie:#?}");
             let claims = verify_cookie("secret", cookie).unwrap();
@@ -895,7 +895,7 @@ pub mod middleware {
             }
 
             fn call(&mut self, mut req: Request<ReqBody>) -> Self::Future {
-                let Some((token, data)) = req
+                let Some((_token, _data)) = req
                     .headers()
                     .get(http::header::COOKIE)
                     .and_then(|h| h.to_str().ok())

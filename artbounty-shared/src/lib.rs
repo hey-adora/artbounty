@@ -163,7 +163,7 @@ pub mod valid {
             // let mut state: usize = 0;
             if email_chars
                 .next()
-                .map(|(i, char)| !(char == '-' || char == '.' || char.is_alphanumeric()))
+                .map(|(_i, char)| !(char == '-' || char == '.' || char.is_alphanumeric()))
                 .unwrap_or(true)
             {
                 trace!("invalid 1");
@@ -188,7 +188,7 @@ pub mod valid {
             }
             if email_chars
                 .next()
-                .map(|(i, char)| !(char == '-' || char == '.' || char.is_alphanumeric()))
+                .map(|(_i, char)| !(char == '-' || char == '.' || char.is_alphanumeric()))
                 .unwrap_or(true)
             {
                 trace!("invalid 3");
