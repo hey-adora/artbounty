@@ -63,7 +63,7 @@ pub mod utils {
             return Err(DecodeErr::MissingDataField);
         }
 
-        let archived = rkyv::access::<A, rkyv::rancor::Error>(&*bytes)
+        let archived = rkyv::access::<A, rkyv::rancor::Error>(&bytes)
             .map_err(|_| DecodeErr::RkyvAccessErr)?;
         // let archived = rkyv::access::<Example, rkyv::rancor::Error>(&*bytes).unwrap();
         let args = rkyv::deserialize::<T, rkyv::rancor::Error>(archived)
@@ -713,9 +713,9 @@ pub mod auth {
         let header = Header::new(Algorithm::HS512);
         let key = EncodingKey::from_secret(key.as_ref());
 
-        let token = encode(&header, &claims, &key);
+        
 
-        token
+        encode(&header, &claims, &key)
     }
 
     pub fn decode_token<Key: AsRef<[u8]>, S: AsRef<str>>(
@@ -726,9 +726,9 @@ pub mod auth {
         let key = DecodingKey::from_secret(key.as_ref());
         let mut validation = Validation::new(Algorithm::HS512);
         validation.validate_exp = false;
-        let claims = decode::<Claims>(token, &key, &validation);
+        
 
-        claims
+        decode::<Claims>(token, &key, &validation)
     }
 
     pub fn create_cookie<Key: AsRef<[u8]>, S: Into<String>>(
@@ -757,7 +757,7 @@ pub mod auth {
                 let token = cookie.value();
                 decode_token(key, token)
                     .map(|data| (token.to_string(), data))
-                    .map_err(|err| VerifyCookieErr::from(err))
+                    .map_err(VerifyCookieErr::from)
             })
     }
 

@@ -89,8 +89,8 @@ pub mod api {
         }
 
         pub fn value(&self) -> Option<Result<ApiValue, ApiErr>> {
-            let v = self.value.read_only().read().clone();
-            v
+            
+            self.value.read_only().read().clone()
         }
     }
 
@@ -103,12 +103,12 @@ pub mod api {
         ApiValue: Clone + 'static,
         ApiErr: Clone + 'static,
     {
-        let api = Api::<Func, FuncFuture, DTO, ApiValue, ApiErr> {
+        
+        Api::<Func, FuncFuture, DTO, ApiValue, ApiErr> {
             fut,
             value: ArcRwSignal::new(None),
             _phantom: PhantomData,
-        };
-        api
+        }
         // let result = ArcRwSignal::new();
         // s
     }
@@ -213,6 +213,12 @@ pub mod interval {
 
         #[error("failed to set interval \"{0}\"")]
         SettingInterval(String),
+    }
+
+    impl Default for IntervalHandle {
+        fn default() -> Self {
+            Self::new()
+        }
     }
 
     impl IntervalHandle {
@@ -404,7 +410,7 @@ pub mod intersection_observer {
                 + Clone
                 + 'static,
         {
-            new(self.clone(), callback, options);
+            new(*self, callback, options);
         }
     }
 
@@ -770,7 +776,7 @@ pub mod resize_observer {
         where
             F: FnMut(ResizeObserverEntry, ResizeObserver) + Send + Sync + Clone + 'static,
         {
-            new(self.clone(), callback);
+            new(*self, callback);
         }
     }
 
@@ -970,7 +976,7 @@ pub mod event_listener {
             T: EventDescriptor + Debug + 'static,
             F: FnMut(<T as EventDescriptor>::EventType) + Clone + 'static,
         {
-            new(self.clone(), event, callback);
+            new(*self, event, callback);
         }
     }
 
@@ -1080,10 +1086,10 @@ pub mod file {
         let Some(files) = drag_event.data_transfer().and_then(|v| v.files()) else {
             return Vec::new();
         };
-        let files = (0..files.length())
+        
+        (0..files.length())
             .filter_map(|i| files.get(i))
-            .collect::<Vec<File>>();
-        files
+            .collect::<Vec<File>>()
     }
 
     pub fn get_file_stream(file: &File) -> Result<ReadableStreamDefaultReader, ErrorGetFileStream> {
@@ -1206,7 +1212,7 @@ pub mod dropzone {
             R: Future<Output = anyhow::Result<()>> + 'static,
             F: FnMut(Event, DragEvent) -> R + 'static,
         {
-            new(self.clone(), callback);
+            new(*self, callback);
         }
     }
 
