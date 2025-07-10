@@ -307,7 +307,7 @@ pub mod db {
                 .await?;
             trace!("result: {result:#?}");
 
-            let result = result
+            let _result = result
                 .check()
                 .inspect(|result| trace!("result2: {result:#?}"))?;
             // trace!("result2: {result:#?}");
@@ -472,7 +472,7 @@ mod database_tests {
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate().await.unwrap();
 
-        let user = db
+        let _user = db
             .add_user(
                 "hey".to_string(),
                 "hey@hey.com".to_string(),
@@ -490,7 +490,7 @@ mod database_tests {
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate().await.unwrap();
 
-        let user = db
+        let _user = db
             .add_user(
                 "hey".to_string(),
                 "hey@hey.com".to_string(),
@@ -508,7 +508,7 @@ mod database_tests {
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate().await.unwrap();
 
-        let user = db
+        let _user = db
             .add_user(
                 "hey".to_string(),
                 "hey@hey.com".to_string(),
@@ -531,7 +531,7 @@ mod database_tests {
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate().await.unwrap();
 
-        let user = db
+        let _user = db
             .add_user(
                 "hey".to_string(),
                 "hey@hey.com".to_string(),
@@ -558,7 +558,7 @@ mod database_tests {
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate().await.unwrap();
 
-        let user = db
+        let _user = db
             .add_user(
                 "hey".to_string(),
                 "hey@hey.com".to_string(),
