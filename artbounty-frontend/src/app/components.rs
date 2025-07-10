@@ -91,20 +91,19 @@ pub mod nav {
     }
 }
 pub mod gallery {
-    use futures::io::Cursor;
-    use itertools::{FoldWhile, Itertools};
+    
+    use itertools::Itertools;
     use leptos::{
-        html::{self, Div, Main, div},
+        html::Div,
         prelude::*,
-        tachys::html::node_ref::NodeRefContainer,
     };
-    use std::{default::Default, time::Duration};
+    use std::default::Default;
     use std::{
         fmt::{Debug, Display},
         rc::Rc,
     };
-    use tracing::{debug, error, trace, trace_span};
-    use web_sys::HtmlDivElement;
+    use tracing::{debug, error, trace};
+    
 
     use crate::toolbox::{prelude::*, random::random_u64};
 
@@ -207,7 +206,7 @@ pub mod gallery {
         };
 
         let get_imgs = move || {
-            let mut imgs = gallery.get();
+            let imgs = gallery.get();
             let total_count = imgs.len();
 
             imgs.into_iter()
@@ -563,7 +562,7 @@ pub mod gallery {
         imgs
     }
 
-    pub fn get_total_height<IMG>(mut imgs: &[IMG]) -> f64
+    pub fn get_total_height<IMG>(imgs: &[IMG]) -> f64
     where
         IMG: ResizableImage + Clone + Display + Debug,
     {
@@ -1636,22 +1635,18 @@ pub mod gallery {
 
     #[cfg(test)]
     mod resize_tests {
-        use crate::{
-            app::components::gallery::{
-                Gallery, Row, add_imgs_to_bottom, add_imgs_to_top, get_row_end, get_row_start,
-                get_row_start_or_end, get_rows_to_bottom, get_rows_to_top, normalize_imgs_y_v2,
+        use crate::app::components::gallery::{
+                Row, add_imgs_to_bottom, add_imgs_to_top, get_row_end, get_row_start, get_rows_to_bottom, get_rows_to_top, normalize_imgs_y_v2,
                 remove_until_fit_from_bottom, remove_until_fit_from_top, resize_v2,
                 set_rows_to_bottom, set_rows_to_top,
-            },
-            logger,
-        };
-        use leptos::{mount::mount_to, prelude::*, task::tick};
+            };
+        use leptos::prelude::*;
         use ordered_float::OrderedFloat;
-        use pretty_assertions::{assert_eq, assert_ne};
-        use std::{fmt::Display, str::FromStr};
+        use pretty_assertions::assert_eq;
+        use std::fmt::Display;
         use test_log::test;
-        use tracing::{level_filters::LevelFilter, trace};
-        use wasm_bindgen::JsCast;
+        use tracing::trace;
+        
         use wasm_bindgen_test::*;
 
         use super::ResizableImage;
@@ -1953,7 +1948,7 @@ pub mod gallery {
 
         #[test]
         fn test_resize() {
-            let mut imgs = Vec::<Img>::from([
+            let imgs = Vec::<Img>::from([
                 //row 0
             ]);
             let resized_imgs = resize_v2(imgs, 1000, 500);

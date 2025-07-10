@@ -135,11 +135,11 @@ pub mod random {
 }
 
 pub mod uuid {
-    use std::{ptr, str::FromStr};
+    use std::str::FromStr;
 
-    use tracing::{error, trace, trace_span};
+    use tracing::error;
     use uuid::Uuid;
-    use wasm_bindgen::JsCast;
+    
     use web_sys::Element;
 
     fn debug(log: &str, elm: &Element) {
@@ -304,8 +304,8 @@ pub mod intersection_observer {
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::hash::{DefaultHasher, Hash, Hasher};
-    use std::ops::Deref;
-    use std::sync::{LazyLock, RwLock};
+    
+    use std::sync::LazyLock;
 
     use leptos::html::ElementType;
     use leptos::prelude::*;
@@ -314,12 +314,12 @@ pub mod intersection_observer {
     use ordered_float::OrderedFloat;
     use send_wrapper::SendWrapper;
     use sha2::Digest;
-    use tracing::{error, trace, trace_span, warn};
+    use tracing::{trace, trace_span, warn};
     use uuid::Uuid;
     use wasm_bindgen::prelude::Closure;
     use wasm_bindgen::{JsCast, JsValue};
     use web_sys::{
-        Element, HtmlElement, IntersectionObserver, IntersectionObserverEntry,
+        HtmlElement, IntersectionObserver, IntersectionObserverEntry,
         IntersectionObserverInit, js_sys::Array,
     };
 
@@ -488,7 +488,7 @@ pub mod intersection_observer {
         }
     }
 
-    pub fn new<E, R, F>(target: NodeRef<E>, mut callback: F, options: IntersectionOptions<R>)
+    pub fn new<E, R, F>(target: NodeRef<E>, callback: F, options: IntersectionOptions<R>)
     where
         E: ElementType,
         E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
@@ -643,7 +643,7 @@ pub mod intersection_observer {
 
             {
                 OBSERVERS.with(|observers| {
-                    let mut observers = observers.borrow_mut();
+                    let observers = observers.borrow_mut();
                     match observers.get(&options_hash) {
                         Some(observer) => {
                             observer.unobserve(&target);
@@ -719,22 +719,21 @@ pub mod intersection_observer {
 }
 
 pub mod resize_observer {
-    use std::{collections::HashMap, ops::DerefMut, str::FromStr};
+    use std::collections::HashMap;
 
     use leptos::{
         html::ElementType,
         prelude::{
-            Effect, Get, GetUntracked, GetValue, LocalStorage, NodeRef, RwSignal, Set, SetValue,
-            Storage, StoredValue, UpdateValue, With, expect_context, on_cleanup, provide_context,
+            Effect, Get, GetUntracked, GetValue, NodeRef, SetValue, StoredValue, UpdateValue, expect_context, on_cleanup, provide_context,
             use_context,
         },
     };
     use send_wrapper::SendWrapper;
-    use tracing::{error, trace, trace_span};
+    use tracing::{trace, trace_span};
     use uuid::Uuid;
     use wasm_bindgen::prelude::*;
     use web_sys::{
-        self, Element, HtmlElement, ResizeObserver, ResizeObserverEntry, ResizeObserverSize,
+        self, HtmlElement, ResizeObserver, ResizeObserverEntry, ResizeObserverSize,
         js_sys::Array,
     };
 
@@ -842,7 +841,7 @@ pub mod resize_observer {
     //     });
     // }
 
-    pub fn new<E, F>(target: NodeRef<E>, mut callback: F)
+    pub fn new<E, F>(target: NodeRef<E>, callback: F)
     where
         E: ElementType,
         E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
@@ -1006,7 +1005,7 @@ pub mod file {
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
     use web_sys::{
-        DragEvent, File, FileList, ReadableStreamDefaultReader,
+        DragEvent, File, ReadableStreamDefaultReader,
         js_sys::{Object, Reflect, Uint8Array},
     };
 
@@ -1154,23 +1153,19 @@ pub mod dropzone {
         cell::RefCell,
         fmt::Display,
         future::Future,
-        ops::{Deref, DerefMut},
         rc::Rc,
-        sync::{Arc, Mutex},
-        time::SystemTime,
     };
 
     use leptos::{ev, html::ElementType, prelude::*, task::spawn_local};
-    use tracing::{debug, error, trace, trace_span};
+    use tracing::error;
     use wasm_bindgen::prelude::*;
-    use wasm_bindgen_futures::JsFuture;
+    
     use web_sys::{
-        DragEvent, HtmlElement, ReadableStreamDefaultReader,
-        js_sys::{self, Object, Promise, Reflect, Uint8Array},
+        DragEvent, HtmlElement,
     };
 
     use super::event_listener;
-    use super::file::{GetFileStream, GetFiles, GetStreamChunk};
+    
 
     pub enum Event {
         Start,
@@ -1216,7 +1211,7 @@ pub mod dropzone {
     }
 
     #[track_caller]
-    pub fn new<E, F, R>(target: NodeRef<E>, mut callback: F)
+    pub fn new<E, F, R>(target: NodeRef<E>, callback: F)
     where
         E: ElementType,
         E::Output: JsCast + Clone + 'static + Into<HtmlElement>,

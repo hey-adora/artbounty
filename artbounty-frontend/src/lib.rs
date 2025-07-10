@@ -5,13 +5,12 @@
 // extern crate test;
 
 use leptos::prelude::*;
-use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
+use leptos_meta::MetaTags;
 // use server_fn::codec::Rkyv;
 
 // extern crate rustc_lexer;
 
 use app::App;
-use tracing::debug;
 
 pub mod app;
 pub mod logger;
@@ -46,6 +45,6 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
 pub fn hydrate() {
     console_error_panic_hook::set_once();
     logger::simple_web_logger_init();
-    debug!("yo wtf");
+    tracing::debug!("yo wtf");
     leptos::mount::hydrate_body(App);
 }

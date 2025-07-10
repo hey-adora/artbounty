@@ -13,9 +13,9 @@ pub mod home {
         toolbox::prelude::*,
     };
     use leptos::prelude::*;
-    use reactive_stores::Store;
+    
     use tracing::trace;
-    use web_sys::{HtmlDivElement, HtmlElement};
+    
 
     #[component]
     pub fn Page() -> impl IntoView {
@@ -108,11 +108,10 @@ pub mod register {
     use artbounty_api::api;
     use artbounty_shared::auth::{proccess_email, proccess_password, proccess_username};
     use leptos::{
-        html::{Input, div, h1, main},
+        html::Input,
         prelude::*,
-        task::spawn_local,
     };
-    use tracing::{debug, trace};
+    use tracing::trace;
     use web_sys::SubmitEvent;
 
     use crate::app::components::nav::Nav;
@@ -276,20 +275,19 @@ pub mod login {
     use crate::{
         app::{
             GlobalState,
-            components::{gallery::Gallery, nav::Nav},
+            components::nav::Nav,
         },
         toolbox::prelude::*,
     };
     use artbounty_api::api;
-    use artbounty_shared::auth::{proccess_email, proccess_password};
+    use artbounty_shared::auth::proccess_email;
     use leptos::{
-        html::{Input, div, h1, main},
+        html::Input,
         prelude::*,
-        task::spawn_local,
     };
-    use reactive_stores::Store;
-    use tracing::{debug, trace};
-    use web_sys::{HtmlDivElement, HtmlElement, SubmitEvent};
+    
+    use tracing::trace;
+    use web_sys::SubmitEvent;
 
     #[component]
     pub fn Page() -> impl IntoView {

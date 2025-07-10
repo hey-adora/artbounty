@@ -1,13 +1,11 @@
-use std::sync::LazyLock;
 
 use artbounty_api::api;
-use artbounty_db::db::{DB, Db};
+use artbounty_db::db::DB;
 use artbounty_frontend::{app::App, shell};
 use axum::{
     Router,
     http::Method,
-    middleware,
-    routing::{get, post},
+    routing::post,
 };
 use leptos::{logging, prelude::*};
 use leptos_axum::{LeptosRoutes, generate_route_list};
@@ -15,7 +13,7 @@ use tower_http::{
     compression::CompressionLayer,
     cors::{self, CorsLayer},
 };
-use tracing::{info, trace, trace_span};
+use tracing::trace;
 
 // static DB: LazyLock<Surreal<ws::Client>> = LazyLock::new(Surreal::init);
 

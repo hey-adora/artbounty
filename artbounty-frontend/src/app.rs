@@ -1,15 +1,8 @@
-use artbounty_api::api;
-use components::gallery::Img;
-use indextree::Arena;
-use indextree::NodeId;
 use leptos::prelude::*;
 use leptos_router::components::*;
 use leptos_router::path;
 use page::{home, login, register};
-use reactive_stores::Store;
-use tracing::trace;
 
-use crate::toolbox::prelude::*;
 
 pub mod components;
 pub mod page;
