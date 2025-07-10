@@ -4,3 +4,12 @@ rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 
 [target.wasm32-unknown-unknown]
 runner = 'wasm-bindgen-test-runner'
+
+# [unstable]
+# codegen-backend = true
+#
+# [profile.dev]
+# codegen-backend = "cranelift"
+#
+# [profile.dev.package."*"]
+# codegen-backend = "cranelift"

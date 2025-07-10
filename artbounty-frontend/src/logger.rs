@@ -1,6 +1,5 @@
 use colored::Colorize;
 use tracing::span;
-use tracing_subscriber::field::RecordFields;
 use tracing_subscriber::fmt::format::PrettyVisitor;
 use tracing_subscriber::fmt::format::Writer;
 use wasm_bindgen::prelude::*;

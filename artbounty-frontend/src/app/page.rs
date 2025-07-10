@@ -2,29 +2,23 @@ pub mod profile {}
 pub mod home {
     use std::rc::Rc;
 
-    use crate::{
-        app::{
-            GlobalState,
-            components::{
-                gallery::{Gallery, Img},
-                nav::Nav,
-            },
-        },
-        toolbox::prelude::*,
+    use crate::app::components::{
+        gallery::{Gallery, Img},
+        nav::Nav,
     };
+    use crate::toolbox::prelude::*;
     use leptos::prelude::*;
-    
+
     use tracing::trace;
-    
 
     #[component]
     pub fn Page() -> impl IntoView {
         let main_ref = NodeRef::new();
-        let global_state = expect_context::<GlobalState>();
+        // let global_state = expect_context::<GlobalState>();
         let fake_imgs = RwSignal::new(Vec::<Img>::new());
         // let imgs = global_state.imgs;
 
-        main_ref.on_file_drop(async |event, data| {
+        main_ref.on_file_drop(async |_event, data| {
             for file in data.get_files() {
                 let stream = file.get_file_stream()?;
                 let mut data = Vec::<u8>::new();
@@ -107,11 +101,7 @@ pub mod register {
 
     use artbounty_api::api;
     use artbounty_shared::auth::{proccess_email, proccess_password, proccess_username};
-    use leptos::{
-        html::Input,
-        prelude::*,
-    };
-    use tracing::trace;
+    use leptos::{html::Input, prelude::*};
     use web_sys::SubmitEvent;
 
     use crate::app::components::nav::Nav;
@@ -163,7 +153,9 @@ pub mod register {
                 return;
             };
 
-            trace!("register dispatched");
+            todo!("create register dispatch");
+
+            // trace!("register dispatched");
             // register.dispatch(api::register::Register {
             //     email,
             //     password,
@@ -272,20 +264,12 @@ pub mod register {
 }
 
 pub mod login {
-    use crate::{
-        app::{
-            GlobalState,
-            components::nav::Nav,
-        },
-        toolbox::prelude::*,
-    };
+    use crate::app::components::nav::Nav;
+    use crate::toolbox::prelude::*;
     use artbounty_api::api;
     use artbounty_shared::auth::proccess_email;
-    use leptos::{
-        html::Input,
-        prelude::*,
-    };
-    
+    use leptos::{html::Input, prelude::*};
+
     use tracing::trace;
     use web_sys::SubmitEvent;
 
@@ -300,7 +284,7 @@ pub mod login {
         // let input_password_confirmation: NodeRef<Input> = NodeRef::new();
 
         // let data = OnceResource::new(api::register::create());
-        let global_state = expect_context::<GlobalState>();
+        // let global_state = expect_context::<GlobalState>();
         // let login3 = (async |dto: api::login::Args| {
         //     trace!("hello");
         //     Ok::<(), ()>(())

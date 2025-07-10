@@ -89,7 +89,6 @@ pub mod api {
         }
 
         pub fn value(&self) -> Option<Result<ApiValue, ApiErr>> {
-            
             self.value.read_only().read().clone()
         }
     }
@@ -103,7 +102,6 @@ pub mod api {
         ApiValue: Clone + 'static,
         ApiErr: Clone + 'static,
     {
-        
         Api::<Func, FuncFuture, DTO, ApiValue, ApiErr> {
             fut,
             value: ArcRwSignal::new(None),
@@ -139,24 +137,24 @@ pub mod uuid {
 
     use tracing::error;
     use uuid::Uuid;
-    
+
     use web_sys::Element;
 
-    fn debug(log: &str, elm: &Element) {
-        // let node = elm.node_type();
-        // trace!(node);
-        // unsafe {
-        //     let p = &raw const elm as *const [usize; 64];
-        //     let r = *p;
-        //     // let p = ptr::read(r[0]);
-        //     let p = r[0] as *const [usize; 64];
-        //     let r = *p;
-        //     trace!("{log} ID: {r:x?}");
-        // }
-    }
+    // fn debug(log: &str, elm: &Element) {
+    //     // let node = elm.node_type();
+    //     // trace!(node);
+    //     // unsafe {
+    //     //     let p = &raw const elm as *const [usize; 64];
+    //     //     let r = *p;
+    //     //     // let p = ptr::read(r[0]);
+    //     //     let p = r[0] as *const [usize; 64];
+    //     //     let r = *p;
+    //     //     trace!("{log} ID: {r:x?}");
+    //     // }
+    // }
 
     pub fn get_id(target: &Element, field_name: &str) -> Option<Uuid> {
-        debug("GET", target);
+        // debug("GET", target);
 
         let Some(id) = target.get_attribute(field_name) else {
             error!(
@@ -168,7 +166,7 @@ pub mod uuid {
         };
         let id = match Uuid::from_str(&id) {
             Ok(id) => id,
-            Err(err) => {
+            Err(_err) => {
                 error!(
                     "{} is invalid {:?}",
                     field_name,
@@ -182,7 +180,7 @@ pub mod uuid {
     }
 
     pub fn set_id(target: &Element, field_name: &str, id: Uuid) {
-        debug("SET", target);
+        // debug("SET", target);
 
         target.set_attribute(field_name, &id.to_string()).unwrap();
     }
@@ -310,7 +308,7 @@ pub mod intersection_observer {
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::hash::{DefaultHasher, Hash, Hasher};
-    
+
     use std::sync::LazyLock;
 
     use leptos::html::ElementType;
@@ -319,14 +317,13 @@ pub mod intersection_observer {
     // use leptos::{html::ElementType, prelude::*};
     use ordered_float::OrderedFloat;
     use send_wrapper::SendWrapper;
-    use sha2::Digest;
     use tracing::{trace, trace_span, warn};
     use uuid::Uuid;
     use wasm_bindgen::prelude::Closure;
     use wasm_bindgen::{JsCast, JsValue};
     use web_sys::{
-        HtmlElement, IntersectionObserver, IntersectionObserverEntry,
-        IntersectionObserverInit, js_sys::Array,
+        HtmlElement, IntersectionObserver, IntersectionObserverEntry, IntersectionObserverInit,
+        js_sys::Array,
     };
 
     use super::uuid::{get_id, set_id};
@@ -730,8 +727,8 @@ pub mod resize_observer {
     use leptos::{
         html::ElementType,
         prelude::{
-            Effect, Get, GetUntracked, GetValue, NodeRef, SetValue, StoredValue, UpdateValue, expect_context, on_cleanup, provide_context,
-            use_context,
+            Effect, Get, GetUntracked, GetValue, NodeRef, SetValue, StoredValue, UpdateValue,
+            expect_context, on_cleanup, provide_context, use_context,
         },
     };
     use send_wrapper::SendWrapper;
@@ -739,8 +736,7 @@ pub mod resize_observer {
     use uuid::Uuid;
     use wasm_bindgen::prelude::*;
     use web_sys::{
-        self, HtmlElement, ResizeObserver, ResizeObserverEntry, ResizeObserverSize,
-        js_sys::Array,
+        self, HtmlElement, ResizeObserver, ResizeObserverEntry, ResizeObserverSize, js_sys::Array,
     };
 
     use super::uuid::{get_id, set_id};
@@ -1052,7 +1048,9 @@ pub mod file {
     }
 
     pub trait GetStreamChunk {
-        async fn get_stream_chunk(&self) -> Result<Option<Uint8Array>, ErrorGetStreamChunk>;
+        fn get_stream_chunk(
+            &self,
+        ) -> impl Future<Output = Result<Option<Uint8Array>, ErrorGetStreamChunk>>;
     }
 
     impl PushChunkToVec for Uint8Array {
@@ -1086,7 +1084,7 @@ pub mod file {
         let Some(files) = drag_event.data_transfer().and_then(|v| v.files()) else {
             return Vec::new();
         };
-        
+
         (0..files.length())
             .filter_map(|i| files.get(i))
             .collect::<Vec<File>>()
@@ -1155,23 +1153,15 @@ pub mod file {
 
 pub mod dropzone {
 
-    use std::{
-        cell::RefCell,
-        fmt::Display,
-        future::Future,
-        rc::Rc,
-    };
+    use std::{cell::RefCell, fmt::Display, future::Future, rc::Rc};
 
     use leptos::{ev, html::ElementType, prelude::*, task::spawn_local};
     use tracing::error;
     use wasm_bindgen::prelude::*;
-    
-    use web_sys::{
-        DragEvent, HtmlElement,
-    };
+
+    use web_sys::{DragEvent, HtmlElement};
 
     use super::event_listener;
-    
 
     pub enum Event {
         Start,

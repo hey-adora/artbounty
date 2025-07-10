@@ -1,4 +1,3 @@
-
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
 }
@@ -63,8 +62,8 @@ pub mod utils {
             return Err(DecodeErr::MissingDataField);
         }
 
-        let archived = rkyv::access::<A, rkyv::rancor::Error>(&bytes)
-            .map_err(|_| DecodeErr::RkyvAccessErr)?;
+        let archived =
+            rkyv::access::<A, rkyv::rancor::Error>(&bytes).map_err(|_| DecodeErr::RkyvAccessErr)?;
         // let archived = rkyv::access::<Example, rkyv::rancor::Error>(&*bytes).unwrap();
         let args = rkyv::deserialize::<T, rkyv::rancor::Error>(archived)
             .map_err(|_| DecodeErr::RkyvErr)?;
@@ -100,7 +99,6 @@ pub mod utils {
 }
 
 pub mod api {
-    
 
     // #[derive(
     //     Debug,
@@ -258,12 +256,7 @@ pub mod api {
     // }
 
     pub mod login {
-        
-        
-        // use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation};
-        use leptos::prelude::*;
-        // use server_fn::codec::{Json, Rkyv, RkyvEncoding};
-        use std::io::Read;
+
         use thiserror::Error;
         use tracing::trace;
 
@@ -657,7 +650,6 @@ pub mod auth {
     };
     use leptos_axum::extract;
     use server_fn::ServerFnError;
-    
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     pub struct Claims {
@@ -713,8 +705,6 @@ pub mod auth {
         let header = Header::new(Algorithm::HS512);
         let key = EncodingKey::from_secret(key.as_ref());
 
-        
-
         encode(&header, &claims, &key)
     }
 
@@ -726,17 +716,17 @@ pub mod auth {
         let key = DecodingKey::from_secret(key.as_ref());
         let mut validation = Validation::new(Algorithm::HS512);
         validation.validate_exp = false;
-        
 
         decode::<Claims>(token, &key, &validation)
     }
 
     pub fn create_cookie<Key: AsRef<[u8]>, S: Into<String>>(
-        _key: Key,
+        key: Key,
         username: S,
         time: u128,
     ) -> Result<(String, String), jsonwebtoken::errors::Error> {
-        let token = encode_token("secret", Claims::new(username, time))?;
+        let key = key.as_ref();
+        let token = encode_token(key, Claims::new(username, time))?;
         let cookie = format!("Bearer={token}; Secure; HttpOnly");
         Ok((token, cookie))
     }
@@ -771,7 +761,7 @@ pub mod auth {
             // trace!("AUTH BLOCK: {}", req.uri().to_string());
             return Err(ServerFnError::ServerError("unauthorized".to_string()));
         };
-        let _session = DB.get_session(token).await;
+        let session = DB.get_session(token).await;
 
         Ok(data)
     }
@@ -799,11 +789,9 @@ pub mod auth {
         use std::time::{SystemTime, UNIX_EPOCH};
 
         use crate::auth::{create_cookie, verify_cookie};
-        
+
         use test_log::test;
         use tracing::trace;
-
-        
 
         #[test]
         fn test_login() {
@@ -838,16 +826,15 @@ pub mod middleware {
             task::{Context, Poll},
         };
 
-        
         use axum::http::{Request, Response};
-        
+
         // use biscotti::{Processor, ProcessorConfig, RequestCookies};
         use pin_project_lite::pin_project;
         use server_fn::ServerFnError;
         use thiserror::Error;
-        
+
         use tower::{Layer, Service};
-        
+
         use tracing::trace;
 
         use crate::auth::verify_cookie;
