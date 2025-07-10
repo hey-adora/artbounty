@@ -1,4 +1,3 @@
-use std::sync::LazyLock;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
@@ -22,7 +21,7 @@ pub mod utils {
     use axum::extract::Multipart;
     use bytecheck::CheckBytes;
     use rkyv::{
-        Deserialize, Portable,
+        Deserialize,
         api::high::{HighDeserializer, HighValidator},
     };
     use thiserror::Error;
@@ -101,7 +100,7 @@ pub mod utils {
 }
 
 pub mod api {
-    use thiserror::Error;
+    
 
     // #[derive(
     //     Debug,
@@ -259,12 +258,12 @@ pub mod api {
     // }
 
     pub mod login {
-        use http::HeaderValue;
-        use jiff::Timestamp;
+        
+        
         // use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation};
-        use leptos::{prelude::*, server};
+        use leptos::prelude::*;
         // use server_fn::codec::{Json, Rkyv, RkyvEncoding};
-        use std::{io::Read, string::ToString, time::Duration};
+        use std::io::Read;
         use thiserror::Error;
         use tracing::trace;
 
@@ -328,7 +327,7 @@ pub mod api {
 
         #[cfg(feature = "ssr")]
         pub async fn server(
-            mut multipart: axum::extract::Multipart,
+            multipart: axum::extract::Multipart,
         ) -> impl axum::response::IntoResponse {
             use crate::{api, utils};
             //
@@ -658,7 +657,7 @@ pub mod auth {
     };
     use leptos_axum::extract;
     use server_fn::ServerFnError;
-    use tracing::trace;
+    
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     pub struct Claims {
@@ -800,11 +799,11 @@ pub mod auth {
         use std::time::{SystemTime, UNIX_EPOCH};
 
         use crate::auth::{create_cookie, verify_cookie};
-        use jiff::Timestamp;
+        
         use test_log::test;
         use tracing::trace;
 
-        use super::{Claims, decode_token, encode_token};
+        
 
         #[test]
         fn test_login() {
@@ -839,24 +838,19 @@ pub mod middleware {
             task::{Context, Poll},
         };
 
-        use artbounty_db::db::DB;
-        use axum::{
-            body::Body,
-            http::{Request, Response, StatusCode},
-            middleware::Next,
-            response::IntoResponse,
-        };
-        use jsonwebtoken::TokenData;
+        
+        use axum::http::{Request, Response};
+        
         // use biscotti::{Processor, ProcessorConfig, RequestCookies};
         use pin_project_lite::pin_project;
         use server_fn::ServerFnError;
         use thiserror::Error;
-        use tokio::pin;
-        use tower::{BoxError, Layer, Service};
-        use tower_http::timeout::Timeout;
+        
+        use tower::{Layer, Service};
+        
         use tracing::trace;
 
-        use crate::auth::{Claims, decode_token, verify_cookie};
+        use crate::auth::verify_cookie;
 
         // use crate::api::MidErr;
 

@@ -1,15 +1,15 @@
 pub mod db {
     use std::sync::LazyLock;
 
-    use argon2::Argon2;
-    use argon2::PasswordHasher;
-    use cfg_if::cfg_if;
-    use password_hash::{SaltString, rand_core::OsRng};
+    
+    
+    
+    
     use serde::{Deserialize, Serialize};
     use surrealdb::RecordId;
     use surrealdb::engine::local;
     use surrealdb::engine::local::SurrealKv;
-    use surrealdb::{Connection, Datetime, Surreal, engine::local::Mem, opt::IntoEndpoint};
+    use surrealdb::{Connection, Datetime, Surreal, opt::IntoEndpoint};
     use thiserror::Error;
     use tracing::trace;
 
@@ -188,7 +188,7 @@ pub mod db {
             //     err => err.into(),
             // })?;
 
-            let mut password = result
+            let password = result
                 .take::<Option<String>>(0)?
                 .ok_or(GetUserPasswordErr::UserNotFound)?;
             trace!("result: {password}");
@@ -211,7 +211,7 @@ pub mod db {
             //         .to_string();
             //     password_hash
             // };
-            let mut result = db
+            let result = db
                 .query(
                     r#"
                      CREATE user SET
@@ -244,7 +244,7 @@ pub mod db {
                 }) if index == "idx_user_username" => AddUserErr::UsernameIsTaken(value),
                 err => err.into(),
             })?;
-            let mut user = result
+            let user = result
                 .take::<Option<User>>(0)?
                 .ok_or(AddUserErr::NotFound)?;
 
@@ -259,7 +259,7 @@ pub mod db {
             let db = &self.db;
             let token: String = token.into();
             let username: String = username.into();
-            let mut result = db
+            let result = db
                 .query(
                     r#"
                      LET $user_id = SELECT id FROM ONLY user WHERE username = $username;
@@ -272,7 +272,7 @@ pub mod db {
 
             trace!("result: {result:#?}");
 
-            let mut result = result.check().map_err(|err| match err {
+            let result = result.check().map_err(|err| match err {
                 surrealdb::Error::Db(surrealdb::error::Db::IndexExists { index, .. })
                     if index == "idx_session_access_token" =>
                 {
@@ -284,7 +284,7 @@ pub mod db {
             trace!("result2: {result:#?}");
             let mut result = result?;
 
-            let mut session = result
+            let session = result
                 .take::<Option<Session>>(1)?
                 .ok_or(AddSessionErr::NotFound)?;
 
@@ -297,7 +297,7 @@ pub mod db {
         ) -> Result<(), DeleteSessionErr> {
             let db = &self.db;
             let token: String = token.into();
-            let mut result = db
+            let result = db
                 .query(
                     r#"
                      DELETE session WHERE access_token = $access_token;
@@ -307,7 +307,7 @@ pub mod db {
                 .await?;
             trace!("result: {result:#?}");
 
-            let mut result = result
+            let result = result
                 .check()
                 .inspect(|result| trace!("result2: {result:#?}"))?;
             // trace!("result2: {result:#?}");
@@ -326,7 +326,7 @@ pub mod db {
         ) -> Result<Session, GetSessionErr> {
             let db = &self.db;
             let token: String = token.into();
-            let mut result = db
+            let result = db
                 .query(
                     r#"
                      SELECT * FROM session WHERE access_token = $access_token;
@@ -340,7 +340,7 @@ pub mod db {
                 .check()
                 .inspect(|result| trace!("result2: {result:#?}"))?;
 
-            let mut session = result
+            let session = result
                 .take::<Option<Session>>(0)?
                 .ok_or(GetSessionErr::NotFound)?;
 
@@ -450,13 +450,13 @@ mod database_tests {
     // use surrealdb::Surreal;
 
     // // For an in memory database
-    use surrealdb::Datetime;
+    
     use surrealdb::engine::local::Mem;
     use test_log::test;
     use tracing::trace;
 
     // use crate::db::AddUserErr;
-    use crate::db::User;
+    
     use crate::db::{AddUserErr, Db};
 
     // #[test(tokio::test)]
