@@ -1,11 +1,20 @@
 use std::sync::LazyLock;
 
+use artbounty_api::api;
 use artbounty_db::db::{DB, Db};
 use artbounty_frontend::{app::App, shell};
-use axum::{Router, routing::post};
+use axum::{
+    Router,
+    http::Method,
+    middleware,
+    routing::{get, post},
+};
 use leptos::{logging, prelude::*};
 use leptos_axum::{LeptosRoutes, generate_route_list};
-use tower_http::compression::CompressionLayer;
+use tower_http::{
+    compression::CompressionLayer,
+    cors::{self, CorsLayer},
+};
 use tracing::{info, trace, trace_span};
 
 // static DB: LazyLock<Surreal<ws::Client>> = LazyLock::new(Surreal::init);
@@ -29,21 +38,39 @@ async fn main() {
     DB.migrate().await.unwrap();
     // let db = Db::new_kv().await.unwrap();
 
-    let conf = get_configuration(None).unwrap();
+    //
+    let conf = get_configuration(Some("Cargo.toml")).unwrap();
     let leptos_options = conf.leptos_options;
     let addr = leptos_options.site_addr;
     let routes = generate_route_list(App);
 
     let comppression_layer = CompressionLayer::new().zstd(true).gzip(true).deflate(true);
 
+    let cors = CorsLayer::new()
+        // allow `GET` and `POST` when accessing the resource
+        .allow_methods([Method::GET, Method::POST])
+        // allow requests from any origin
+        .allow_origin(cors::Any);
+
+    let api_router = Router::new().route("/api2/login", post(api::login::server));
+    // .layer(middleware::from_fn(middleware2::auth::auth));
+    // .layer(axum::middleware::map_response(
+    //     async |res: axum::http::Response<axum::body::Body>| {
+    //         trace!("777");
+    //         res
+    //     },
+    // ));
+
     let app = Router::new()
         .leptos_routes(&leptos_options, routes, {
             let leptos_options = leptos_options.clone();
             move || shell(leptos_options.clone())
         })
+        .merge(api_router)
         .fallback(leptos_axum::file_and_error_handler(shell))
         // .route("/api/register", post(api::register::create))
         .with_state(leptos_options)
+        .layer(cors)
         .layer(comppression_layer);
 
     // .layer(artbounty_api::middleware::auth::AuthLayer);
@@ -53,6 +80,59 @@ async fn main() {
     axum::serve(listener, app.into_make_service())
         .await
         .unwrap();
+}
+
+// pub mod wow {
+//     use rkyv::{
+//         Archive, Archived, Serialize, access, bytecheck::CheckBytes, rancor::Error, to_bytes,
+//     };
+
+//     #[derive(Archive, Serialize)]
+//     struct Example {
+//         name: String,
+//         value: i32,
+//     }
+
+//     fn wow() {
+//         let value = Example {
+//             name: "pi".to_string(),
+//             value: 31415926,
+//         };
+
+//         let bytes = to_bytes::<Error>(&value).unwrap();
+//         let archived = access::<ArchivedExample, Error>(&bytes).unwrap();
+
+//         assert_eq!(archived.name, "pi");
+//         assert_eq!(archived.value, 31415926);
+//     }
+// }
+pub mod api2 {}
+pub mod middleware2 {
+    pub mod auth {
+        use axum::body::Body;
+        use tracing::trace;
+
+        pub async fn auth(
+            req: axum::extract::Request,
+            next: axum::middleware::Next,
+        ) -> axum::response::Response {
+            // let response = next.run(req).await;
+            // let bob = Body::empty();
+            let r2 = axum::response::Response::builder()
+                .status(403)
+                .body(Body::empty())
+                .unwrap();
+            trace!("hello666");
+
+            r2
+        }
+
+        // pub async fn out(
+        //     res: axum::http::Response<axum::body::Body>,
+        // ) -> axum::http::Response<axum::body::Body> {
+        //     res
+        // }
+    }
 }
 
 // pub mod api {

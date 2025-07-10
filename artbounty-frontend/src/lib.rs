@@ -6,7 +6,7 @@
 
 use leptos::prelude::*;
 use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
-use server_fn::codec::Rkyv;
+// use server_fn::codec::Rkyv;
 
 // extern crate rustc_lexer;
 
