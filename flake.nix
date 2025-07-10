@@ -111,7 +111,7 @@
             RUST_SRC_PATH = "${rust_toolchain}/lib/rustlib/src/rust/library";
             # RUSTFLAGS = "-C linker=clang -C link-arg=-fuse-ld=${pkgs.mold}/bin/mold -Z share-generics=y";
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
-              # pkgs.openssl
+              pkgs.openssl
               # pkgs.openssl.dev
               # pkgs.wayland
               # pkgs.libxkbcommon

@@ -1,4 +1,5 @@
 pub mod prelude {
+    pub use super::api::Grounder;
     pub use super::dropzone::{self, AddDropZone};
     pub use super::event_listener::{self, AddEventListener};
     pub use super::file::{self, GetFileStream, GetFiles, GetStreamChunk, PushChunkToVec};
@@ -6,6 +7,111 @@ pub mod prelude {
     pub use super::interval::{self};
     pub use super::random::{random_u8, random_u32, random_u32_ranged, random_u64};
     pub use super::resize_observer::{self, AddResizeObserver, GetContentBoxSize};
+}
+
+pub mod api {
+    use std::marker::PhantomData;
+
+    use leptos::{
+        prelude::{ArcRwSignal, Read, Set},
+        task::spawn_local,
+    };
+
+    pub trait Grounder<Func, FuncFuture, DTO, ApiValue, ApiErr>
+    where
+        Func: Fn(DTO) -> FuncFuture,
+        FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
+        ApiValue: Clone + 'static,
+        ApiErr: Clone + 'static,
+    {
+        fn ground(self) -> Api<Func, FuncFuture, DTO, ApiValue, ApiErr>;
+    }
+
+    pub trait Caller<T> {
+        fn call(self) -> T;
+    }
+
+    impl<T, F: Fn() -> T> Caller<T> for F {
+        fn call(self) -> T {
+            (self)()
+        }
+    }
+
+    // pub trait Grounder {
+    //     fn ground<Func, FuncFuture, ApiValue, ApiErr>() -> Api<Func, FuncFuture, ApiValue, ApiErr>
+    //     where
+    //         Func: Fn() -> FuncFuture,
+    //         FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
+    //         ApiValue: Clone + 'static,
+    //         ApiErr: Clone + 'static;
+    // }
+
+    impl<Func, FuncFuture, DTO, ApiValue, ApiErr> Grounder<Func, FuncFuture, DTO, ApiValue, ApiErr>
+        for Func
+    where
+        Func: Fn(DTO) -> FuncFuture,
+        FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
+        ApiValue: Clone + 'static,
+        ApiErr: Clone + 'static,
+    {
+        fn ground(self) -> Api<Func, FuncFuture, DTO, ApiValue, ApiErr> {
+            ground(self)
+        }
+    }
+
+    #[derive(Clone)]
+    pub struct Api<Func, FuncFuture, DTO, ApiValue, ApiErr>
+    where
+        Func: Fn(DTO) -> FuncFuture,
+        FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
+        ApiValue: Clone + 'static,
+        ApiErr: Clone + 'static,
+    {
+        pub fut: Func,
+        pub value: ArcRwSignal<Option<Result<ApiValue, ApiErr>>>,
+        pub _phantom: PhantomData<DTO>,
+    }
+
+    impl<Func, FuncFuture, DTO, ApiValue, ApiErr> Api<Func, FuncFuture, DTO, ApiValue, ApiErr>
+    where
+        Func: Fn(DTO) -> FuncFuture,
+        FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
+        ApiValue: Clone + 'static,
+        ApiErr: Clone + 'static,
+    {
+        pub fn dispatch(&self, dto: DTO) {
+            let fut = (self.fut)(dto);
+            let value = self.value.clone();
+            spawn_local(async move {
+                let result = fut.await;
+                value.set(Some(result));
+            });
+        }
+
+        pub fn value(&self) -> Option<Result<ApiValue, ApiErr>> {
+            let v = self.value.read_only().read().clone();
+            v
+        }
+    }
+
+    pub fn ground<Func, FuncFuture, DTO, ApiValue, ApiErr>(
+        fut: Func,
+    ) -> Api<Func, FuncFuture, DTO, ApiValue, ApiErr>
+    where
+        Func: Fn(DTO) -> FuncFuture,
+        FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
+        ApiValue: Clone + 'static,
+        ApiErr: Clone + 'static,
+    {
+        let api = Api::<Func, FuncFuture, DTO, ApiValue, ApiErr> {
+            fut,
+            value: ArcRwSignal::new(None),
+            _phantom: PhantomData,
+        };
+        api
+        // let result = ArcRwSignal::new();
+        // s
+    }
 }
 
 pub mod random {

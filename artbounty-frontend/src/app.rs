@@ -1,3 +1,4 @@
+use artbounty_api::api;
 use components::gallery::Img;
 use indextree::Arena;
 use indextree::NodeId;
@@ -24,6 +25,10 @@ pub struct GlobalState {
 #[component]
 pub fn App() -> impl IntoView {
     provide_context(GlobalState::default());
+    // let profile = ServerAction::<api::profile::Profile>::new();
+    // Effect::new(move || {
+    //     profile.dispatch(api::profile::Profile {});
+    // });
 
     view! {
         <Router>

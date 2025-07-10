@@ -108,9 +108,16 @@ pub mod db {
                             -- session
                             DEFINE TABLE session SCHEMAFULL;
                             DEFINE FIELD access_token ON TABLE session TYPE string;
+                            DEFINE FIELD user_id ON TABLE session TYPE record<user>;
                             DEFINE FIELD modified_at ON TABLE session TYPE datetime DEFAULT time::now();
                             DEFINE FIELD created_at ON TABLE session TYPE datetime DEFAULT time::now();
                             DEFINE INDEX idx_session_access_token ON TABLE session COLUMNS access_token UNIQUE;
+                            -- stats
+                            DEFINE TABLE stat SCHEMAFULL;
+                            DEFINE FIELD country ON TABLE stat TYPE string;
+                            DEFINE FIELD modified_at ON TABLE stat TYPE datetime DEFAULT time::now();
+                            DEFINE FIELD created_at ON TABLE stat TYPE datetime DEFAULT time::now();
+                            DEFINE INDEX idx_stat_country ON TABLE session COLUMNS access_token UNIQUE;
 
                             CREATE migration SET version = 0;
                         };
@@ -119,15 +126,34 @@ pub mod db {
                     SELECT * FROM migration;
                 ",
                 )
-                .await?;
-            trace!("{:#?}", result);
-            result.check()?;
+                .await.inspect(|result| trace!("DB RESULT {:#?}", result) )?;
+            result
+                .check()
+                .inspect(|result| trace!("RESULT CHECK {:#?}", result))?;
             Ok(())
         }
 
         // pub async fn verify_user(&self, email: String, password: String) {
         //     let db = &self.db;
-        // }
+        pub async fn get_user_by_email<S: Into<String>>(
+            &self,
+            email: S,
+        ) -> Result<User, GetUserByEmailErr> {
+            let db = &self.db;
+            let email = email.into();
+
+            let mut result = db
+                .query(
+                    r#"
+                    SELECT * FROM user WHERE email = $email;
+                "#,
+                )
+                .bind(("email", email))
+                .await?;
+            result
+                .take::<Option<User>>(0)?
+                .ok_or(GetUserByEmailErr::UserNotFound)
+        }
 
         pub async fn get_user_password_hash<S: Into<String>>(
             &self,
@@ -228,16 +254,20 @@ pub mod db {
         pub async fn add_session<S: Into<String>>(
             &self,
             token: S,
+            username: S,
         ) -> Result<Session, AddSessionErr> {
             let db = &self.db;
             let token: String = token.into();
+            let username: String = username.into();
             let mut result = db
                 .query(
                     r#"
-                     CREATE session SET access_token = $access_token;
+                     LET $user_id = SELECT id FROM ONLY user WHERE username = $username;
+                     CREATE session SET access_token = $access_token, user_id = $user_id.id;
                 "#,
                 )
                 .bind(("access_token", token))
+                .bind(("username", username))
                 .await?;
 
             trace!("result: {result:#?}");
@@ -255,8 +285,64 @@ pub mod db {
             let mut result = result?;
 
             let mut session = result
-                .take::<Option<Session>>(0)?
+                .take::<Option<Session>>(1)?
                 .ok_or(AddSessionErr::NotFound)?;
+
+            Ok(session)
+        }
+
+        pub async fn delete_session<S: Into<String>>(
+            &self,
+            token: S,
+        ) -> Result<(), DeleteSessionErr> {
+            let db = &self.db;
+            let token: String = token.into();
+            let mut result = db
+                .query(
+                    r#"
+                     DELETE session WHERE access_token = $access_token;
+                "#,
+                )
+                .bind(("access_token", token))
+                .await?;
+            trace!("result: {result:#?}");
+
+            let mut result = result
+                .check()
+                .inspect(|result| trace!("result2: {result:#?}"))?;
+            // trace!("result2: {result:#?}");
+            // let mut result = result?;
+
+            // let mut session = result
+            //     .take::<Option<Session>>(0)?
+            //     .ok_or(DeleteSessionErr::NotFound)?;
+
+            Ok(())
+        }
+
+        pub async fn get_session<S: Into<String>>(
+            &self,
+            token: S,
+        ) -> Result<Session, GetSessionErr> {
+            let db = &self.db;
+            let token: String = token.into();
+            let mut result = db
+                .query(
+                    r#"
+                     SELECT * FROM session WHERE access_token = $access_token;
+                "#,
+                )
+                .bind(("access_token", token))
+                .await?;
+            trace!("result: {result:#?}");
+
+            let mut result = result
+                .check()
+                .inspect(|result| trace!("result2: {result:#?}"))?;
+
+            let mut session = result
+                .take::<Option<Session>>(0)?
+                .ok_or(GetSessionErr::NotFound)?;
 
             Ok(session)
         }
@@ -278,6 +364,7 @@ pub mod db {
     pub struct Session {
         pub id: RecordId,
         pub access_token: String,
+        pub user_id: RecordId,
         pub modified_at: Datetime,
         pub created_at: Datetime,
     }
@@ -317,11 +404,38 @@ pub mod db {
     }
 
     #[derive(Debug, Error)]
+    pub enum GetSessionErr {
+        #[error("DB error {0}")]
+        DB(#[from] surrealdb::Error),
+
+        #[error("not found")]
+        NotFound,
+    }
+
+    #[derive(Debug, Error)]
+    pub enum DeleteSessionErr {
+        #[error("DB error {0}")]
+        DB(#[from] surrealdb::Error),
+
+        #[error("not found")]
+        NotFound,
+    }
+
+    #[derive(Debug, Error)]
     pub enum GetUserPasswordErr {
         #[error("DB error {0}")]
         DB(#[from] surrealdb::Error),
 
-        #[error("token already exists")]
+        #[error("user not found")]
+        UserNotFound,
+    }
+
+    #[derive(Debug, Error)]
+    pub enum GetUserByEmailErr {
+        #[error("DB error {0}")]
+        DB(#[from] surrealdb::Error),
+
+        #[error("user not found")]
         UserNotFound,
     }
 }
@@ -354,6 +468,24 @@ mod database_tests {
     //     // let b = RecordI
     // }
     #[test(tokio::test)]
+    async fn test_get_user_by_email() {
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate().await.unwrap();
+
+        let user = db
+            .add_user(
+                "hey".to_string(),
+                "hey@hey.com".to_string(),
+                "hey".to_string(),
+            )
+            .await
+            .unwrap();
+        let user = db.get_user_by_email("hey@hey.com").await;
+        trace!("user: {user:?}");
+        assert!(user.is_ok());
+    }
+
+    #[test(tokio::test)]
     async fn test_get_user_password() {
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate().await.unwrap();
@@ -367,7 +499,7 @@ mod database_tests {
             .await
             .unwrap();
         let password = db.get_user_password_hash("hey@hey.com").await;
-        trace!("session: {password:?}");
+        trace!("pss: {password:?}");
         assert!(password.is_ok());
     }
 
@@ -376,13 +508,76 @@ mod database_tests {
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate().await.unwrap();
 
-        let session = db.add_session("token").await;
+        let user = db
+            .add_user(
+                "hey".to_string(),
+                "hey@hey.com".to_string(),
+                "hey".to_string(),
+            )
+            .await
+            .unwrap();
+
+        let session = db.add_session("token", "hey").await;
         trace!("session: {session:?}");
         assert!(session.is_ok());
 
-        let session = db.add_session("token").await;
+        let session = db.add_session("token", "hey").await;
         trace!("session: {session:?}");
         assert!(session.is_err());
+    }
+
+    #[test(tokio::test)]
+    async fn test_delete_session() {
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate().await.unwrap();
+
+        let user = db
+            .add_user(
+                "hey".to_string(),
+                "hey@hey.com".to_string(),
+                "hey".to_string(),
+            )
+            .await
+            .unwrap();
+
+        let session = db.add_session("token", "hey").await;
+        trace!("session: {session:?}");
+        assert!(session.is_ok());
+
+        let session = db.delete_session("token").await;
+        trace!("session: {session:?}");
+        assert!(session.is_ok());
+
+        let session = db.get_session("token").await;
+        trace!("session: {session:?}");
+        assert!(session.is_err());
+    }
+
+    #[test(tokio::test)]
+    async fn test_get_session() {
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate().await.unwrap();
+
+        let user = db
+            .add_user(
+                "hey".to_string(),
+                "hey@hey.com".to_string(),
+                "hey".to_string(),
+            )
+            .await
+            .unwrap();
+
+        let session = db.get_session("token").await;
+        trace!("session: {session:?}");
+        assert!(session.is_err());
+
+        let session = db.add_session("token", "hey").await;
+        trace!("session: {session:?}");
+        assert!(session.is_ok());
+
+        let session = db.get_session("token").await;
+        trace!("session: {session:?}");
+        assert!(session.is_ok());
     }
 
     #[test(tokio::test)]

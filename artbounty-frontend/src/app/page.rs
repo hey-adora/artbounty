@@ -1,3 +1,4 @@
+pub mod profile {}
 pub mod home {
     use std::rc::Rc;
 
@@ -126,15 +127,18 @@ pub mod register {
         let email_err = RwSignal::new(String::new());
         let password_err = RwSignal::new(String::new());
         let general_err = RwSignal::new(String::new());
-        let register = ServerAction::<api::register::Register>::new();
-        let registration_completed = move || {
-            register
-                .value()
-                .with(|v| v.as_ref().map(|v| v.is_ok()))
-                .unwrap_or_default()
-        };
-        let registration_pending = move || register.pending().get();
-        let registration_result = move || register.value().get().and_then(|v| v.ok());
+        let registration_completed = move || false;
+        let registration_pending = move || false;
+        let registration_result = move || Option::<api::register::Res>::None;
+        // let register = ServerAction::<api::register::Register>::new();
+        // let registration_completed = move || {
+        //     register
+        //         .value()
+        //         .with(|v| v.as_ref().map(|v| v.is_ok()))
+        //         .unwrap_or_default()
+        // };
+        // let registration_pending = move || register.pending().get();
+        // let registration_result = move || register.value().get().and_then(|v| v.ok());
 
         let on_register = move |e: SubmitEvent| {
             e.prevent_default();
@@ -161,53 +165,53 @@ pub mod register {
             };
 
             trace!("register dispatched");
-            register.dispatch(api::register::Register {
-                email,
-                password,
-                username,
-            });
+            // register.dispatch(api::register::Register {
+            //     email,
+            //     password,
+            //     username,
+            // });
         };
 
-        Effect::new(move || {
-            let result = register.value();
-            let Some(result) = result.get() else {
-                trace!("does anything work?");
-                return;
-            };
-            trace!("no");
-            match result {
-                Ok(_) => {
-                    trace!("ok???");
-                    //
-                }
-                Err(ServerFnError::WrappedServerError(
-                    api::register::RegisterErr::EmailInvalid(err),
-                )) => {
-                    email_err.set(err);
-                }
-                Err(ServerFnError::WrappedServerError(api::register::RegisterErr::EmailTaken)) => {
-                    email_err.set("email is taken".to_string());
-                }
-                Err(ServerFnError::WrappedServerError(
-                    api::register::RegisterErr::UsernameInvalid(err),
-                )) => {
-                    username_err.set(err);
-                }
-                Err(ServerFnError::WrappedServerError(
-                    api::register::RegisterErr::PasswordInvalid(err),
-                )) => {
-                    password_err.set(err);
-                }
-                Err(ServerFnError::WrappedServerError(
-                    api::register::RegisterErr::UsernameTaken,
-                )) => {
-                    username_err.set("username is taken".to_string());
-                }
-                Err(_) => {
-                    general_err.set("serevr err".to_string());
-                }
-            }
-        });
+        // Effect::new(move || {
+        //     let result = register.value();
+        //     let Some(result) = result.get() else {
+        //         trace!("does anything work?");
+        //         return;
+        //     };
+        //     trace!("no");
+        //     match result {
+        //         Ok(_) => {
+        //             trace!("ok???");
+        //             //
+        //         }
+        //         Err(ServerFnError::WrappedServerError(
+        //             api::register::RegisterErr::EmailInvalid(err),
+        //         )) => {
+        //             email_err.set(err);
+        //         }
+        //         Err(ServerFnError::WrappedServerError(api::register::RegisterErr::EmailTaken)) => {
+        //             email_err.set("email is taken".to_string());
+        //         }
+        //         Err(ServerFnError::WrappedServerError(
+        //             api::register::RegisterErr::UsernameInvalid(err),
+        //         )) => {
+        //             username_err.set(err);
+        //         }
+        //         Err(ServerFnError::WrappedServerError(
+        //             api::register::RegisterErr::PasswordInvalid(err),
+        //         )) => {
+        //             password_err.set(err);
+        //         }
+        //         Err(ServerFnError::WrappedServerError(
+        //             api::register::RegisterErr::UsernameTaken,
+        //         )) => {
+        //             username_err.set("username is taken".to_string());
+        //         }
+        //         Err(_) => {
+        //             general_err.set("serevr err".to_string());
+        //         }
+        //     }
+        // });
 
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] min-h-[100dvh]">
@@ -299,7 +303,17 @@ pub mod login {
 
         // let data = OnceResource::new(api::register::create());
         let global_state = expect_context::<GlobalState>();
-        let login = ServerAction::<api::login::Login>::new();
+        // let login3 = (async |dto: api::login::Args| {
+        //     trace!("hello");
+        //     Ok::<(), ()>(())
+        // })
+        // .ground();
+        let login2 = api::login::post.ground();
+        // let login = ServerAction::<api::login::Login>::new();
+        // let login2 = Action::new(move |args: &api::login::Args| {
+        //     //
+        //     api::login::post(args.clone())
+        // });
         let on_login = move |e: SubmitEvent| {
             e.prevent_default();
             let (Some(email), Some(password)) = (input_email.get(), input_password.get()) else {
@@ -319,35 +333,39 @@ pub mod login {
             };
 
             trace!("lohin dispatched");
-            login.dispatch(api::login::Login { email, password });
+            login2.dispatch(api::login::Args { email, password });
+            //login2.dispatch(api::login::Args { email, password });
+            // login.dispatch(api::login::Login { email, password });
         };
-        let login_completed = move || {
-            login
-                .value()
-                .with(|v| v.as_ref().map(|v| v.is_ok()))
-                .unwrap_or_default()
-        };
-        let login_pending = move || login.pending().get();
+        let login_completed = move || false;
+        let login_pending = move || false;
+        // let login_completed = move || {
+        //     login
+        //         .value()
+        //         .with(|v| v.as_ref().map(|v| v.is_ok()))
+        //         .unwrap_or_default()
+        // };
+        // let login_pending = move || login.pending().get();
 
-        Effect::new(move || {
-            let result = login.value();
-            let Some(result) = result.get() else {
-                trace!("does anything work?");
-                return;
-            };
-            trace!("received login request");
-            match result {
-                Ok(_) => {
-                    trace!("login request had no error");
-                }
-                Err(ServerFnError::WrappedServerError(api::login::LoginErr::Incorrect)) => {
-                    general_err.set("Email or Password is not correct.".to_string());
-                }
-                Err(_) => {
-                    general_err.set("Serevr error!".to_string());
-                }
-            }
-        });
+        // Effect::new(move || {
+        //     let result = login.value();
+        //     let Some(result) = result.get() else {
+        //         trace!("does anything work?");
+        //         return;
+        //     };
+        //     trace!("received login request");
+        //     match result {
+        //         Ok(_) => {
+        //             trace!("login request had no error");
+        //         }
+        //         Err(ServerFnError::WrappedServerError(api::login::LoginErr::Incorrect)) => {
+        //             general_err.set("Email or Password is not correct.".to_string());
+        //         }
+        //         Err(_) => {
+        //             general_err.set("Serevr error!".to_string());
+        //         }
+        //     }
+        // });
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] min-h-[100dvh]">
                 <Nav/>

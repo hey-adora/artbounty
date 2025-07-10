@@ -27,6 +27,7 @@ http = { workspace = true }
 biscotti = { workspace = true, optional = true }
 jsonwebtoken = { workspace = true, optional = true }
 jiff = { workspace = true }
+reqwest = { workspace = true }
 
 [dev-dependencies]
 # artbounty-db = { workspace = true, features = ["test"] }
