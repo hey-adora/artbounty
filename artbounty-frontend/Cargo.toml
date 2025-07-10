@@ -6,20 +6,20 @@ edition = "2024"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-[profile.dev]
-opt-level = 0
-incremental = true
-codegen-units = 256
+# [profile.dev]
+# opt-level = 0
+# incremental = true
+# codegen-units = 256
 
-[profile.dev.package."*"]
-opt-level = 0
+# [profile.dev.package."*"]
+# opt-level = 0
 
-[profile.wasm-release]
-inherits = "release"
-opt-level = 'z'
-lto = true
-codegen-units = 1
-panic = "abort"
+# [profile.wasm-release]
+# inherits = "release"
+# opt-level = 'z'
+# lto = true
+# codegen-units = 1
+# panic = "abort"
 
 [features]
 hydrate = ["leptos/hydrate", "artbounty-api/hydrate"]
