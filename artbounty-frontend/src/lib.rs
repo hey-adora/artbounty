@@ -1,14 +1,5 @@
-// #![feature(test)]
-// #![feature(strict_overflow_ops)]
-// #![feature(lazy_get)]
-// #![feature(thread_local)]
-// extern crate test;
-
 use leptos::prelude::*;
 use leptos_meta::MetaTags;
-// use server_fn::codec::Rkyv;
-
-// extern crate rustc_lexer;
 
 use app::App;
 

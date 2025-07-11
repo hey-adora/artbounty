@@ -33,7 +33,6 @@ pub mod auth {
     ) -> Result<String, String> {
         let mut errors = String::new();
         let password: String = password.into();
-        // let password_confirmation = password_confirmtion.as_ref().to_owned();
 
         if password.is_smaller_than(12) {
             errors += "password must be at least 12 characters long\n";
@@ -115,10 +114,6 @@ pub mod auth {
     }
 }
 pub mod valid {
-    
-
-    
-    // use regex::Regex;
     use tracing::trace;
 
     pub trait Validator {
@@ -149,18 +144,8 @@ pub mod valid {
                 .unwrap_or_default()
         }
         fn is_email(&self) -> bool {
-            // thread_local! {
-            //     static RE: LazyCell<Regex> = LazyCell::new(|| Regex::new(
-            //         // r#"(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])"#,
-            //         r#"^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$"#
-            //     ).unwrap());
-            // }
-            // RE.with(|re| re.is_match(self.as_ref()))
-            // EmailAddress::is_valid(self.as_ref())
-            // if
             let email = self.as_ref();
             let mut email_chars = email.chars().enumerate();
-            // let mut state: usize = 0;
             if email_chars
                 .next()
                 .map(|(_i, char)| !(char == '-' || char == '.' || char.is_alphanumeric()))

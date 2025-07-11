@@ -37,15 +37,6 @@ pub mod api {
         }
     }
 
-    // pub trait Grounder {
-    //     fn ground<Func, FuncFuture, ApiValue, ApiErr>() -> Api<Func, FuncFuture, ApiValue, ApiErr>
-    //     where
-    //         Func: Fn() -> FuncFuture,
-    //         FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
-    //         ApiValue: Clone + 'static,
-    //         ApiErr: Clone + 'static;
-    // }
-
     impl<Func, FuncFuture, DTO, ApiValue, ApiErr> Grounder<Func, FuncFuture, DTO, ApiValue, ApiErr>
         for Func
     where
@@ -107,8 +98,6 @@ pub mod api {
             value: ArcRwSignal::new(None),
             _phantom: PhantomData,
         }
-        // let result = ArcRwSignal::new();
-        // s
     }
 }
 
@@ -140,22 +129,7 @@ pub mod uuid {
 
     use web_sys::Element;
 
-    // fn debug(log: &str, elm: &Element) {
-    //     // let node = elm.node_type();
-    //     // trace!(node);
-    //     // unsafe {
-    //     //     let p = &raw const elm as *const [usize; 64];
-    //     //     let r = *p;
-    //     //     // let p = ptr::read(r[0]);
-    //     //     let p = r[0] as *const [usize; 64];
-    //     //     let r = *p;
-    //     //     trace!("{log} ID: {r:x?}");
-    //     // }
-    // }
-
     pub fn get_id(target: &Element, field_name: &str) -> Option<Uuid> {
-        // debug("GET", target);
-
         let Some(id) = target.get_attribute(field_name) else {
             error!(
                 "{} was not set {:?}",
@@ -180,8 +154,6 @@ pub mod uuid {
     }
 
     pub fn set_id(target: &Element, field_name: &str, id: Uuid) {
-        // debug("SET", target);
-
         target.set_attribute(field_name, &id.to_string()).unwrap();
     }
 }
@@ -313,8 +285,6 @@ pub mod intersection_observer {
 
     use leptos::html::ElementType;
     use leptos::prelude::*;
-    // use leptos::html;
-    // use leptos::{html::ElementType, prelude::*};
     use ordered_float::OrderedFloat;
     use send_wrapper::SendWrapper;
     use tracing::{trace, trace_span, warn};
@@ -330,28 +300,9 @@ pub mod intersection_observer {
 
     const ID_FIELD_NAME: &str = "data-leptos_toolbox_intersection_observer_id";
     const ID_FIELD_ROOT_NAME: &str = "data-leptos_toolbox_intersection_observer_root_id";
-    // static OBSERVERS: LazyLock<RwLock<HashMap<u64, SendWrapper<IntersectionObserver>>>> =
-    //     LazyLock::new(|| RwLock::new(HashMap::new()));
-    // static CALLBACKS: LazyLock<
-    //     RwLock<
-    //         HashMap<
-    //             Uuid,
-    //             Box<
-    //                 dyn FnMut(IntersectionObserverEntry, IntersectionObserver)
-    //                     + Send
-    //                     + Sync
-    //                     + 'static,
-    //             >,
-    //         >,
-    //     >,
-    // > = LazyLock::new(|| RwLock::new(HashMap::new()));
     thread_local! {
-        // #[thread_local]
-        // #[thread_local]
         static OBSERVERS: LazyLock<RefCell<HashMap<u64, SendWrapper<IntersectionObserver>>>> =
             LazyLock::new(|| RefCell::new(HashMap::new()));
-        // static OBSERVERS: LazyLock<RefCell<HashMap<u64, SendWrapper<IntersectionObserver>>>> =
-        //     MutStat;
         static CALLBACKS: LazyLock<
             RefCell<
                 HashMap<
@@ -365,13 +316,6 @@ pub mod intersection_observer {
                 >,
             >,
         > = LazyLock::new(|| RefCell::new(HashMap::new()));
-    // static HASHMAP: LazyLock<HashMap<u32, &str>> = LazyLock::new(|| {
-    //     let mut m = HashMap::new();
-    //     m.insert(0, "foo");
-    //     m.insert(1, "bar");
-    //     m.insert(2, "baz");
-    //     m
-    // });
     }
 
     pub trait AddIntersectionObserver {
@@ -786,62 +730,6 @@ pub mod resize_observer {
             >,
         >,
     }
-
-    // impl Default for GlobalState {
-    //     fn default() -> Self {
-    //         provide_context(GlobalState {
-    //             callbacks: StoredValue::new(HashMap::new()),
-    //             observer: StoredValue::new(None),
-    //         });
-    //         let ctx = expect_context::<GlobalState>();
-
-    //         let observer = new_raw(move |entries, observer| {
-    //             ctx.callbacks.update_value(|callbacks| {
-    //                 for entry in entries {
-    //                     let target = entry.target();
-    //                     let Some(id) = get_id(&target, ID_FIELD_NAME) else {
-    //                         continue;
-    //                     };
-
-    //                     let Some(callback) = callbacks.get_mut(&id) else {
-    //                         continue;
-    //                     };
-    //                     callback(entry, observer.clone());
-    //                 }
-    //             });
-    //         });
-    //         GlobalState {
-    //             callbacks: StoredValue::new(HashMap::new()),
-    //             observer: StoredValue::new(Some(SendWrapper::new(observer))),
-    //         }
-    //     }
-    // }
-
-    // pub fn init_global_state() {
-    //     provide_context(GlobalState::default());
-
-    //     Effect::new(move || {
-    //         let ctx = expect_context::<GlobalState>();
-
-    //         let observer = new_raw(move |entries, observer| {
-    //             ctx.callbacks.update_value(|callbacks| {
-    //                 for entry in entries {
-    //                     let target = entry.target();
-    //                     let Some(id) = get_id(&target, ID_FIELD_NAME) else {
-    //                         continue;
-    //                     };
-
-    //                     let Some(callback) = callbacks.get_mut(&id) else {
-    //                         continue;
-    //                     };
-    //                     callback(entry, observer.clone());
-    //                 }
-    //             });
-    //         });
-
-    //         ctx.observer.set(Some(SendWrapper::new(observer)));
-    //     });
-    // }
 
     pub fn new<E, F>(target: NodeRef<E>, callback: F)
     where

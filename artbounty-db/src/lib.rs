@@ -14,51 +14,17 @@ pub mod db {
     use tracing::trace;
 
     pub static DB: LazyLock<Db<local::Db>> = LazyLock::new(Db::init);
-    // pub type DbKv = Db<local::Db>;
 
     #[derive(Debug, Clone)]
     pub struct Db<C: Connection> {
         pub db: Surreal<C>,
     }
 
-    // impl Db<local::Db> {
-    //     pub fn init()
-    //     pub async fn new_kv() -> Result<Self, surrealdb::Error> {
-    //         Db::new::<SurrealKv>("db5").await
-    //     }
-    // }
-
-    // async fn hello() {
-    //     // use surrealdb::Surreal;
-    //     // use surrealdb::engine::local::SurrealKv;
-    // }
-    // pub trait Db: Connection {
-    // }
     impl Db<local::Db> {
         pub async fn connect(&self) {
             // TODO make path as env
             let db = &self.db;
             db.connect::<SurrealKv>("db5").await.unwrap();
-            // #[cfg(feature = "test")]
-            // {
-            //     trace!("USING MEM DB");
-            //     db.connect::<Mem>(()).await.unwrap();
-            // }
-
-            // #[cfg(not(feature = "test"))]
-            // {
-            //     trace!("USING FILE DB");
-            //     db.connect::<SurrealKv>("db5").await.unwrap();
-            // }
-            // cfg_if! {
-            //     if #[cfg(feature = "test")] {
-            //         trace!("USING MEM DB");
-            //         db.connect::<Mem>(()).await.unwrap();
-            //     } else {
-            //         trace!("USING FILE DB");
-            //         db.connect::<SurrealKv>("db5").await.unwrap();
-            //     }
-            // }
             db.use_ns("artbounty").use_db("web").await.unwrap();
         }
     }
@@ -67,7 +33,6 @@ pub mod db {
         fn init() -> Self {
             let db = Surreal::<C>::init();
             Self { db }
-            // db.co
         }
         pub async fn new<P>(
             address: impl IntoEndpoint<P, Client = C>,
@@ -133,8 +98,6 @@ pub mod db {
             Ok(())
         }
 
-        // pub async fn verify_user(&self, email: String, password: String) {
-        //     let db = &self.db;
         pub async fn get_user_by_email<S: Into<String>>(
             &self,
             email: S,
@@ -161,15 +124,6 @@ pub mod db {
         ) -> Result<String, GetUserPasswordErr> {
             let db = &self.db;
             let email = email.into();
-            // let mut result = db
-            //     .query(
-            //         r#"
-            //          LET $value = SELECT password FROM user WHERE email = $email;
-            //          $value.password
-            //     "#,
-            //     )
-            //     .bind(("email", email))
-            //     .await?;
             let mut result = db
                 .query(
                     r#"
@@ -178,15 +132,6 @@ pub mod db {
                 )
                 .bind(("email", email))
                 .await?;
-
-            // let mut result = result.check().map_err(|err| match err {
-            //     surrealdb::Error::Db(surrealdb::error::Db::IndexExists { index, .. })
-            //         if index == "idx_session_token" =>
-            //     {
-            //         AddSessionErr::TokenExists
-            //     }
-            //     err => err.into(),
-            // })?;
 
             let password = result
                 .take::<Option<String>>(0)?
@@ -203,14 +148,6 @@ pub mod db {
         ) -> Result<User, AddUserErr> {
             let db = &self.db;
             trace!("add_user input: username {username} email: {email} password: {password}");
-            // let password = {
-            //     let salt = SaltString::generate(&mut OsRng);
-            //     let argon2 = Argon2::default();
-            //     let password_hash = argon2
-            //         .hash_password(password.as_bytes(), &salt)?
-            //         .to_string();
-            //     password_hash
-            // };
             let result = db
                 .query(
                     r#"
@@ -226,16 +163,6 @@ pub mod db {
                 .await?;
             trace!("{:#?}", result);
             let mut result = result.check().map_err(|err| match err {
-                // surrealdb::Error::Db(surrealdb::error::Db::FieldValue { value, check, .. })
-                //     if check == "string::is::email($value)" =>
-                // {
-                //     AddUserErr::EmailInvalid(value)
-                // }
-                // surrealdb::Error::Db(surrealdb::error::Db::FieldValue { value, check, .. })
-                //     if check == "string::is::alphanum($value)" =>
-                // {
-                //     AddUserErr::UsernameInvalid(value)
-                // }
                 surrealdb::Error::Db(surrealdb::error::Db::IndexExists {
                     index, value, ..
                 }) if index == "idx_user_email" => AddUserErr::EmailIsTaken(value),
@@ -310,13 +237,6 @@ pub mod db {
             let _result = result
                 .check()
                 .inspect(|result| trace!("result2: {result:#?}"))?;
-            // trace!("result2: {result:#?}");
-            // let mut result = result?;
-
-            // let mut session = result
-            //     .take::<Option<Session>>(0)?
-            //     .ok_or(DeleteSessionErr::NotFound)?;
-
             Ok(())
         }
 
@@ -356,8 +276,6 @@ pub mod db {
         pub password: String,
         pub modified_at: Datetime,
         pub created_at: Datetime,
-        // name: name<'a>,
-        // marketing: bool,
     }
 
     #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -377,16 +295,9 @@ pub mod db {
         #[error("not found")]
         NotFound,
 
-        // #[error("hashing error {0}")]
-        // Hash(#[from] password_hash::Error),
-
-        // #[error("invalid email \"{0}\"")]
-        // EmailInvalid(String),
         #[error("email {0} is taken")]
         EmailIsTaken(String),
 
-        // #[error("username \"{0}\" is invalid")]
-        // UsernameInvalid(String),
         #[error("username {0} is taken")]
         UsernameIsTaken(String),
     }
@@ -442,31 +353,12 @@ pub mod db {
 
 #[cfg(test)]
 mod database_tests {
-    // use rkyv::result::ArchivedResult;
-    // use serde::{Deserialize, Serialize};
-
-    // // use pretty_assertions::{assert_eq, assert_ne};
-    // use surrealdb::RecordId;
-    // use surrealdb::Surreal;
-
-    // // For an in memory database
-    
     use surrealdb::engine::local::Mem;
     use test_log::test;
     use tracing::trace;
-
-    // use crate::db::AddUserErr;
     
     use crate::db::{AddUserErr, Db};
 
-    // #[test(tokio::test)]
-    // async fn test_time() {
-    //     let a = Datetime::default();
-    //     let b = a.to_string();
-    //     // let c: u128 = a.try_into().unwrap();
-    //     trace!("{b}");
-    //     // let b = RecordI
-    // }
     #[test(tokio::test)]
     async fn test_get_user_by_email() {
         let db = Db::new::<Mem>(()).await.unwrap();
@@ -594,16 +486,6 @@ mod database_tests {
             .unwrap();
         trace!("{user:#?}");
 
-        // let user: core::result::Result<User, AddUserErr> = db
-        //     .add_user(
-        //         "hey2".to_string(),
-        //         "heyhey.com".to_string(),
-        //         "hey".to_string(),
-        //     )
-        //     .await;
-        // trace!("{user:#?}");
-        // assert!(matches!(user, Err(AddUserErr::EmailInvalid(_))));
-
         let user = db
             .add_user(
                 "hey2".to_string(),
@@ -624,14 +506,5 @@ mod database_tests {
         trace!("{user:#?}");
         assert!(matches!(user, Err(AddUserErr::UsernameIsTaken(_))));
 
-        // let user = db
-        //     .add_user(
-        //         "hey$%".to_string(),
-        //         "hey3@hey.com".to_string(),
-        //         "hey".to_string(),
-        //     )
-        //     .await;
-        // trace!("{user:#?}");
-        // assert!(matches!(user, Err(AddUserErr::UsernameInvalid(_))));
     }
 }

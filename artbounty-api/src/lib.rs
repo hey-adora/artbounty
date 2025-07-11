@@ -1,20 +1,3 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
-
-// static DB: LazyLock<DbKv> = LazyLock::new(Db::new_kv);
-//
 #[cfg(feature = "ssr")]
 pub mod utils {
     use axum::extract::Multipart;
@@ -30,18 +13,6 @@ pub mod utils {
         A: rkyv::Portable
             + for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
             + Deserialize<T, HighDeserializer<rkyv::rancor::Error>>,
-        // A: Portable
-        //     + for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
-        //     + rkyv::Deserialize<
-        //         T,
-        //         bytecheck::rancor::Strategy<rkyv::de::Pool, bytecheck::rancor::Error>,
-        //     >,
-        // A: ,
-        // T: Deserialize<T, HighDeserializer<rkyv::rancor::Error>>
-        //     + Portable
-        //     + for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>,
-        // T: Deserialize<T, HighDeserializer<rkyv::rancor::Error>>,
-        // A: Portable + for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>,
     {
         let mut bytes = Vec::<u8>::new();
         while let Some(field) = multipart
@@ -64,7 +35,6 @@ pub mod utils {
 
         let archived =
             rkyv::access::<A, rkyv::rancor::Error>(&bytes).map_err(|_| DecodeErr::RkyvAccessErr)?;
-        // let archived = rkyv::access::<Example, rkyv::rancor::Error>(&*bytes).unwrap();
         let args = rkyv::deserialize::<T, rkyv::rancor::Error>(archived)
             .map_err(|_| DecodeErr::RkyvErr)?;
         Ok(args)
