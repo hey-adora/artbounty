@@ -14,9 +14,7 @@ pub mod home {
     #[component]
     pub fn Page() -> impl IntoView {
         let main_ref = NodeRef::new();
-        // let global_state = expect_context::<GlobalState>();
         let fake_imgs = RwSignal::new(Vec::<Img>::new());
-        // let imgs = global_state.imgs;
 
         main_ref.on_file_drop(async |_event, data| {
             for file in data.get_files() {
@@ -385,25 +383,4 @@ pub mod login {
         }
     }
 
-    // pub mod api2 {
-    //     pub mod register {
-    //         use leptos::{prelude::*, server};
-
-    //         #[server]
-    //         pub async fn create() -> Result<usize, ServerFnError> {
-    //             Ok(69)
-    //         }
-    //     }
-    // }
-
-    // pub mod api {
-    //     pub mod register {
-    //         use leptos::{prelude::*, server};
-
-    //         #[server]
-    //         pub async fn create() -> Result<usize, ServerFnError> {
-    //             Ok(69)
-    //         }
-    //     }
-    // }
 }

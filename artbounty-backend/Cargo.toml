@@ -3,14 +3,6 @@ name = "artbounty-backend"
 version = "0.1.0"
 edition = "2024"
 
-# [profile.dev]
-# opt-level = 0
-# incremental = true
-# codegen-units = 256
-
-# [profile.dev.package."*"]
-# opt-level = 0
-
 [dependencies]
 artbounty-frontend = { workspace = true, features = ["ssr"] }
 artbounty-api = { workspace = true, features = ["ssr"] }

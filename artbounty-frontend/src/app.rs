@@ -9,10 +9,6 @@ pub mod page;
 
 #[derive(Clone, Default, Debug)]
 pub struct GlobalState {
-    // imgs: RwSignal<Vec<Img>>,
-    // id: RwSignal<usize>,
-    // tree: RwSignal<Arena<usize>>,
-    // current: RwSignal<Option<NodeId>>,
 }
 
 #[component]
