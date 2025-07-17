@@ -262,8 +262,8 @@ pub mod register {
 }
 
 pub mod login {
-    use crate::app::components::nav::Nav;
     use crate::toolbox::prelude::*;
+    use crate::{app::components::nav::Nav, toolbox::api::ground};
     use artbounty_api::api;
     use artbounty_shared::auth::proccess_email;
     use leptos::{html::Input, prelude::*};
@@ -288,34 +288,40 @@ pub mod login {
         //     Ok::<(), ()>(())
         // })
         // .ground();
-        let login2 = api::login::post.ground();
+
+        // let a = ground(artbounty_api::auth::api::login::client);
+        let login = artbounty_api::auth::api::login::client.ground();
         // let login = ServerAction::<api::login::Login>::new();
         // let login2 = Action::new(move |args: &api::login::Args| {
         //     //
         //     api::login::post(args.clone())
         // });
-        let on_login = move |e: SubmitEvent| {
-            e.prevent_default();
-            let (Some(email), Some(password)) = (input_email.get(), input_password.get()) else {
-                return;
-            };
+        let on_login = {
+            let login = login.clone();
+            move |e: SubmitEvent| {
+                e.prevent_default();
+                let (Some(email), Some(password)) = (input_email.get(), input_password.get())
+                else {
+                    return;
+                };
 
-            let email = proccess_email(email.value());
-            let password = password.value();
-            // let password = proccess_password(password.value(), None); NEVER PUT PASSWORD VERIFICATION ON LOGIN; if password verification rules ever change the old accounts wont be able to login.
+                let email = proccess_email(email.value());
+                let password = password.value();
+                // let password = proccess_password(password.value(), None); NEVER PUT PASSWORD VERIFICATION ON LOGIN; if password verification rules ever change the old accounts wont be able to login.
 
-            email_err.set(email.clone().err().unwrap_or_default());
-            // password_err.set(password.clone().err().unwrap_or_default());
-            general_err.set(String::new());
+                email_err.set(email.clone().err().unwrap_or_default());
+                // password_err.set(password.clone().err().unwrap_or_default());
+                general_err.set(String::new());
 
-            let Ok(email) = email else {
-                return;
-            };
+                let Ok(email) = email else {
+                    return;
+                };
 
-            trace!("lohin dispatched");
-            login2.dispatch(api::login::Args { email, password });
-            //login2.dispatch(api::login::Args { email, password });
-            // login.dispatch(api::login::Login { email, password });
+                trace!("lohin dispatched");
+                login.dispatch(artbounty_api::auth::api::login::Input { email, password });
+                //login2.dispatch(api::login::Args { email, password });
+                // login.dispatch(api::login::Login { email, password });
+            }
         };
         let login_completed = move || false;
         let login_pending = move || false;
@@ -327,25 +333,25 @@ pub mod login {
         // };
         // let login_pending = move || login.pending().get();
 
-        // Effect::new(move || {
-        //     let result = login.value();
-        //     let Some(result) = result.get() else {
-        //         trace!("does anything work?");
-        //         return;
-        //     };
-        //     trace!("received login request");
-        //     match result {
-        //         Ok(_) => {
-        //             trace!("login request had no error");
-        //         }
-        //         Err(ServerFnError::WrappedServerError(api::login::LoginErr::Incorrect)) => {
-        //             general_err.set("Email or Password is not correct.".to_string());
-        //         }
-        //         Err(_) => {
-        //             general_err.set("Serevr error!".to_string());
-        //         }
-        //     }
-        // });
+        Effect::new(move || {
+            // let result = login.value();
+            let Some(result) = login.value() else {
+                trace!("does anything work?");
+                return;
+            };
+            trace!("received {result:#?}");
+            // match result {
+            //     Ok(_) => {
+            //         trace!("login request had no error");
+            //     }
+            //     Err(ServerFnError::WrappedServerError(api::login::LoginErr::Incorrect)) => {
+            //         general_err.set("Email or Password is not correct.".to_string());
+            //     }
+            //     Err(_) => {
+            //         general_err.set("Serevr error!".to_string());
+            //     }
+            // }
+        });
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] min-h-[100dvh]">
                 <Nav/>
@@ -382,5 +388,4 @@ pub mod login {
             </main>
         }
     }
-
 }

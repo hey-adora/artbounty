@@ -50,7 +50,7 @@ pub mod api {
         }
     }
 
-    #[derive(Clone)]
+    #[derive(Debug)]
     pub struct Api<Func, FuncFuture, DTO, ApiValue, ApiErr>
     where
         Func: Fn(DTO) -> FuncFuture,
@@ -61,6 +61,22 @@ pub mod api {
         pub fut: Func,
         pub value: ArcRwSignal<Option<Result<ApiValue, ApiErr>>>,
         pub _phantom: PhantomData<DTO>,
+    }
+
+    impl<Func, FuncFuture, DTO, ApiValue, ApiErr> Clone for Api<Func, FuncFuture, DTO, ApiValue, ApiErr>
+    where
+        Func: Fn(DTO) -> FuncFuture + Clone,
+        FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
+        ApiValue: Clone + 'static,
+        ApiErr: Clone + 'static,
+    {
+        fn clone(&self) -> Self {
+            Self {
+                fut: self.fut.clone(),
+                value: self.value.clone(),
+                _phantom: PhantomData,
+            }
+        }
     }
 
     impl<Func, FuncFuture, DTO, ApiValue, ApiErr> Api<Func, FuncFuture, DTO, ApiValue, ApiErr>

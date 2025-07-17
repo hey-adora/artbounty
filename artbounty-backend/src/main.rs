@@ -1,12 +1,7 @@
-
 use artbounty_api::api;
-use artbounty_db::db::DB;
+use artbounty_db::db::DbEngine;
 use artbounty_frontend::{app::App, shell};
-use axum::{
-    Router,
-    http::Method,
-    routing::post,
-};
+use axum::{extract::{Multipart, Query, State}, http::Method, response::IntoResponse, routing::post, Router};
 use leptos::{logging, prelude::*};
 use leptos_axum::{LeptosRoutes, generate_route_list};
 use tower_http::{
@@ -32,9 +27,10 @@ async fn main() {
 
     trace!("started!");
 
-    DB.connect().await;
-    DB.migrate().await.unwrap();
-    // let db = Db::new_kv().await.unwrap();
+    // DB.connect().await;
+    // DB.migrate().await.unwrap();
+    // let db = Db::<local::SurrealKv>::new().await.unwrap();
+    let db = artbounty_db::db::new_local().await;
 
     //
     let conf = get_configuration(Some("Cargo.toml")).unwrap();
@@ -50,7 +46,18 @@ async fn main() {
         // allow requests from any origin
         .allow_origin(cors::Any);
 
-    let api_router = Router::new().route("/api2/login", post(api::login::server));
+    let leptos_router = Router::new()
+        .leptos_routes(&leptos_options, routes, {
+            let leptos_options = leptos_options.clone();
+            move || shell(leptos_options.clone())
+        })
+        .fallback(leptos_axum::file_and_error_handler(shell))
+        .with_state(leptos_options);
+
+
+    let api_router = Router::new().route("/api/login", post(artbounty_api::auth::api::login::server)).with_state(db);
+    // let api2_router = Router::new().route("/api/login", post(async | State(db): State<DbEngine>, m: Multipart| { "".into_response() } )).with_state(db);
+    // let api2_router = Router::new().route("/api/login", post(async |m: Query<i32>, State(db): State<DbEngine>| { "" } )).with_state(db);
     // .layer(middleware::from_fn(middleware2::auth::auth));
     // .layer(axum::middleware::map_response(
     //     async |res: axum::http::Response<axum::body::Body>| {
@@ -60,14 +67,17 @@ async fn main() {
     // ));
 
     let app = Router::new()
-        .leptos_routes(&leptos_options, routes, {
-            let leptos_options = leptos_options.clone();
-            move || shell(leptos_options.clone())
-        })
+        // .leptos_routes(&leptos_options, routes, {
+        //     let leptos_options = leptos_options.clone();
+        //     move || shell(leptos_options.clone())
+        // })
+        // .merge(api_router)
+        // .fallback(leptos_axum::file_and_error_handler(shell))
+        // // .route("/api/register", post(api::register::create))
+        // .with_state(leptos_options)
+        .merge(leptos_router)
         .merge(api_router)
-        .fallback(leptos_axum::file_and_error_handler(shell))
-        // .route("/api/register", post(api::register::create))
-        .with_state(leptos_options)
+        // .fallback(leptos_axum::file_and_error_handler(shell))
         .layer(cors)
         .layer(comppression_layer);
 
