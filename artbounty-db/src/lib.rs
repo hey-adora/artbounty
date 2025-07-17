@@ -1,19 +1,34 @@
 pub mod db {
     use std::sync::LazyLock;
 
-    
-    
-    
-    
     use serde::{Deserialize, Serialize};
+    pub use surrealdb::Connection;
+    // pub use surrealdb::engine::local;
     use surrealdb::RecordId;
-    use surrealdb::engine::local;
+    use surrealdb::engine::local::{self, Mem};
     use surrealdb::engine::local::SurrealKv;
-    use surrealdb::{Connection, Datetime, Surreal, opt::IntoEndpoint};
+    use surrealdb::{Datetime, Surreal, opt::IntoEndpoint};
     use thiserror::Error;
     use tracing::trace;
 
-    pub static DB: LazyLock<Db<local::Db>> = LazyLock::new(Db::init);
+    // pub static DB: LazyLock<Db<local::Db>> = LazyLock::new(Db::init);
+
+    pub type DbEngine = Db<local::Db>;
+    pub async fn new_local() -> Db<local::Db> {
+        let db = Db::<local::Db>::new::<SurrealKv>("db6").await.unwrap();
+        db.connect().await;
+        db.migrate().await.unwrap();
+
+        db
+    }
+
+    pub async fn new_mem() -> Db<local::Db> {
+        let db = Db::<local::Db>::new::<Mem>(()).await.unwrap();
+        db.connect().await;
+        db.migrate().await.unwrap();
+
+        db
+    }
 
     #[derive(Debug, Clone)]
     pub struct Db<C: Connection> {
@@ -24,7 +39,7 @@ pub mod db {
         pub async fn connect(&self) {
             // TODO make path as env
             let db = &self.db;
-            db.connect::<SurrealKv>("db5").await.unwrap();
+            // db.connect::<SurrealKv>("db5").await.unwrap();
             db.use_ns("artbounty").use_db("web").await.unwrap();
         }
     }
@@ -353,15 +368,16 @@ pub mod db {
 
 #[cfg(test)]
 mod database_tests {
-    use surrealdb::engine::local::Mem;
+    use surrealdb::engine::local::{Mem, SurrealKv};
     use test_log::test;
     use tracing::trace;
-    
+
     use crate::db::{AddUserErr, Db};
 
     #[test(tokio::test)]
     async fn test_get_user_by_email() {
         let db = Db::new::<Mem>(()).await.unwrap();
+        // let db2 = Db::new::<SurrealKv>("").await.unwrap();
         db.migrate().await.unwrap();
 
         let _user = db
@@ -505,6 +521,5 @@ mod database_tests {
             .await;
         trace!("{user:#?}");
         assert!(matches!(user, Err(AddUserErr::UsernameIsTaken(_))));
-
     }
 }

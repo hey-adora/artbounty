@@ -11,9 +11,12 @@ pub mod page;
 pub struct GlobalState {
 }
 
+
 #[component]
 pub fn App() -> impl IntoView {
     provide_context(GlobalState::default());
+    let a = 77;
+
     // let profile = ServerAction::<api::profile::Profile>::new();
     // Effect::new(move || {
     //     profile.dispatch(api::profile::Profile {});
