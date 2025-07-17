@@ -13,16 +13,18 @@ pub mod api {
     use std::marker::PhantomData;
 
     use leptos::{
-        prelude::{ArcRwSignal, Read, Set},
+        prelude::{ArcRwSignal, Get, Read, RwSignal, Set, Update, With, WithUntracked},
         task::spawn_local,
     };
+    use tracing::warn;
 
     pub trait Grounder<Func, FuncFuture, DTO, ApiValue, ApiErr>
     where
-        Func: Fn(DTO) -> FuncFuture,
+        Func: Fn(DTO) -> FuncFuture + Clone + Sync + Send + 'static,
         FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
-        ApiValue: Clone + 'static,
-        ApiErr: Clone + 'static,
+        ApiValue: Clone + 'static + Sync + Send,
+        ApiErr: Clone + 'static + Sync + Send,
+        DTO: Sync + Send + 'static,
     {
         fn ground(self) -> Api<Func, FuncFuture, DTO, ApiValue, ApiErr>;
     }
@@ -40,10 +42,11 @@ pub mod api {
     impl<Func, FuncFuture, DTO, ApiValue, ApiErr> Grounder<Func, FuncFuture, DTO, ApiValue, ApiErr>
         for Func
     where
-        Func: Fn(DTO) -> FuncFuture,
+        Func: Fn(DTO) -> FuncFuture + Clone + Sync + Send + 'static,
         FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
-        ApiValue: Clone + 'static,
-        ApiErr: Clone + 'static,
+        ApiValue: Clone + 'static + Sync + Send,
+        ApiErr: Clone + 'static + Sync + Send,
+        DTO: Sync + Send + 'static,
     {
         fn ground(self) -> Api<Func, FuncFuture, DTO, ApiValue, ApiErr> {
             ground(self)
@@ -53,17 +56,54 @@ pub mod api {
     #[derive(Debug)]
     pub struct Api<Func, FuncFuture, DTO, ApiValue, ApiErr>
     where
-        Func: Fn(DTO) -> FuncFuture,
+        Func: Fn(DTO) -> FuncFuture + Clone,
+        FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
+        ApiValue: Clone + 'static,
+        ApiErr: Clone + 'static,
+    {
+        inner: RwSignal<ApiInner<Func, FuncFuture, DTO, ApiValue, ApiErr>>,
+        is_pending: RwSignal<bool>,
+    }
+
+    #[derive(Debug)]
+    pub struct ApiInner<Func, FuncFuture, DTO, ApiValue, ApiErr>
+    where
+        Func: Fn(DTO) -> FuncFuture + Clone,
         FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
         ApiValue: Clone + 'static,
         ApiErr: Clone + 'static,
     {
         pub fut: Func,
-        pub value: ArcRwSignal<Option<Result<ApiValue, ApiErr>>>,
+        pub value: Option<Result<ApiValue, ApiErr>>,
         pub _phantom: PhantomData<DTO>,
     }
 
+    impl<Func, FuncFuture, DTO, ApiValue, ApiErr> Copy for Api<Func, FuncFuture, DTO, ApiValue, ApiErr>
+    where
+        Func: Fn(DTO) -> FuncFuture + Clone,
+        FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
+        ApiValue: Clone + 'static,
+        ApiErr: Clone + 'static,
+    {
+    }
+
     impl<Func, FuncFuture, DTO, ApiValue, ApiErr> Clone for Api<Func, FuncFuture, DTO, ApiValue, ApiErr>
+    where
+        Func: Fn(DTO) -> FuncFuture + Clone,
+        FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
+        ApiValue: Clone + 'static,
+        ApiErr: Clone + 'static,
+    {
+        fn clone(&self) -> Self {
+            Self {
+                inner: self.inner.clone(),
+                is_pending: self.is_pending.clone(),
+            }
+        }
+    }
+
+    impl<Func, FuncFuture, DTO, ApiValue, ApiErr> Clone
+        for ApiInner<Func, FuncFuture, DTO, ApiValue, ApiErr>
     where
         Func: Fn(DTO) -> FuncFuture + Clone,
         FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
@@ -81,22 +121,51 @@ pub mod api {
 
     impl<Func, FuncFuture, DTO, ApiValue, ApiErr> Api<Func, FuncFuture, DTO, ApiValue, ApiErr>
     where
-        Func: Fn(DTO) -> FuncFuture,
+        Func: Fn(DTO) -> FuncFuture + Clone + Sync + Send + 'static,
         FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
-        ApiValue: Clone + 'static,
-        ApiErr: Clone + 'static,
+        ApiValue: Clone + 'static + Sync + Send,
+        ApiErr: Clone + 'static + Sync + Send,
+        DTO: Sync + Send + 'static,
     {
         pub fn dispatch(&self, dto: DTO) {
-            let fut = (self.fut)(dto);
-            let value = self.value.clone();
+            self.inner.update(|v| {
+                v.value = None;
+            });
+            let fut = (self.inner.with_untracked(|v| v.fut.clone()))(dto);
+            self.is_pending.set(true);
+            let inner = self.inner.clone();
+            let is_pending = self.is_pending.clone();
             spawn_local(async move {
                 let result = fut.await;
-                value.set(Some(result));
+                let r = inner.try_update(|v| {
+                    v.value = Some(result);
+                });
+                if r.is_none() {
+                    warn!("trying to set disposed value");
+                    return;
+                }
+                let r = is_pending.try_set(false);
+                if r.is_some() {
+                    warn!("trying to set disposed is_pending");
+                    return;
+                }
             });
         }
 
         pub fn value(&self) -> Option<Result<ApiValue, ApiErr>> {
-            self.value.read_only().read().clone()
+            self.inner.with(|v| v.value.clone() )
+        }
+
+        pub fn is_complete(&self) -> bool {
+            self.inner.with(|v| v.value.as_ref().map(|v| v.is_ok()).unwrap_or_default() )
+        }
+
+        pub fn is_pending(&self) -> bool {
+            self.is_pending.get()
+        }
+
+        pub fn is_err(&self) -> bool {
+            self.inner.with(|v| v.value.as_ref().map(|v| v.is_err()).unwrap_or_default() )
         }
     }
 
@@ -104,15 +173,19 @@ pub mod api {
         fut: Func,
     ) -> Api<Func, FuncFuture, DTO, ApiValue, ApiErr>
     where
-        Func: Fn(DTO) -> FuncFuture,
+        Func: Fn(DTO) -> FuncFuture + Clone + Sync + Send + 'static,
         FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
-        ApiValue: Clone + 'static,
-        ApiErr: Clone + 'static,
+        ApiValue: Clone + 'static + Sync + Send,
+        ApiErr: Clone + 'static + Sync + Send,
+        DTO: Sync + Send + 'static,
     {
-        Api::<Func, FuncFuture, DTO, ApiValue, ApiErr> {
-            fut,
-            value: ArcRwSignal::new(None),
-            _phantom: PhantomData,
+        Api {
+            inner: RwSignal::new(ApiInner::<Func, FuncFuture, DTO, ApiValue, ApiErr> {
+                fut,
+                value: None,
+                _phantom: PhantomData,
+            }),
+            is_pending: RwSignal::new(false)
         }
     }
 }

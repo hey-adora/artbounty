@@ -99,8 +99,10 @@ pub mod register {
 
     use artbounty_api::api;
     use artbounty_shared::auth::{proccess_email, proccess_password, proccess_username};
+    use leptos::tachys::reactive_graph::bind::GetValue;
     use leptos::{html::Input, prelude::*};
     use web_sys::SubmitEvent;
+    use crate::toolbox::prelude::*;
 
     use crate::app::components::nav::Nav;
     #[component]
@@ -114,9 +116,16 @@ pub mod register {
         let email_err = RwSignal::new(String::new());
         let password_err = RwSignal::new(String::new());
         let general_err = RwSignal::new(String::new());
-        let registration_completed = move || false;
-        let registration_pending = move || false;
-        let registration_result = move || Option::<api::register::Res>::None;
+        let api_register = artbounty_api::auth::api::register::client.ground();
+        // let api_register2 = api_register.clone();
+        // let api_register3 = api_register.clone();
+        // let api_register4 = api_register.clone();
+        // let api_register5 = api_register.clone();
+        // let api_register6 = api_register.clone();
+        // let registration_completed = move || false;
+        // let registration_pending = move || false;
+        // let registration_result = move || Option::<artbounty_api::auth::api::register>::None;
+        // let register = artbounty_api::auth::api::login::client.ground();
         // let register = ServerAction::<api::register::Register>::new();
         // let registration_completed = move || {
         //     register
@@ -151,8 +160,13 @@ pub mod register {
                 return;
             };
 
-            todo!("create register dispatch");
+            // todo!("create register dispatch");
 
+            api_register.dispatch(artbounty_api::auth::api::register::Input {
+                email,
+                password,
+                username,
+            });
             // trace!("register dispatched");
             // register.dispatch(api::register::Register {
             //     email,
@@ -205,16 +219,16 @@ pub mod register {
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] min-h-[100dvh]">
                 <Nav/>
-                <div class=move || format!("grid  text-white {}", if registration_pending() || registration_completed() {"items-center"} else {"justify-stretch"})>
-                    <div class=move||format!("mx-auto text-[1.5rem] {}", if registration_pending() {""} else {"hidden"})>
+                <div class=move || format!("grid  text-white {}", if api_register.is_pending() || api_register.is_complete() {"items-center"} else {"justify-stretch"})>
+                    <div class=move||format!("mx-auto text-[1.5rem] {}", if api_register.is_pending() {""} else {"hidden"})>
                         <h1>"LOADING..."</h1>
                     </div>
-                    <div class=move||format!("mx-auto flex flex-col gap-2 text-center {}", if registration_completed() {""} else {"hidden"})>
+                    <div class=move||format!("mx-auto flex flex-col gap-2 text-center {}", if api_register.is_complete() {""} else {"hidden"})>
                         <h1 class="text-[1.5rem]">"VERIFY EMAIL"</h1>
-                        <p class="max-w-[30rem]">"Verification email was sent to \""{move || registration_result().map(|v| v.email).unwrap_or(String::from("error"))}"\" click the confirmtion link in the email."</p>
+                        <p class="max-w-[30rem]">"Verification email was sent to \""{move || input_username.get().map(|v| v.value()).unwrap_or(String::from("error"))}"\" click the confirmtion link in the email."</p>
                         <a href="/login" class="underline">"Go to Login"</a>
                     </div>
-                    <form method="POST" action="" on:submit=on_register class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if registration_pending() || registration_completed() {"hidden"} else {""})>
+                    <form method="POST" action="" on:submit=on_register class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if api_register.is_pending() || api_register.is_complete() {"hidden"} else {""})>
                         <h1 class="text-[1.5rem]  text-center my-[4rem]">"REGISTRATION"</h1>
                         <div class=move||format!("text-red-600 {}", if general_err.with(|v| v.is_empty()) {"hidden"} else {""})>{move || { general_err.get() }}</div>
                         <div class="flex flex-col justify-center gap-[3rem]">
@@ -265,6 +279,7 @@ pub mod login {
     use crate::toolbox::prelude::*;
     use crate::{app::components::nav::Nav, toolbox::api::ground};
     use artbounty_api::api;
+    use artbounty_api::utils::ResErr;
     use artbounty_shared::auth::proccess_email;
     use leptos::{html::Input, prelude::*};
 
@@ -278,85 +293,61 @@ pub mod login {
         let input_password: NodeRef<Input> = NodeRef::new();
         let general_err = RwSignal::new(String::new());
         let email_err = RwSignal::new(String::new());
-        // let password_err = RwSignal::new(String::new());
-        // let input_password_confirmation: NodeRef<Input> = NodeRef::new();
 
-        // let data = OnceResource::new(api::register::create());
-        // let global_state = expect_context::<GlobalState>();
-        // let login3 = (async |dto: api::login::Args| {
-        //     trace!("hello");
-        //     Ok::<(), ()>(())
-        // })
-        // .ground();
+        let api_login = artbounty_api::auth::api::login::client.ground();
+        let on_login = move |e: SubmitEvent| {
+            e.prevent_default();
+            let (Some(email), Some(password)) = (input_email.get(), input_password.get()) else {
+                return;
+            };
 
-        // let a = ground(artbounty_api::auth::api::login::client);
-        let login = artbounty_api::auth::api::login::client.ground();
-        // let login = ServerAction::<api::login::Login>::new();
-        // let login2 = Action::new(move |args: &api::login::Args| {
-        //     //
-        //     api::login::post(args.clone())
-        // });
-        let on_login = {
-            let login = login.clone();
-            move |e: SubmitEvent| {
-                e.prevent_default();
-                let (Some(email), Some(password)) = (input_email.get(), input_password.get())
-                else {
-                    return;
-                };
+            let email = proccess_email(email.value());
+            let password = password.value();
+            // let password = proccess_password(password.value(), None); NEVER PUT PASSWORD VERIFICATION ON LOGIN; if password verification rules ever change the old accounts wont be able to login.
 
-                let email = proccess_email(email.value());
-                let password = password.value();
-                // let password = proccess_password(password.value(), None); NEVER PUT PASSWORD VERIFICATION ON LOGIN; if password verification rules ever change the old accounts wont be able to login.
+            email_err.set(email.clone().err().unwrap_or_default());
+            // password_err.set(password.clone().err().unwrap_or_default());
+            general_err.set(String::new());
 
-                email_err.set(email.clone().err().unwrap_or_default());
-                // password_err.set(password.clone().err().unwrap_or_default());
-                general_err.set(String::new());
+            let Ok(email) = email else {
+                return;
+            };
 
-                let Ok(email) = email else {
-                    return;
-                };
-
-                trace!("lohin dispatched");
-                login.dispatch(artbounty_api::auth::api::login::Input { email, password });
-                //login2.dispatch(api::login::Args { email, password });
-                // login.dispatch(api::login::Login { email, password });
-            }
+            trace!("lohin dispatched");
+            api_login.dispatch(artbounty_api::auth::api::login::Input { email, password });
         };
-        let login_completed = move || false;
-        let login_pending = move || false;
-        // let login_completed = move || {
-        //     login
-        //         .value()
-        //         .with(|v| v.as_ref().map(|v| v.is_ok()))
-        //         .unwrap_or_default()
-        // };
-        // let login_pending = move || login.pending().get();
+        // let login_completed = {let login = login.clone(); move || login.is_complete()};
+        // let login_pending = {let login = login.clone(); move || login.is_pending()};
 
         Effect::new(move || {
-            // let result = login.value();
-            let Some(result) = login.value() else {
+            let Some(result) = api_login.value() else {
                 trace!("does anything work?");
                 return;
             };
             trace!("received {result:#?}");
-            // match result {
-            //     Ok(_) => {
-            //         trace!("login request had no error");
-            //     }
-            //     Err(ServerFnError::WrappedServerError(api::login::LoginErr::Incorrect)) => {
-            //         general_err.set("Email or Password is not correct.".to_string());
-            //     }
-            //     Err(_) => {
-            //         general_err.set("Serevr error!".to_string());
-            //     }
-            // }
+            match result {
+                Err(ResErr::ClientErr(err)) => {
+                    general_err.set(format!("Error sending request \"{err}\"."));
+                }
+                Err(ResErr::ServerErr(artbounty_api::auth::api::login::ServerErr::Incorrect)) => {
+                    general_err.set("Email or Password is incorrect.".to_string());
+                }
+                Err(ResErr::ServerErr(artbounty_api::auth::api::login::ServerErr::ServerErr)) | Err(ResErr::ServerErr(artbounty_api::auth::api::login::ServerErr::CreateCookieErr)) => {
+                    general_err.set("Server error.".to_string());
+                }
+                _ => {
+                    general_err.set("Unknown error.".to_string());
+                }
+            }
         });
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] min-h-[100dvh]">
                 <Nav/>
-                <div class=move || format!("grid  text-white {}", if login_pending() || login_completed() {"items-center"} else {"justify-stretch"})>
-                    <form method="POST" action="" on:submit=on_login class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if login_pending() || login_completed() {"hidden"} else {""})>
+                <div class=move || format!("grid  text-white {}", if api_login.is_pending() || api_login.is_complete() {"items-center"} else {"justify-stretch"})>
+                    <div class=move||format!("mx-auto text-[1.5rem] {}", if api_login.is_pending() {""} else {"hidden"})>
+                        <h1>"LOADING..."</h1>
+                    </div>
+                    <form method="POST" action="" on:submit=on_login class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if api_login.is_pending() || api_login.is_complete() {"hidden"} else {""})>
                         <h1 class="text-[1.5rem]  text-center my-[4rem]">"LOGIN"</h1>
                         <div class=move||format!("text-red-600 {}", if general_err.with(|v| v.is_empty()) {"hidden"} else {""})>{move || { general_err.get() }}</div>
                         <div class="flex flex-col justify-center gap-[3rem]">

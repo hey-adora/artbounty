@@ -5,11 +5,11 @@ pub mod db {
     pub use surrealdb::Connection;
     // pub use surrealdb::engine::local;
     use surrealdb::RecordId;
-    use surrealdb::engine::local::{self, Mem};
     use surrealdb::engine::local::SurrealKv;
+    use surrealdb::engine::local::{self, Mem};
     use surrealdb::{Datetime, Surreal, opt::IntoEndpoint};
     use thiserror::Error;
-    use tracing::trace;
+    use tracing::{error, trace};
 
     // pub static DB: LazyLock<Db<local::Db>> = LazyLock::new(Db::init);
 
@@ -175,7 +175,8 @@ pub mod db {
                 .bind(("username", username))
                 .bind(("email", email))
                 .bind(("password", password))
-                .await?;
+                .await
+                .inspect_err(|err| error!("add_user query {:#?}", err))?;
             trace!("{:#?}", result);
             let mut result = result.check().map_err(|err| match err {
                 surrealdb::Error::Db(surrealdb::error::Db::IndexExists {
@@ -184,11 +185,16 @@ pub mod db {
                 surrealdb::Error::Db(surrealdb::error::Db::IndexExists {
                     index, value, ..
                 }) if index == "idx_user_username" => AddUserErr::UsernameIsTaken(value),
-                err => err.into(),
+                err => {
+                    error!("add_user res {:#?}", err);
+                    err.into()
+                }
             })?;
             let user = result
                 .take::<Option<User>>(0)?
                 .ok_or(AddUserErr::NotFound)?;
+            
+            trace!("user created: {user:#?}");
 
             Ok(user)
         }
