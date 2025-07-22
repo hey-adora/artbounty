@@ -34,6 +34,7 @@ reqwest = { workspace = true }
 [dev-dependencies]
 # artbounty-db = { workspace = true, features = ["test"] }
 test-log = { workspace = true }
+axum-test = { workspace = true }
 
 [features]
 hydrate = ["leptos/hydrate"]

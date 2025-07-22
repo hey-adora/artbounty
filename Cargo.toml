@@ -33,6 +33,7 @@ artbounty-frontend = { path = "artbounty-frontend" }
 artbounty-api = { path = "artbounty-api" }
 artbounty-db = { path = "artbounty-db" }
 artbounty-shared = { path = "artbounty-shared" }
+
 bytes = "1"
 biscotti = "0.4.0"
 email_address = "0.2.9"
@@ -52,6 +53,7 @@ jiff = { version = "0.2.15", features = ["serde", "js"] }
 serde = "1.0.219"
 axum = { version = "0.8.4", features = ["http2"] }
 axum-extra = { version = "0.10.1", features = ["cookie"] }
+axum-test = { version = "17.3.0", features = ["reqwest"] }
 leptos_axum = { version = "0.8.2" }
 tokio = { version = "1.46.1", features = ["full"] }
 tower = { version = "0.5.2", features = ["timeout"] }

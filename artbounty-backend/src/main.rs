@@ -1,7 +1,13 @@
 use artbounty_api::api;
 use artbounty_db::db::DbEngine;
 use artbounty_frontend::{app::App, shell};
-use axum::{extract::{Multipart, Query, State}, http::Method, response::IntoResponse, routing::post, Router};
+use axum::{
+    Router,
+    extract::{Multipart, Query, State},
+    http::Method,
+    response::IntoResponse,
+    routing::post,
+};
 use leptos::{logging, prelude::*};
 use leptos_axum::{LeptosRoutes, generate_route_list};
 use tower_http::{
@@ -54,8 +60,12 @@ async fn main() {
         .fallback(leptos_axum::file_and_error_handler(shell))
         .with_state(leptos_options);
 
-
-    let api_router = Router::new().route("/api/login", post(artbounty_api::auth::api::login::server)).with_state(db);
+    let api_router = Router::new()
+        .route(
+            artbounty_api::auth::api::login::PATH,
+            post(artbounty_api::auth::api::login::server),
+        )
+        .with_state(db);
     // let api2_router = Router::new().route("/api/login", post(async | State(db): State<DbEngine>, m: Multipart| { "".into_response() } )).with_state(db);
     // let api2_router = Router::new().route("/api/login", post(async |m: Query<i32>, State(db): State<DbEngine>| { "" } )).with_state(db);
     // .layer(middleware::from_fn(middleware2::auth::auth));
