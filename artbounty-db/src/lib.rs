@@ -43,7 +43,6 @@ pub mod db {
             db.use_ns("artbounty").use_db("web").await.unwrap();
         }
     }
-
     impl<C: Connection> Db<C> {
         fn init() -> Self {
             let db = Surreal::<C>::init();
@@ -98,6 +97,12 @@ pub mod db {
                             DEFINE FIELD modified_at ON TABLE stat TYPE datetime DEFAULT time::now();
                             DEFINE FIELD created_at ON TABLE stat TYPE datetime DEFAULT time::now();
                             DEFINE INDEX idx_stat_country ON TABLE session COLUMNS access_token UNIQUE;
+                            -- invite 
+                            DEFINE TABLE invite SCHEMAFULL;
+                            DEFINE FIELD email ON TABLE invite TYPE string;
+                            DEFINE FIELD expires ON TABLE invite TYPE datetime;
+                            DEFINE FIELD modified_at ON TABLE invite TYPE datetime DEFAULT time::now();
+                            DEFINE FIELD created_at ON TABLE invite TYPE datetime DEFAULT time::now();
 
                             CREATE migration SET version = 0;
                         };
@@ -112,420 +117,851 @@ pub mod db {
                 .inspect(|result| trace!("RESULT CHECK {:#?}", result))?;
             Ok(())
         }
+    }
 
-        pub async fn get_user_by_email<S: Into<String>>(
-            &self,
-            email: S,
-        ) -> Result<User, GetUserByEmailErr> {
-            let db = &self.db;
-            let email = email.into();
+    // pub mod invite {
+    //     use serde::{Deserialize, Serialize};
+    //     use surrealdb::{Datetime, RecordId};
+    //
+    //     #[derive(Debug, Serialize, Deserialize, Clone)]
+    //     pub struct Record {
+    //         pub id: RecordId,
+    //         pub email: String,
+    //         pub expires: Datetime,
+    //         pub modified_at: Datetime,
+    //         pub created_at: Datetime,
+    //     }
+    //
+    //     pub mod add {
+    //         use serde::{Deserialize, Serialize};
+    //         use surrealdb::{Connection, Datetime, RecordId};
+    //         use thiserror::Error;
+    //         use tracing::{error, trace};
+    //
+    //         use crate::db::Db;
+    //
+    //         use super::Record;
+    //
+    //         impl<C: Connection> Db<C> {
+    //             pub async fn add_invite<Email: Into<String>>(
+    //                 &self,
+    //                 email: Email,
+    //                 expiration: u128,
+    //             ) -> Result<Record, QueryErr> {
+    //                 let db = &self.db;
+    //                 let email = email.into();
+    //                 let expires =
+    //                     Datetime::from(chrono::DateTime::from_timestamp_nanos(expiration as i64));
+    //
+    //                 let result = db
+    //                     .query(
+    //                         r#"
+    //                          LET $user_email = SELECT email FROM ONLY user WHERE email = $email;
+    //                          CREATE invite SET
+    //                             email = if $user_email { null } else { $email },
+    //                             expires = $expires;
+    //                     "#,
+    //                     )
+    //                     .bind(("email", email.clone()))
+    //                     .bind(("expires", expires))
+    //                     .await
+    //                     .inspect_err(|err| trace!("add_invite query {:#?}", err))?;
+    //
+    //                 trace!("{:#?}", result);
+    //                 let mut result = result.check().map_err(|err| match err {
+    //                     surrealdb::Error::Db(surrealdb::error::Db::FieldCheck {
+    //                         thing,
+    //                         value,
+    //                         field,
+    //                         check,
+    //                     }) if value == "NULL"
+    //                         && field
+    //                             .first()
+    //                             .map(|f| f.to_string())
+    //                             .inspect(|f| trace!("field: {f}"))
+    //                             .map(|f| f == ".email")
+    //                             .unwrap_or_default() =>
+    //                     {
+    //                         QueryErr::EmailIsTaken(email)
+    //                     }
+    //                     err => {
+    //                         error!("add_invite res {:#?}", err);
+    //                         QueryErr::from(err)
+    //                     }
+    //                 })?;
+    //                 let user = result
+    //                     .take::<Option<Record>>(1)?
+    //                     .expect("record was just created");
+    //
+    //                 trace!("record created: {user:#?}");
+    //
+    //                 Ok(user)
+    //             }
+    //         }
+    //
+    //         #[derive(Debug, Error)]
+    //         pub enum QueryErr {
+    //             #[error("DB error {0}")]
+    //             DB(#[from] surrealdb::Error),
+    //
+    //             #[error("account with \"{0}\" email already exists")]
+    //             EmailIsTaken(String),
+    //         }
+    //
+    //         #[cfg(test)]
+    //         mod tests {
+    //             use surrealdb::engine::local::Mem;
+    //             use test_log::test;
+    //             use tracing::trace;
+    //
+    //             use crate::db::{Db, invite::add::QueryErr, user::add_user::AddUserErr};
+    //
+    //             #[test(tokio::test)]
+    //             async fn one() {
+    //                 let db = Db::new::<Mem>(()).await.unwrap();
+    //                 db.migrate().await.unwrap();
+    //                 let invite = db.add_invite("hey@hey.com", 0).await.unwrap();
+    //                 trace!("{invite:#?}");
+    //                 let user = db.add_user("hey1", "hey1@hey.com", "123").await.unwrap();
+    //                 let invite2 = db.add_invite("hey1@hey.com", 0).await;
+    //                 trace!("{invite2:#?}");
+    //                 assert!(matches!(invite2, Err(QueryErr::EmailIsTaken(_))));
+    //             }
+    //         }
+    //     }
+    //
+    //     pub mod get_valid {
+    //         use serde::{Deserialize, Serialize};
+    //         use surrealdb::{Connection, Datetime, RecordId};
+    //         use thiserror::Error;
+    //         use tracing::{error, trace};
+    //
+    //         use crate::db::Db;
+    //
+    //         use super::Record;
+    //
+    //         impl<C: Connection> Db<C> {
+    //             pub async fn get_valid<Email: Into<String>>(
+    //                 &self,
+    //                 email: Email,
+    //             ) -> Result<Record, QueryErr> {
+    //                 let db = &self.db;
+    //                 let email = email.into();
+    //
+    //                 let result = db
+    //                     .query(
+    //                         r#"
+    //                          SELECT * FROM ONLY invite WHERE email = $email;
+    //                     "#,
+    //                     )
+    //                     .bind(("email", email.clone()))
+    //                     .await
+    //                     .inspect_err(|err| trace!("add_invite query {:#?}", err))?;
+    //
+    //                 trace!("{:#?}", result);
+    //                 let mut result = result.check().map_err(|err| match err {
+    //                     surrealdb::Error::Db(surrealdb::error::Db::FieldCheck {
+    //                         thing,
+    //                         value,
+    //                         field,
+    //                         check,
+    //                     }) if value == "NULL"
+    //                         && field
+    //                             .first()
+    //                             .map(|f| f.to_string())
+    //                             .inspect(|f| trace!("field: {f}"))
+    //                             .map(|f| f == ".email")
+    //                             .unwrap_or_default() =>
+    //                     {
+    //                         QueryErr::EmailIsTaken(email)
+    //                     }
+    //                     err => {
+    //                         error!("add_invite res {:#?}", err);
+    //                         QueryErr::from(err)
+    //                     }
+    //                 })?;
+    //                 let user = result
+    //                     .take::<Option<Record>>(1)?
+    //                     .expect("record was just created");
+    //
+    //                 trace!("record created: {user:#?}");
+    //
+    //                 Ok(user)
+    //             }
+    //         }
+    //
+    //         #[derive(Debug, Error)]
+    //         pub enum QueryErr {
+    //             #[error("DB error {0}")]
+    //             DB(#[from] surrealdb::Error),
+    //
+    //             #[error("account with \"{0}\" email already exists")]
+    //             EmailIsTaken(String),
+    //         }
+    //
+    //         #[cfg(test)]
+    //         mod tests {
+    //             use surrealdb::engine::local::Mem;
+    //             use test_log::test;
+    //             use tracing::trace;
+    //
+    //             use crate::db::{Db, invite::add::QueryErr, user::add_user::AddUserErr};
+    //
+    //             #[test(tokio::test)]
+    //             async fn one() {
+    //                 let db = Db::new::<Mem>(()).await.unwrap();
+    //                 db.migrate().await.unwrap();
+    //                 let invite = db.add_invite("hey@hey.com", 0).await.unwrap();
+    //                 trace!("{invite:#?}");
+    //                 let user = db.add_user("hey1", "hey1@hey.com", "123").await.unwrap();
+    //                 let invite2 = db.add_invite("hey1@hey.com", 0).await;
+    //                 trace!("{invite2:#?}");
+    //                 assert!(matches!(invite2, Err(QueryErr::EmailIsTaken(_))));
+    //             }
+    //         }
+    //     }
+    // }
 
-            let mut result = db
-                .query(
-                    r#"
-                    SELECT * FROM user WHERE email = $email;
-                "#,
-                )
-                .bind(("email", email))
-                .await?;
-            result
-                .take::<Option<User>>(0)?
-                .ok_or(GetUserByEmailErr::UserNotFound)
+    pub mod user {
+        use serde::{Deserialize, Serialize};
+        use surrealdb::{Datetime, RecordId};
+
+        #[derive(Debug, Serialize, Deserialize, Clone)]
+        pub struct User {
+            pub id: RecordId,
+            pub username: String,
+            pub email: String,
+            pub password: String,
+            pub modified_at: Datetime,
+            pub created_at: Datetime,
         }
 
-        pub async fn get_user_password_hash<S: Into<String>>(
-            &self,
-            email: S,
-        ) -> Result<String, GetUserPasswordErr> {
-            let db = &self.db;
-            let email = email.into();
-            let mut result = db
-                .query(
-                    r#"
-                    (SELECT password FROM user WHERE email = $email).password
-                "#,
-                )
-                .bind(("email", email))
-                .await?;
+        pub mod add_user {
+            use serde::{Deserialize, Serialize};
+            use surrealdb::{Connection, Datetime, RecordId};
+            use thiserror::Error;
+            use tracing::{error, trace};
 
-            let password = result
-                .take::<Option<String>>(0)?
-                .ok_or(GetUserPasswordErr::UserNotFound)?;
-            trace!("result: {password}");
-            Ok(password)
-        }
+            use crate::db::Db;
 
-        pub async fn add_user(
-            &self,
-            username: String,
-            email: String,
-            password: String,
-        ) -> Result<User, AddUserErr> {
-            let db = &self.db;
-            trace!("add_user input: username {username} email: {email} password: {password}");
-            let result = db
-                .query(
-                    r#"
-                     CREATE user SET
-                        username = $username,
-                        email = $email,
-                        password = $password;
-                "#,
-                )
-                .bind(("username", username))
-                .bind(("email", email))
-                .bind(("password", password))
-                .await
-                .inspect_err(|err| error!("add_user query {:#?}", err))?;
-            trace!("{:#?}", result);
-            let mut result = result.check().map_err(|err| match err {
-                surrealdb::Error::Db(surrealdb::error::Db::IndexExists {
-                    index, value, ..
-                }) if index == "idx_user_email" => AddUserErr::EmailIsTaken(value),
-                surrealdb::Error::Db(surrealdb::error::Db::IndexExists {
-                    index, value, ..
-                }) if index == "idx_user_username" => AddUserErr::UsernameIsTaken(value),
-                err => {
-                    error!("add_user res {:#?}", err);
-                    err.into()
+            use super::User;
+
+            impl<C: Connection> Db<C> {
+                pub async fn add_user<
+                    Username: Into<String>,
+                    Email: Into<String>,
+                    Password: Into<String>,
+                >(
+                    &self,
+                    username: Username,
+                    email: Email,
+                    password: Password,
+                ) -> Result<User, AddUserErr> {
+                    let db = &self.db;
+                    let username = username.into();
+                    let email = email.into();
+                    let password = password.into();
+                    trace!(
+                        "add_user input: username {username} email: {email} password: {password}"
+                    );
+                    let result = db
+                        .query(
+                            r#"
+                             CREATE user SET
+                                username = $username,
+                                email = $email,
+                                password = $password;
+                        "#,
+                        )
+                        .bind(("username", username))
+                        .bind(("email", email))
+                        .bind(("password", password))
+                        .await
+                        .inspect_err(|err| error!("add_user query {:#?}", err))?;
+                    trace!("{:#?}", result);
+                    let mut result = result.check().map_err(|err| match err {
+                        surrealdb::Error::Db(surrealdb::error::Db::IndexExists {
+                            index,
+                            value,
+                            ..
+                        }) if index == "idx_user_email" => AddUserErr::EmailIsTaken(value),
+                        surrealdb::Error::Db(surrealdb::error::Db::IndexExists {
+                            index,
+                            value,
+                            ..
+                        }) if index == "idx_user_username" => AddUserErr::UsernameIsTaken(value),
+                        err => {
+                            error!("add_user res {:#?}", err);
+                            err.into()
+                        }
+                    })?;
+                    let user = result
+                        .take::<Option<User>>(0)?
+                        .ok_or(AddUserErr::NotFound)?;
+
+                    trace!("user created: {user:#?}");
+
+                    Ok(user)
                 }
-            })?;
-            let user = result
-                .take::<Option<User>>(0)?
-                .ok_or(AddUserErr::NotFound)?;
-            
-            trace!("user created: {user:#?}");
+            }
 
-            Ok(user)
-        }
+            #[derive(Debug, Error)]
+            pub enum AddUserErr {
+                #[error("DB error {0}")]
+                DB(#[from] surrealdb::Error),
 
-        pub async fn add_session<S: Into<String>>(
-            &self,
-            token: S,
-            username: S,
-        ) -> Result<Session, AddSessionErr> {
-            let db = &self.db;
-            let token: String = token.into();
-            let username: String = username.into();
-            let result = db
-                .query(
-                    r#"
-                     LET $user_id = SELECT id FROM ONLY user WHERE username = $username;
-                     CREATE session SET access_token = $access_token, user_id = $user_id.id;
-                "#,
-                )
-                .bind(("access_token", token))
-                .bind(("username", username))
-                .await?;
+                #[error("not found")]
+                NotFound,
 
-            trace!("result: {result:#?}");
+                #[error("email {0} is taken")]
+                EmailIsTaken(String),
 
-            let result = result.check().map_err(|err| match err {
-                surrealdb::Error::Db(surrealdb::error::Db::IndexExists { index, .. })
-                    if index == "idx_session_access_token" =>
-                {
-                    AddSessionErr::TokenExists
+                #[error("username {0} is taken")]
+                UsernameIsTaken(String),
+            }
+
+            #[cfg(test)]
+            mod tests {
+                use surrealdb::engine::local::Mem;
+                use test_log::test;
+                use tracing::trace;
+
+                use crate::db::{Db, user::add_user::AddUserErr};
+
+                #[test(tokio::test)]
+                async fn one() {
+                    let db = Db::new::<Mem>(()).await.unwrap();
+                    db.migrate().await.unwrap();
+                    let user = db
+                        .add_user(
+                            "hey".to_string(),
+                            "hey@hey.com".to_string(),
+                            "hey".to_string(),
+                        )
+                        .await
+                        .unwrap();
+                    trace!("{user:#?}");
+
+                    let user = db
+                        .add_user(
+                            "hey2".to_string(),
+                            "hey@hey.com".to_string(),
+                            "hey".to_string(),
+                        )
+                        .await;
+                    trace!("{user:#?}");
+                    assert!(matches!(user, Err(AddUserErr::EmailIsTaken(_))));
+
+                    let user = db
+                        .add_user(
+                            "hey".to_string(),
+                            "hey2@hey.com".to_string(),
+                            "hey".to_string(),
+                        )
+                        .await;
+                    trace!("{user:#?}");
+                    assert!(matches!(user, Err(AddUserErr::UsernameIsTaken(_))));
                 }
-                err => err.into(),
-            });
-
-            trace!("result2: {result:#?}");
-            let mut result = result?;
-
-            let session = result
-                .take::<Option<Session>>(1)?
-                .ok_or(AddSessionErr::NotFound)?;
-
-            Ok(session)
+                // #[test(tokio::test)]
+                // async fn test_add_session() {
+                //     let db = Db::new::<Mem>(()).await.unwrap();
+                //     db.migrate().await.unwrap();
+                //
+                //     let _user = db
+                //         .add_user(
+                //             "hey".to_string(),
+                //             "hey@hey.com".to_string(),
+                //             "hey".to_string(),
+                //         )
+                //         .await
+                //         .unwrap();
+                //
+                //     let session = db.add_session("token", "hey").await;
+                //     trace!("session: {session:?}");
+                //     assert!(session.is_ok());
+                //
+                //     let session = db.add_session("token", "hey").await;
+                //     trace!("session: {session:?}");
+                //     assert!(session.is_err());
+                // }
+            }
         }
 
-        pub async fn delete_session<S: Into<String>>(
-            &self,
-            token: S,
-        ) -> Result<(), DeleteSessionErr> {
-            let db = &self.db;
-            let token: String = token.into();
-            let result = db
-                .query(
-                    r#"
+        pub mod get_user_by_email {
+            use surrealdb::Connection;
+
+            use crate::db::Db;
+            use thiserror::Error;
+
+            use super::User;
+
+            impl<C: Connection> Db<C> {
+                pub async fn get_user_by_email<S: Into<String>>(
+                    &self,
+                    email: S,
+                ) -> Result<User, GetUserByEmailErr> {
+                    let db = &self.db;
+                    let email = email.into();
+
+                    let mut result = db
+                        .query(
+                            r#"
+                            SELECT * FROM user WHERE email = $email;
+                        "#,
+                        )
+                        .bind(("email", email))
+                        .await?;
+                    result
+                        .take::<Option<User>>(0)?
+                        .ok_or(GetUserByEmailErr::UserNotFound)
+                }
+            }
+
+            #[derive(Debug, Error)]
+            pub enum GetUserByEmailErr {
+                #[error("DB error {0}")]
+                DB(#[from] surrealdb::Error),
+
+                #[error("user not found")]
+                UserNotFound,
+            }
+        }
+
+        #[cfg(test)]
+        pub mod tests {
+            use surrealdb::{Connection, engine::local::Mem};
+            use tracing::trace;
+
+            use crate::db::{Db, user::get_user_by_email::GetUserByEmailErr};
+            use test_log::test;
+            use thiserror::Error;
+
+            use super::User;
+
+            #[test(tokio::test)]
+            async fn one() {
+                let db = Db::new::<Mem>(()).await.unwrap();
+                db.migrate().await.unwrap();
+                let user = db.add_user("hey", "hey@hey.com", "hey").await.unwrap();
+                let user = db.get_user_by_email("hey@hey.com").await.unwrap();
+                trace!("found {user:#?}");
+                let user = db.get_user_by_email("hey2@hey.com").await;
+                assert!(matches!(user, Err(GetUserByEmailErr::UserNotFound)));
+            }
+        }
+
+        pub mod get_user_password_hash {
+            use surrealdb::Connection;
+            use tracing::trace;
+
+            use crate::db::Db;
+            use thiserror::Error;
+
+            use super::User;
+
+            impl<C: Connection> Db<C> {
+                pub async fn get_user_password_hash<S: Into<String>>(
+                    &self,
+                    email: S,
+                ) -> Result<String, GetUserPasswordErr> {
+                    let db = &self.db;
+                    let email = email.into();
+                    let mut result = db
+                        .query(
+                            r#"
+                            (SELECT password FROM user WHERE email = $email).password
+                        "#,
+                        )
+                        .bind(("email", email))
+                        .await?;
+
+                    let password = result
+                        .take::<Option<String>>(0)?
+                        .ok_or(GetUserPasswordErr::UserNotFound)?;
+                    trace!("result: {password}");
+                    Ok(password)
+                }
+            }
+
+            #[derive(Debug, Error)]
+            pub enum GetUserPasswordErr {
+                #[error("DB error {0}")]
+                DB(#[from] surrealdb::Error),
+
+                #[error("user not found")]
+                UserNotFound,
+            }
+        }
+    }
+
+    pub mod session {
+        use serde::{Deserialize, Serialize};
+        use surrealdb::{Datetime, RecordId};
+
+        #[derive(Debug, Serialize, Deserialize, Clone)]
+        pub struct Session {
+            pub id: RecordId,
+            pub access_token: String,
+            pub user_id: RecordId,
+            pub modified_at: Datetime,
+            pub created_at: Datetime,
+        }
+
+        pub mod add_session {
+            use surrealdb::Connection;
+            use thiserror::Error;
+            use tracing::trace;
+
+            use crate::db::Db;
+
+            use super::Session;
+
+            impl<C: Connection> Db<C> {
+                pub async fn add_session<S: Into<String>>(
+                    &self,
+                    token: S,
+                    username: S,
+                ) -> Result<Session, AddSessionErr> {
+                    let db = &self.db;
+                    let token: String = token.into();
+                    let username: String = username.into();
+                    let result = db
+                        .query(
+                            r#"
+                             LET $user_id = SELECT id FROM ONLY user WHERE username = $username;
+                             CREATE session SET access_token = $access_token, user_id = $user_id.id;
+                        "#,
+                        )
+                        .bind(("access_token", token))
+                        .bind(("username", username))
+                        .await?;
+
+                    trace!("result: {result:#?}");
+
+                    let result = result.check().map_err(|err| match err {
+                        surrealdb::Error::Db(surrealdb::error::Db::IndexExists {
+                            index, ..
+                        }) if index == "idx_session_access_token" => AddSessionErr::TokenExists,
+                        err => err.into(),
+                    });
+
+                    trace!("result2: {result:#?}");
+                    let mut result = result?;
+
+                    let session = result
+                        .take::<Option<Session>>(1)?
+                        .ok_or(AddSessionErr::NotFound)?;
+
+                    Ok(session)
+                }
+            }
+
+            #[derive(Debug, Error)]
+            pub enum AddSessionErr {
+                #[error("DB error {0}")]
+                DB(#[from] surrealdb::Error),
+
+                #[error("not found")]
+                NotFound,
+
+                #[error("token already exists")]
+                TokenExists,
+            }
+            #[cfg(test)]
+            pub mod tests {
+                use surrealdb::{Connection, engine::local::Mem};
+                use tracing::trace;
+
+                use crate::db::{Db, user::get_user_by_email::GetUserByEmailErr};
+                use test_log::test;
+                use thiserror::Error;
+
+                #[test(tokio::test)]
+                async fn one() {
+                    let db = Db::new::<Mem>(()).await.unwrap();
+                    db.migrate().await.unwrap();
+                    let user = db.add_user("hey", "hey@hey.com", "hey").await.unwrap();
+                    trace!("created {user:#?}");
+                    let session = db.add_session("token", "hey").await;
+                    trace!("session: {session:?}");
+                    assert!(session.is_ok());
+
+                    let session = db.add_session("token", "hey").await;
+                    trace!("session: {session:?}");
+                    assert!(session.is_err());
+                    // let user = db.get_user_by_email("hey@hey.com").await.unwrap();
+                    // trace!("found {user:#?}");
+                    // let user = db.get_user_by_email("hey2@hey.com").await;
+                    // assert!(matches!(user, Err(GetUserByEmailErr::UserNotFound)));
+                }
+            }
+        }
+
+        pub mod delete_session {
+            use surrealdb::Connection;
+            use thiserror::Error;
+            use tracing::trace;
+
+            use crate::db::Db;
+
+            use super::Session;
+
+            impl<C: Connection> Db<C> {
+                pub async fn delete_session<S: Into<String>>(
+                    &self,
+                    token: S,
+                ) -> Result<(), DeleteSessionErr> {
+                    let db = &self.db;
+                    let token: String = token.into();
+                    let result = db
+                        .query(
+                            r#"
                      DELETE session WHERE access_token = $access_token;
                 "#,
-                )
-                .bind(("access_token", token))
-                .await?;
-            trace!("result: {result:#?}");
+                        )
+                        .bind(("access_token", token))
+                        .await?;
+                    trace!("result: {result:#?}");
 
-            let _result = result
-                .check()
-                .inspect(|result| trace!("result2: {result:#?}"))?;
-            Ok(())
+                    let _result = result
+                        .check()
+                        .inspect(|result| trace!("result2: {result:#?}"))?;
+                    Ok(())
+                }
+            }
+            #[derive(Debug, Error)]
+            pub enum DeleteSessionErr {
+                #[error("DB error {0}")]
+                DB(#[from] surrealdb::Error),
+
+                #[error("not found")]
+                NotFound,
+            }
+            #[cfg(test)]
+            mod tests {
+                use surrealdb::{Connection, engine::local::Mem};
+                use tracing::trace;
+
+                use crate::db::{Db, user::get_user_by_email::GetUserByEmailErr};
+                use test_log::test;
+                use thiserror::Error;
+
+                #[test(tokio::test)]
+                async fn test_delete_session() {
+                    let db = Db::new::<Mem>(()).await.unwrap();
+                    db.migrate().await.unwrap();
+
+                    let _user = db
+                        .add_user(
+                            "hey".to_string(),
+                            "hey@hey.com".to_string(),
+                            "hey".to_string(),
+                        )
+                        .await
+                        .unwrap();
+
+                    let session = db.add_session("token", "hey").await;
+                    trace!("session: {session:?}");
+                    assert!(session.is_ok());
+
+                    let session = db.delete_session("token").await;
+                    trace!("session: {session:?}");
+                    assert!(session.is_ok());
+
+                    let session = db.get_session("token").await;
+                    trace!("session: {session:?}");
+                    assert!(session.is_err());
+                }
+            }
         }
 
-        pub async fn get_session<S: Into<String>>(
-            &self,
-            token: S,
-        ) -> Result<Session, GetSessionErr> {
-            let db = &self.db;
-            let token: String = token.into();
-            let result = db
-                .query(
-                    r#"
+        pub mod get_session {
+            use surrealdb::Connection;
+            use thiserror::Error;
+            use tracing::trace;
+
+            use crate::db::Db;
+
+            use super::Session;
+
+            impl<C: Connection> Db<C> {
+                pub async fn get_session<S: Into<String>>(
+                    &self,
+                    token: S,
+                ) -> Result<Session, GetSessionErr> {
+                    let db = &self.db;
+                    let token: String = token.into();
+                    let result = db
+                        .query(
+                            r#"
                      SELECT * FROM session WHERE access_token = $access_token;
                 "#,
-                )
-                .bind(("access_token", token))
-                .await?;
-            trace!("result: {result:#?}");
+                        )
+                        .bind(("access_token", token))
+                        .await?;
+                    trace!("result: {result:#?}");
 
-            let mut result = result
-                .check()
-                .inspect(|result| trace!("result2: {result:#?}"))?;
+                    let mut result = result
+                        .check()
+                        .inspect(|result| trace!("result2: {result:#?}"))?;
 
-            let session = result
-                .take::<Option<Session>>(0)?
-                .ok_or(GetSessionErr::NotFound)?;
+                    let session = result
+                        .take::<Option<Session>>(0)?
+                        .ok_or(GetSessionErr::NotFound)?;
 
-            Ok(session)
+                    Ok(session)
+                }
+            }
+
+            #[derive(Debug, Error)]
+            pub enum GetSessionErr {
+                #[error("DB error {0}")]
+                DB(#[from] surrealdb::Error),
+
+                #[error("not found")]
+                NotFound,
+            }
+
+            #[cfg(test)]
+            mod tests {
+                use surrealdb::{Connection, engine::local::Mem};
+                use tracing::trace;
+
+                use crate::db::{Db, user::get_user_by_email::GetUserByEmailErr};
+                use test_log::test;
+                use thiserror::Error;
+
+                #[test(tokio::test)]
+                async fn one() {
+                    let db = Db::new::<Mem>(()).await.unwrap();
+                    db.migrate().await.unwrap();
+
+                    let _user = db
+                        .add_user(
+                            "hey".to_string(),
+                            "hey@hey.com".to_string(),
+                            "hey".to_string(),
+                        )
+                        .await
+                        .unwrap();
+
+                    let session = db.get_session("token").await;
+                    trace!("session: {session:?}");
+                    assert!(session.is_err());
+
+                    let session = db.add_session("token", "hey").await;
+                    trace!("session: {session:?}");
+                    assert!(session.is_ok());
+
+                    let session = db.get_session("token").await;
+                    trace!("session: {session:?}");
+                    assert!(session.is_ok());
+                }
+            }
         }
     }
-
-    #[derive(Debug, Serialize, Deserialize, Clone)]
-    pub struct User {
-        pub id: RecordId,
-        pub username: String,
-        pub email: String,
-        pub password: String,
-        pub modified_at: Datetime,
-        pub created_at: Datetime,
-    }
-
-    #[derive(Debug, Serialize, Deserialize, Clone)]
-    pub struct Session {
-        pub id: RecordId,
-        pub access_token: String,
-        pub user_id: RecordId,
-        pub modified_at: Datetime,
-        pub created_at: Datetime,
-    }
-
-    #[derive(Debug, Error)]
-    pub enum AddUserErr {
-        #[error("DB error {0}")]
-        DB(#[from] surrealdb::Error),
-
-        #[error("not found")]
-        NotFound,
-
-        #[error("email {0} is taken")]
-        EmailIsTaken(String),
-
-        #[error("username {0} is taken")]
-        UsernameIsTaken(String),
-    }
-
-    #[derive(Debug, Error)]
-    pub enum AddSessionErr {
-        #[error("DB error {0}")]
-        DB(#[from] surrealdb::Error),
-
-        #[error("not found")]
-        NotFound,
-
-        #[error("token already exists")]
-        TokenExists,
-    }
-
-    #[derive(Debug, Error)]
-    pub enum GetSessionErr {
-        #[error("DB error {0}")]
-        DB(#[from] surrealdb::Error),
-
-        #[error("not found")]
-        NotFound,
-    }
-
-    #[derive(Debug, Error)]
-    pub enum DeleteSessionErr {
-        #[error("DB error {0}")]
-        DB(#[from] surrealdb::Error),
-
-        #[error("not found")]
-        NotFound,
-    }
-
-    #[derive(Debug, Error)]
-    pub enum GetUserPasswordErr {
-        #[error("DB error {0}")]
-        DB(#[from] surrealdb::Error),
-
-        #[error("user not found")]
-        UserNotFound,
-    }
-
-    #[derive(Debug, Error)]
-    pub enum GetUserByEmailErr {
-        #[error("DB error {0}")]
-        DB(#[from] surrealdb::Error),
-
-        #[error("user not found")]
-        UserNotFound,
-    }
 }
 
-#[cfg(test)]
-mod database_tests {
-    use surrealdb::engine::local::{Mem, SurrealKv};
-    use test_log::test;
-    use tracing::trace;
+// #[cfg(test)]
+// mod database_tests {
+//     use surrealdb::engine::local::{Mem, SurrealKv};
+//     use test_log::test;
+//     use tracing::trace;
+//
+//     use crate::db::Db;
+//
+//     // #[test(tokio::test)]
+//     // async fn test_get_user_by_email() {
+//     //     let db = Db::new::<Mem>(()).await.unwrap();
+//     //     // let db2 = Db::new::<SurrealKv>("").await.unwrap();
+//     //     db.migrate().await.unwrap();
+//     //
+//     //     let _user = db
+//     //         .add_user(
+//     //             "hey".to_string(),
+//     //             "hey@hey.com".to_string(),
+//     //             "hey".to_string(),
+//     //         )
+//     //         .await
+//     //         .unwrap();
+//     //     let user = db.get_user_by_email("hey@hey.com").await;
+//     //     trace!("user: {user:?}");
+//     //     assert!(user.is_ok());
+//     // }
+//
+//     #[test(tokio::test)]
+//     async fn test_get_user_password() {
+//         let db = Db::new::<Mem>(()).await.unwrap();
+//         db.migrate().await.unwrap();
+//
+//         let _user = db
+//             .add_user(
+//                 "hey".to_string(),
+//                 "hey@hey.com".to_string(),
+//                 "hey".to_string(),
+//             )
+//             .await
+//             .unwrap();
+//         let password = db.get_user_password_hash("hey@hey.com").await;
+//         trace!("pss: {password:?}");
+//         assert!(password.is_ok());
+//     }
+//
+//     #[test(tokio::test)]
+//     async fn test_add_session() {
+//         let db = Db::new::<Mem>(()).await.unwrap();
+//         db.migrate().await.unwrap();
+//
+//         let _user = db
+//             .add_user(
+//                 "hey".to_string(),
+//                 "hey@hey.com".to_string(),
+//                 "hey".to_string(),
+//             )
+//             .await
+//             .unwrap();
+//
+//         let session = db.add_session("token", "hey").await;
+//         trace!("session: {session:?}");
+//         assert!(session.is_ok());
+//
+//         let session = db.add_session("token", "hey").await;
+//         trace!("session: {session:?}");
+//         assert!(session.is_err());
+//     }
 
-    use crate::db::{AddUserErr, Db};
-
-    #[test(tokio::test)]
-    async fn test_get_user_by_email() {
-        let db = Db::new::<Mem>(()).await.unwrap();
-        // let db2 = Db::new::<SurrealKv>("").await.unwrap();
-        db.migrate().await.unwrap();
-
-        let _user = db
-            .add_user(
-                "hey".to_string(),
-                "hey@hey.com".to_string(),
-                "hey".to_string(),
-            )
-            .await
-            .unwrap();
-        let user = db.get_user_by_email("hey@hey.com").await;
-        trace!("user: {user:?}");
-        assert!(user.is_ok());
-    }
-
-    #[test(tokio::test)]
-    async fn test_get_user_password() {
-        let db = Db::new::<Mem>(()).await.unwrap();
-        db.migrate().await.unwrap();
-
-        let _user = db
-            .add_user(
-                "hey".to_string(),
-                "hey@hey.com".to_string(),
-                "hey".to_string(),
-            )
-            .await
-            .unwrap();
-        let password = db.get_user_password_hash("hey@hey.com").await;
-        trace!("pss: {password:?}");
-        assert!(password.is_ok());
-    }
-
-    #[test(tokio::test)]
-    async fn test_add_session() {
-        let db = Db::new::<Mem>(()).await.unwrap();
-        db.migrate().await.unwrap();
-
-        let _user = db
-            .add_user(
-                "hey".to_string(),
-                "hey@hey.com".to_string(),
-                "hey".to_string(),
-            )
-            .await
-            .unwrap();
-
-        let session = db.add_session("token", "hey").await;
-        trace!("session: {session:?}");
-        assert!(session.is_ok());
-
-        let session = db.add_session("token", "hey").await;
-        trace!("session: {session:?}");
-        assert!(session.is_err());
-    }
-
-    #[test(tokio::test)]
-    async fn test_delete_session() {
-        let db = Db::new::<Mem>(()).await.unwrap();
-        db.migrate().await.unwrap();
-
-        let _user = db
-            .add_user(
-                "hey".to_string(),
-                "hey@hey.com".to_string(),
-                "hey".to_string(),
-            )
-            .await
-            .unwrap();
-
-        let session = db.add_session("token", "hey").await;
-        trace!("session: {session:?}");
-        assert!(session.is_ok());
-
-        let session = db.delete_session("token").await;
-        trace!("session: {session:?}");
-        assert!(session.is_ok());
-
-        let session = db.get_session("token").await;
-        trace!("session: {session:?}");
-        assert!(session.is_err());
-    }
-
-    #[test(tokio::test)]
-    async fn test_get_session() {
-        let db = Db::new::<Mem>(()).await.unwrap();
-        db.migrate().await.unwrap();
-
-        let _user = db
-            .add_user(
-                "hey".to_string(),
-                "hey@hey.com".to_string(),
-                "hey".to_string(),
-            )
-            .await
-            .unwrap();
-
-        let session = db.get_session("token").await;
-        trace!("session: {session:?}");
-        assert!(session.is_err());
-
-        let session = db.add_session("token", "hey").await;
-        trace!("session: {session:?}");
-        assert!(session.is_ok());
-
-        let session = db.get_session("token").await;
-        trace!("session: {session:?}");
-        assert!(session.is_ok());
-    }
-
-    #[test(tokio::test)]
-    async fn register() {
-        let db = Db::new::<Mem>(()).await.unwrap();
-        db.migrate().await.unwrap();
-        let user = db
-            .add_user(
-                "hey".to_string(),
-                "hey@hey.com".to_string(),
-                "hey".to_string(),
-            )
-            .await
-            .unwrap();
-        trace!("{user:#?}");
-
-        let user = db
-            .add_user(
-                "hey2".to_string(),
-                "hey@hey.com".to_string(),
-                "hey".to_string(),
-            )
-            .await;
-        trace!("{user:#?}");
-        assert!(matches!(user, Err(AddUserErr::EmailIsTaken(_))));
-
-        let user = db
-            .add_user(
-                "hey".to_string(),
-                "hey2@hey.com".to_string(),
-                "hey".to_string(),
-            )
-            .await;
-        trace!("{user:#?}");
-        assert!(matches!(user, Err(AddUserErr::UsernameIsTaken(_))));
-    }
-}
+// #[test(tokio::test)]
+// async fn register() {
+//     let db = Db::new::<Mem>(()).await.unwrap();
+//     db.migrate().await.unwrap();
+//     let user = db
+//         .add_user(
+//             "hey".to_string(),
+//             "hey@hey.com".to_string(),
+//             "hey".to_string(),
+//         )
+//         .await
+//         .unwrap();
+//     trace!("{user:#?}");
+//
+//     let user = db
+//         .add_user(
+//             "hey2".to_string(),
+//             "hey@hey.com".to_string(),
+//             "hey".to_string(),
+//         )
+//         .await;
+//     trace!("{user:#?}");
+//     assert!(matches!(user, Err(AddUserErr::EmailIsTaken(_))));
+//
+//     let user = db
+//         .add_user(
+//             "hey".to_string(),
+//             "hey2@hey.com".to_string(),
+//             "hey".to_string(),
+//         )
+//         .await;
+//     trace!("{user:#?}");
+//     assert!(matches!(user, Err(AddUserErr::UsernameIsTaken(_))));
+// }
+// }

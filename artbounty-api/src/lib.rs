@@ -14,92 +14,92 @@ pub mod utils {
     use thiserror::Error;
     use tracing::{error, trace};
 
-    #[cfg(feature = "ssr")]
-    pub async fn recv<ClientInput, ServerOutput, ServerErr, Fut>(
-        mut multipart: axum::extract::Multipart,
-        server_fn: impl FnOnce(ClientInput) -> Fut,
-    ) -> impl axum::response::IntoResponse
-    where
-        ClientInput: Archive,
-        ClientInput::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
-            + Deserialize<ClientInput, HighDeserializer<rkyv::rancor::Error>>,
-        ServerOutput: for<'a> rkyv::Serialize<
-                Strategy<
-                    rkyv::ser::Serializer<AlignedVec, ArenaHandle<'a>, Share>,
-                    bytecheck::rancor::Error,
-                >,
-            > + axum::response::IntoResponse,
-        ServerErr: for<'a> rkyv::Serialize<
-                Strategy<
-                    rkyv::ser::Serializer<AlignedVec, ArenaHandle<'a>, Share>,
-                    bytecheck::rancor::Error,
-                >,
-            > + Archive
-            + std::error::Error
-            + axum::response::IntoResponse
-            + 'static,
-        ServerErr::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
-            + Deserialize<ServerErr, HighDeserializer<rkyv::rancor::Error>>,
-        Fut: Future<Output = Result<ServerOutput, ServerErr>>,
-        // FutOutput: axum::response::IntoResponse,
-    {
-        use axum::response::IntoResponse;
-
-        let run = async || -> Result<ServerOutput, ResErr<ServerErr>> {
-            trace!("1");
-            let mut bytes = bytes::Bytes::new();
-            while let Some(field) = multipart
-                .next_field()
-                .await
-                .map_err(|_| ResErr::ServerDecodeErr(ServerDecodeErr::NextFieldFailed))?
-            {
-                trace!("2");
-                if field.name().map(|name| name == "data").unwrap_or_default() {
-                    trace!("3");
-                    bytes = field.bytes().await.map_err(|_| {
-                        ResErr::ServerDecodeErr(ServerDecodeErr::FieldToBytesFailed)
-                    })?;
-                }
-            }
-
-            trace!("4");
-            let archived = rkyv::access::<ClientInput::Archived, rkyv::rancor::Error>(&bytes)
-                .map_err(|_| ResErr::ServerDecodeErr(ServerDecodeErr::RkyvAccessErr))?;
-            trace!("5");
-            let client_input = rkyv::deserialize::<ClientInput, rkyv::rancor::Error>(archived)
-                .map_err(|_| ResErr::ServerDecodeErr(ServerDecodeErr::RkyvErr))?;
-            trace!("6");
-            let result = server_fn(client_input)
-                .await
-                .map_err(|err| ResErr::ServerErr(err));
-            trace!("7");
-
-            result
-        };
-
-        let response = run().await;
-
-        let result = match response {
-            Ok(server_output) => server_output.into_response(),
-            Err(ResErr::ServerDecodeErr(err)) => {
-                let body = encode(&Result::<ServerOutput, ResErr<ServerErr>>::Err(
-                    ResErr::ServerDecodeErr(err),
-                ))
-                .expect("serializing ServerDecodeErr should just work");
-                trace!("sending body: {body:?}");
-                (axum::http::StatusCode::BAD_REQUEST, body).into_response()
-            }
-            Err(ResErr::ServerErr(err)) => err.into_response(),
-            Err(ResErr::ClientErr(_)) => {
-                unreachable!("client error shouldnt be send by the server")
-            }
-        };
-
-        // make recv_inner return tuple of status and rkyv bytes maybe
-        // trace!("sending response: {:#?}", result.body().);
-
-        result
-    }
+    // #[cfg(feature = "ssr")]
+    // pub async fn recv<ClientInput, ServerOutput, ServerErr, Fut>(
+    //     mut multipart: axum::extract::Multipart,
+    //     server_fn: impl FnOnce(ClientInput) -> Fut,
+    // ) -> impl axum::response::IntoResponse
+    // where
+    //     ClientInput: Archive,
+    //     ClientInput::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
+    //         + Deserialize<ClientInput, HighDeserializer<rkyv::rancor::Error>>,
+    //     ServerOutput: for<'a> rkyv::Serialize<
+    //             Strategy<
+    //                 rkyv::ser::Serializer<AlignedVec, ArenaHandle<'a>, Share>,
+    //                 bytecheck::rancor::Error,
+    //             >,
+    //         > + axum::response::IntoResponse,
+    //     ServerErr: for<'a> rkyv::Serialize<
+    //             Strategy<
+    //                 rkyv::ser::Serializer<AlignedVec, ArenaHandle<'a>, Share>,
+    //                 bytecheck::rancor::Error,
+    //             >,
+    //         > + Archive
+    //         + std::error::Error
+    //         + axum::response::IntoResponse
+    //         + 'static,
+    //     ServerErr::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
+    //         + Deserialize<ServerErr, HighDeserializer<rkyv::rancor::Error>>,
+    //     Fut: Future<Output = Result<ServerOutput, ServerErr>>,
+    //     // FutOutput: axum::response::IntoResponse,
+    // {
+    //     use axum::response::IntoResponse;
+    //
+    //     let run = async || -> Result<ServerOutput, ResErr<ServerErr>> {
+    //         trace!("1");
+    //         let mut bytes = bytes::Bytes::new();
+    //         while let Some(field) = multipart
+    //             .next_field()
+    //             .await
+    //             .map_err(|_| ResErr::ServerDecodeErr(ServerDecodeErr::NextFieldFailed))?
+    //         {
+    //             trace!("2");
+    //             if field.name().map(|name| name == "data").unwrap_or_default() {
+    //                 trace!("3");
+    //                 bytes = field.bytes().await.map_err(|_| {
+    //                     ResErr::ServerDecodeErr(ServerDecodeErr::FieldToBytesFailed)
+    //                 })?;
+    //             }
+    //         }
+    //
+    //         trace!("4");
+    //         let archived = rkyv::access::<ClientInput::Archived, rkyv::rancor::Error>(&bytes)
+    //             .map_err(|_| ResErr::ServerDecodeErr(ServerDecodeErr::RkyvAccessErr))?;
+    //         trace!("5");
+    //         let client_input = rkyv::deserialize::<ClientInput, rkyv::rancor::Error>(archived)
+    //             .map_err(|_| ResErr::ServerDecodeErr(ServerDecodeErr::RkyvErr))?;
+    //         trace!("6");
+    //         let result = server_fn(client_input)
+    //             .await
+    //             .map_err(|err| ResErr::ServerErr(err));
+    //         trace!("7");
+    //
+    //         result
+    //     };
+    //
+    //     let response = run().await;
+    //
+    //     let result = match response {
+    //         Ok(server_output) => server_output.into_response(),
+    //         Err(ResErr::ServerDecodeErr(err)) => {
+    //             let body = encode(&Result::<ServerOutput, ResErr<ServerErr>>::Err(
+    //                 ResErr::ServerDecodeErr(err),
+    //             ))
+    //             .expect("serializing ServerDecodeErr should just work");
+    //             trace!("sending body: {body:?}");
+    //             (axum::http::StatusCode::BAD_REQUEST, body).into_response()
+    //         }
+    //         Err(ResErr::ServerErr(err)) => err.into_response(),
+    //         Err(ResErr::ClientErr(_)) => {
+    //             unreachable!("client error shouldnt be send by the server")
+    //         }
+    //     };
+    //
+    //     // make recv_inner return tuple of status and rkyv bytes maybe
+    //     // trace!("sending response: {:#?}", result.body().);
+    //
+    //     result
+    // }
 
     #[cfg(feature = "ssr")]
     pub async fn decode_multipart<ClientInput, ServerErr>(
@@ -166,10 +166,8 @@ pub mod utils {
         let result = match response {
             Ok(server_output) => server_output.into_response(),
             Err(ResErr::ServerDecodeErr(err)) => {
-                let body = encode(&Result::<ServerOutput, ResErr<ServerErr>>::Err(
-                    ResErr::ServerDecodeErr(err),
-                ))
-                .expect("serializing ServerDecodeErr should just work");
+                let body =
+                    encode_result::<ServerOutput, ServerErr>(&Err(ResErr::ServerDecodeErr(err)));
                 trace!("sending body: {body:?}");
                 (axum::http::StatusCode::BAD_REQUEST, body).into_response()
             }
@@ -180,6 +178,32 @@ pub mod utils {
         };
 
         result
+    }
+
+    pub fn encode_result<ServerOutput, ServerErr>(
+        result: &Result<ServerOutput, ResErr<ServerErr>>,
+    ) -> Vec<u8>
+    where
+        ServerOutput: for<'a> rkyv::Serialize<
+                Strategy<
+                    rkyv::ser::Serializer<AlignedVec, ArenaHandle<'a>, Share>,
+                    bytecheck::rancor::Error,
+                >,
+            >,
+        ServerErr: for<'a> rkyv::Serialize<
+                Strategy<
+                    rkyv::ser::Serializer<AlignedVec, ArenaHandle<'a>, Share>,
+                    bytecheck::rancor::Error,
+                >,
+            > + Archive
+            + std::error::Error
+            + 'static,
+    {
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(result)
+            .unwrap()
+            .to_vec();
+
+        bytes
     }
 
     pub async fn send<ServerOutput, ServerErr>(
@@ -293,16 +317,42 @@ pub mod utils {
         (headers, r)
     }
 
-    pub fn encode(
-        e: &impl for<'a> rkyv::Serialize<
-            Strategy<
-                rkyv::ser::Serializer<AlignedVec, ArenaHandle<'a>, Share>,
-                bytecheck::rancor::Error,
-            >,
-        >,
-    ) -> Result<Vec<u8>, rkyv::rancor::Error> {
-        rkyv::to_bytes::<rkyv::rancor::Error>(e).map(|v| v.to_vec())
-    }
+    // pub fn encode(
+    //     e: &impl for<'a> rkyv::Serialize<
+    //         Strategy<
+    //             rkyv::ser::Serializer<AlignedVec, ArenaHandle<'a>, Share>,
+    //             bytecheck::rancor::Error,
+    //         >,
+    //     >,
+    // ) -> Result<Vec<u8>, rkyv::rancor::Error> {
+    //     rkyv::to_bytes::<rkyv::rancor::Error>(e).map(|v| v.to_vec())
+    // }
+
+    // pub fn encode_server_output<ServerOutput, ServerErr>(output: ServerOutput) -> Vec<u8>
+    // where
+    //     ServerOutput: for<'a> rkyv::Serialize<
+    //             Strategy<
+    //                 rkyv::ser::Serializer<AlignedVec, ArenaHandle<'a>, Share>,
+    //                 bytecheck::rancor::Error,
+    //             >,
+    //         > + axum::response::IntoResponse,
+    //     ServerErr: for<'a> rkyv::Serialize<
+    //             Strategy<
+    //                 rkyv::ser::Serializer<AlignedVec, ArenaHandle<'a>, Share>,
+    //                 bytecheck::rancor::Error,
+    //             >,
+    //         > + Archive
+    //         + std::error::Error
+    //         + axum::response::IntoResponse
+    //         + 'static,
+    // {
+    //     let bytes =
+    //         rkyv::to_bytes::<rkyv::rancor::Error>(&Ok::<ServerOutput, ResErr<ServerErr>>(output))
+    //             .unwrap()
+    //             .to_vec();
+    //
+    //     bytes
+    // }
 
     #[derive(
         Debug,
@@ -406,6 +456,82 @@ pub mod utils {
 
         #[error("rkyv failed to encode")]
         RkyvErr,
+    }
+}
+
+#[cfg(feature = "ssr")]
+pub mod app_state {
+    use std::{sync::Arc, time::Duration};
+
+    use artbounty_db::db::{self, DbEngine};
+    use tokio::sync::Mutex;
+
+    use crate::{clock::Clock, settings::{self, Settings}};
+
+    #[derive(Clone)]
+    pub struct AppState {
+        pub db: DbEngine,
+        pub settings: Settings,
+        pub clock: Clock,
+    }
+
+    impl AppState {
+        pub async fn new_testng(time: Arc<Mutex<Duration>>) -> Self {
+            let db = db::new_mem().await;
+            let settings = settings::Settings {
+                auth: settings::Auth {
+                    secret: "secret".to_string(),
+                },
+            };
+            let clock = Clock::new(async move { *(time.lock().await) });
+
+            Self {
+                db,
+                settings,
+                clock,
+            }
+        }
+    }
+}
+
+#[cfg(feature = "ssr")]
+pub mod settings {
+
+    #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+    pub struct Settings {
+        pub auth: Auth,
+    }
+
+    #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+    pub struct Auth {
+        pub secret: String,
+    }
+}
+
+#[cfg(feature = "ssr")]
+pub mod clock {
+    use std::{pin::Pin, sync::Arc, time::Duration};
+    use tokio::sync::Mutex;
+
+    #[derive(Clone)]
+    pub struct Clock {
+        ticker: Arc<Mutex<Pin<Box<dyn Future<Output = Duration> + Sync + Send>>>>, // ticker: BoxFuture<'static, Duration>
+    }
+
+    impl Clock {
+        pub fn new<F: Future<Output = Duration> + Send + Sync + 'static>(ticker: F) -> Self {
+            // let f  = std::pin::Pin::new(Box::new(ticker)as Box<dyn Future<Output = Duration>>);
+            let f: Pin<Box<dyn Future<Output = Duration> + Sync + Send>> = Box::pin(ticker);
+            let fut = Arc::new(Mutex::new(f));
+            Self { ticker: fut }
+        }
+
+        pub async fn now(&self) -> Duration {
+            let mut fut = self.ticker.lock().await;
+            let fut = fut.as_mut();
+            let duration = fut.await;
+            duration
+        }
     }
 }
 
@@ -734,6 +860,11 @@ pub mod auth {
             }
         }
     }
+    #[cfg(feature = "ssr")]
+    pub fn get_timestamp() -> std::time::Duration {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap()
+    }
 
     #[cfg(feature = "ssr")]
     pub fn get_nanos() -> u128 {
@@ -762,11 +893,248 @@ pub mod auth {
         Ok(password_hash)
     }
 
+    #[cfg(feature = "ssr")]
+    pub fn encode_token<Key: AsRef<[u8]>, Claims: serde::Serialize>(
+        key: Key,
+        claims: Claims,
+    ) -> Result<String, jsonwebtoken::errors::Error> {
+        use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+
+        let header = Header::new(Algorithm::HS512);
+        let key = EncodingKey::from_secret(key.as_ref());
+
+        encode(&header, &claims, &key)
+    }
+
+    #[cfg(feature = "ssr")]
+    pub fn decode_token<Claims: serde::de::DeserializeOwned>(
+        secret: impl AsRef<[u8]>,
+        token: impl AsRef<str>,
+        validate_exp: bool,
+    ) -> Result<jsonwebtoken::TokenData<Claims>, jsonwebtoken::errors::Error> {
+        use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
+
+        let token = token.as_ref();
+        let secret = DecodingKey::from_secret(secret.as_ref());
+        let mut validation = Validation::new(Algorithm::HS512);
+        validation.validate_exp = validate_exp;
+        validation.leeway = 0;
+
+        decode::<Claims>(token, &secret, &validation)
+    }
+
     pub mod api {
-        pub mod register {
-            use crate::utils::{ResErr, ServerDecodeErr, send, send_from_builder};
+        pub mod invite {
+            use std::time::Duration;
+
+            use crate::utils::{ResErr, ServerDecodeErr, encode_result, send, send_from_builder};
             use thiserror::Error;
             use tracing::{error, trace};
+
+            pub const PATH: &'static str = "/api/invite";
+
+            #[derive(
+                Debug,
+                Clone,
+                serde::Serialize,
+                serde::Deserialize,
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+            )]
+            pub struct Input {
+                pub email: String,
+            }
+
+            #[derive(
+                Debug,
+                Clone,
+                serde::Serialize,
+                serde::Deserialize,
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+            )]
+            pub struct ServerOutput {}
+
+            #[cfg(feature = "ssr")]
+            impl axum::response::IntoResponse for ServerOutput {
+                fn into_response(self) -> axum::response::Response {
+                    let bytes = encode_result::<ServerOutput, ServerErr>(&Ok(self));
+                    (axum::http::StatusCode::OK, bytes).into_response()
+                }
+            }
+
+            #[derive(
+                Debug,
+                Error,
+                Clone,
+                serde::Serialize,
+                serde::Deserialize,
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+            )]
+            pub enum ServerErr {
+                #[error("internal server error")]
+                ServerErr,
+
+                #[error("jwt error")]
+                JWT,
+            }
+
+            #[cfg(feature = "ssr")]
+            impl axum::response::IntoResponse for ServerErr {
+                fn into_response(self) -> axum::response::Response {
+                    let status = match &self {
+                        _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    };
+                    let bytes =
+                        encode_result::<ServerOutput, ServerErr>(&Err(ResErr::ServerErr(self)));
+                    (status, bytes).into_response()
+                }
+            }
+
+            #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+            pub struct InviteToken {
+                email: String,
+                created_at: u128,
+                exp: u64,
+            }
+
+            impl InviteToken {
+                pub fn new<S: Into<String>>(
+                    email: S,
+                    created_at: std::time::Duration,
+                    exp: std::time::Duration,
+                ) -> Self {
+                    Self {
+                        email: email.into(),
+                        created_at: created_at.as_nanos(),
+                        exp: exp.as_secs(),
+                    }
+                }
+            }
+
+            pub async fn client(input: Input) -> Result<ServerOutput, ResErr<ServerErr>> {
+                send::<ServerOutput, ServerErr>(PATH, &input).await
+            }
+
+            #[cfg(feature = "ssr")]
+            pub async fn server(
+                axum::extract::State(app_state): axum::extract::State<crate::app_state::AppState>,
+                // axum::extract::State(settings): axum::extract::State<crate::settings::Settings>,
+                // axum::extract::State(clock): axum::extract::State<crate::clock::Clock>,
+                multipart: axum::extract::Multipart,
+            ) -> impl axum::response::IntoResponse {
+                use artbounty_shared::auth::{
+                    proccess_email, proccess_password, proccess_username,
+                };
+
+                use crate::{
+                    api,
+                    auth::{encode_token, get_nanos, get_timestamp, hash_password},
+                    utils::{self, decode_multipart, encode_server_output},
+                };
+                let wrap = async || {
+                    let input = decode_multipart::<Input, ServerErr>(multipart).await?;
+                    trace!("input!!!!!! {input:#?}");
+                    let time = app_state.clock.now().await;
+                    let exp = time + Duration::from_secs(2);
+                    let invite = InviteToken::new(input.email, time, exp);
+                    let invite_token =
+                        encode_token(&app_state.settings.auth.secret, invite).map_err(|_| ServerErr::JWT)?;
+
+                    trace!("invite token created: {invite_token}");
+
+                    Result::<ServerOutput, ResErr<ServerErr>>::Ok(ServerOutput {})
+                };
+                let res = wrap().await;
+                let res = encode_server_output(res).await;
+                res
+            }
+
+            #[cfg(test)]
+            mod invite {
+                use std::sync::Arc;
+                use std::time::Duration;
+
+                use crate::app_state::AppState;
+                use crate::auth::api::invite::InviteToken;
+                use crate::auth::{decode_token, encode_token, get_nanos, get_timestamp};
+                use crate::clock::Clock;
+                use crate::settings;
+                use crate::utils::send_from_builder;
+
+                use artbounty_db::db;
+                use axum::Router;
+                use axum::routing::post;
+                use axum_test::TestServer;
+                use test_log::test;
+                use tokio::sync::Mutex;
+                use tokio::time::sleep;
+                use tracing::trace;
+
+                #[test(tokio::test)]
+                async fn token() {
+                    // let time = get_nanos();
+                    let time = get_timestamp();
+                    let exp = time + Duration::from_secs(2);
+                    let invite_token = InviteToken::new("hey@hey.com", time, exp);
+                    let invite_token = encode_token("secret", invite_token).unwrap();
+                    sleep(Duration::from_secs(1)).await;
+                    let invite_claims =
+                        decode_token::<InviteToken>("secret", &invite_token, true).unwrap();
+                    trace!("invite claims: {invite_claims:#?}");
+                    sleep(Duration::from_secs(2)).await;
+                    let time2 = get_timestamp();
+                    trace!("\n1: {}\n2: {}", time2.as_nanos(), exp.as_nanos());
+                    let invite_claims = decode_token::<InviteToken>("secret", &invite_token, true);
+                    assert!(invite_claims.is_err());
+                }
+
+                #[test(tokio::test)]
+                async fn full() {
+                    let current_time = get_timestamp();
+                    let time = Arc::new(Mutex::new(current_time));
+                    let app_state = AppState::new_testng(time).await;
+                    let my_app = Router::new()
+                        .route(
+                            crate::auth::api::invite::PATH,
+                            post(crate::auth::api::invite::server),
+                        )
+                        .with_state(app_state);
+                        // .with_state(settings::Settings {
+                        //     auth: settings::Auth {
+                        //         secret: "secret".to_string(),
+                        //     },
+                        // })
+                        // .with_state(Clock::new(async move { get_timestamp() }));
+                    let server = TestServer::builder()
+                        .http_transport()
+                        .build(my_app)
+                        .unwrap();
+
+                    let input = crate::auth::api::invite::Input {
+                        email: "hey@hey.com".to_string(),
+                    };
+                    let builder = server.reqwest_post(crate::auth::api::invite::PATH);
+                    let res = send_from_builder::<
+                        crate::auth::api::invite::ServerOutput,
+                        crate::auth::api::invite::ServerErr,
+                    >(builder, &input)
+                    .await;
+                    trace!("RESPONSE: {res:#?}");
+                    // res.1.unwrap();
+                }
+            }
+        }
+        pub mod register {
+            use crate::utils::{ResErr, ServerDecodeErr, encode_result, send, send_from_builder};
+            use thiserror::Error;
+            use tracing::{error, trace};
+
+            pub const PATH: &'static str = "/api/register";
 
             #[derive(
                 Debug,
@@ -797,9 +1165,8 @@ pub mod auth {
             #[cfg(feature = "ssr")]
             impl axum::response::IntoResponse for ServerOutput {
                 fn into_response(self) -> axum::response::Response {
-                    use axum::body::Body;
-
-                    (axum::http::StatusCode::OK, Body::empty()).into_response()
+                    let bytes = encode_result::<ServerOutput, ServerErr>(&Ok(self));
+                    (axum::http::StatusCode::OK, bytes).into_response()
                 }
             }
 
@@ -849,20 +1216,14 @@ pub mod auth {
                         }
                         ServerErr::ServerErr => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                     };
-                    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&Err::<
-                        ServerOutput,
-                        ResErr<ServerErr>,
-                    >(
-                        ResErr::ServerErr(self)
-                    ))
-                    .unwrap()
-                    .to_vec();
+                    let bytes =
+                        encode_result::<ServerOutput, ServerErr>(&Err(ResErr::ServerErr(self)));
                     (status, bytes).into_response()
                 }
             }
 
             pub async fn client(input: Input) -> Result<ServerOutput, ResErr<ServerErr>> {
-                send::<ServerOutput, ServerErr>("/api/register", &input).await
+                send::<ServerOutput, ServerErr>(PATH, &input).await
             }
 
             #[cfg(feature = "ssr")]
@@ -870,7 +1231,7 @@ pub mod auth {
                 axum::extract::State(db): axum::extract::State<artbounty_db::db::DbEngine>,
                 multipart: axum::extract::Multipart,
             ) -> impl axum::response::IntoResponse {
-                use artbounty_db::db::AddUserErr;
+                use artbounty_db::db::user::add_user::AddUserErr;
                 use artbounty_shared::auth::{
                     proccess_email, proccess_password, proccess_username,
                 };
@@ -878,11 +1239,12 @@ pub mod auth {
                 use crate::{
                     api,
                     auth::{get_nanos, hash_password},
-                    utils::{self, recv},
+                    utils::{self, decode_multipart, encode_server_output},
                 };
-                trace!("yo wtf??");
-                recv(multipart, async move |input: Input| {
-                    trace!("looking");
+                let wrap = async || {
+                    let input = decode_multipart::<Input, ServerErr>(multipart).await?;
+                    trace!("input!!!!!! {input:#?}");
+
                     let username = proccess_username(input.username)
                         .map_err(|err| ServerErr::UsernameInvalid(err))?;
                     let email =
@@ -899,14 +1261,57 @@ pub mod auth {
                             _ => ServerErr::ServerErr,
                         })?;
 
-                    Result::<ServerOutput, ServerErr>::Ok(ServerOutput {})
-                })
-                .await
+                    Result::<ServerOutput, ResErr<ServerErr>>::Ok(ServerOutput {})
+                };
+                let res = wrap().await;
+                let res = encode_server_output(res).await;
+                res
+            }
+
+            #[cfg(test)]
+            mod register_test {
+                use crate::utils::send_from_builder;
+
+                use artbounty_db::db;
+                use axum::Router;
+                use axum::routing::post;
+                use axum_test::TestServer;
+                use test_log::test;
+                use tracing::trace;
+
+                #[test(tokio::test)]
+                async fn register() {
+                    let db = db::new_mem().await;
+                    let my_app = Router::new()
+                        .route(
+                            crate::auth::api::register::PATH,
+                            post(crate::auth::api::register::server),
+                        )
+                        .with_state(db);
+                    let server = TestServer::builder()
+                        .http_transport()
+                        .build(my_app)
+                        .unwrap();
+
+                    let input = crate::auth::api::register::Input {
+                        username: "hey".to_string(),
+                        email: "hey@hey.com".to_string(),
+                        password: "hey1@hey.com".to_string(),
+                    };
+                    let builder = server.reqwest_post(crate::auth::api::register::PATH);
+                    let res = send_from_builder::<
+                        crate::auth::api::register::ServerOutput,
+                        crate::auth::api::register::ServerErr,
+                    >(builder, &input)
+                    .await;
+                    trace!("RESPONSE: {res:#?}");
+                    res.1.unwrap();
+                }
             }
         }
         pub mod login {
             use crate::auth::AuthToken;
-            use crate::utils::{ResErr, ServerDecodeErr, encode, send, send_from_builder};
+            use crate::utils::{ResErr, ServerDecodeErr, encode_result, send, send_from_builder};
             use axum::Router;
             use thiserror::Error;
             use tracing::{error, trace};
@@ -945,8 +1350,7 @@ pub mod auth {
                     //     Ok(e) => e,
                     //     Err(err) => encode(&err).unwrap()
                     // };
-                    let bytes =
-                        encode(&Result::<ServerOutput, ResErr<ServerErr>>::Ok(self)).unwrap();
+                    let bytes = encode_result::<ServerOutput, ServerErr>(&Ok(self));
 
                     trace!("sending body: {bytes:?}");
                     (axum::http::StatusCode::OK, bytes).into_response()
@@ -986,14 +1390,8 @@ pub mod auth {
                             axum::http::StatusCode::INTERNAL_SERVER_ERROR
                         }
                     };
-                    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&Result::<
-                        ServerOutput,
-                        ResErr<ServerErr>,
-                    >::Err(
-                        ResErr::ServerErr(self)
-                    ))
-                    .unwrap()
-                    .to_vec();
+                    let bytes =
+                        encode_result::<ServerOutput, ServerErr>(&Err(ResErr::ServerErr(self)));
                     trace!("sending body: {bytes:?}");
                     (status, bytes).into_response()
                 }
@@ -1019,24 +1417,41 @@ pub mod auth {
                 use crate::{
                     api,
                     auth::get_nanos,
-                    utils::{self, decode_multipart, encode_server_output, recv},
+                    utils::{self, decode_multipart, encode_server_output},
                 };
                 // let db = artbounty_db::db::new_mem().await;
                 trace!("yo wtf??");
                 let wrap = async || {
                     let input = decode_multipart::<Input, ServerErr>(multipart).await?;
                     trace!("input!!!!!! {input:#?}");
-                    let username = validate_password(db, input.email, input.password).await?;
+                    let user = db
+                        .get_user_by_email(input.email)
+                        .await
+                        .map_err(|_| ServerErr::Incorrect)?;
+                    verify_password(input.password, user.password)
+                        .map_err(|_| ServerErr::Incorrect)?;
                     let time = get_nanos();
-                    let (_token, cookie) = create_cookie("secret", username.clone(), time)
+                    let (_token, cookie) = create_cookie("secret", user.username, time)
                         .map_err(|_| ServerErr::CreateCookieErr)?;
 
-                    Result::<ServerOutput, ResErr<ServerErr>>::Ok(ServerOutput {})
+                    Result::<String, ResErr<ServerErr>>::Ok(cookie)
                 };
 
-                let res = wrap().await;
-                let res = encode_server_output(res).await;
-                    let a = jar.add(Cookie::new(http::header::AUTHORIZATION.as_str(), cookie));
+                let res = match wrap().await {
+                    Ok(cookie) => {
+                        let server_output =
+                            Result::<ServerOutput, ResErr<ServerErr>>::Ok(ServerOutput {});
+                        let server_output = encode_server_output(server_output).await;
+                        let cookies =
+                            jar.add(Cookie::new(http::header::AUTHORIZATION.as_str(), cookie));
+                        (cookies, server_output)
+                    }
+                    Err(err) => {
+                        let server_output = Result::<ServerOutput, ResErr<ServerErr>>::Err(err);
+                        let server_output = encode_server_output(server_output).await;
+                        (jar, server_output)
+                    }
+                };
                 res
                 // let r = recv(multipart, async |input: Input| {
                 //     trace!("looking");
@@ -1097,40 +1512,42 @@ pub mod auth {
                 // r
             }
 
-            #[cfg(feature = "ssr")]
-            async fn validate_password<
-                C: artbounty_db::db::Connection,
-                S: Into<String>,
-                P: AsRef<[u8]>,
-            >(
-                db: artbounty_db::db::Db<C>,
-                email: S,
-                password: P,
-            ) -> Result<String, ServerErr> {
-                let user = db
-                    .get_user_by_email(email)
-                    .await
-                    .map_err(|_| ServerErr::Incorrect)?;
-                let password_hash = user.password;
-                let username = user.username;
+            // #[cfg(feature = "ssr")]
+            // async fn validate_password<
+            //     C: artbounty_db::db::Connection,
+            //     S: Into<String>,
+            //     P: AsRef<[u8]>,
+            // >(
+            //     db: artbounty_db::db::Db<C>,
+            //     email: S,
+            //     password: P,
+            // ) -> Result<String, ServerErr> {
+            //     let user = db
+            //         .get_user_by_email(email)
+            //         .await
+            //         .map_err(|_| ServerErr::Incorrect)?;
+            //     let password_hash = user.password;
+            //     let username = user.username;
+            //
+            //     trace!("1.5");
+            //     let password_correct = verify_password(password, password_hash);
+            //     if !password_correct {
+            //         return Err(ServerErr::Incorrect);
+            //     }
+            //     Ok(username)
+            // }
 
-                trace!("1.5");
-                let password_correct = verify_password(password, password_hash);
-                if !password_correct {
-                    return Err(ServerErr::Incorrect);
-                }
-                Ok(username)
-            }
-
             #[cfg(feature = "ssr")]
-            pub fn verify_password<T: AsRef<[u8]>, S2: AsRef<str>>(password: T, hash: S2) -> bool {
+            pub fn verify_password<T: AsRef<[u8]>, S2: AsRef<str>>(
+                password: T,
+                hash: S2,
+            ) -> Result<(), argon2::password_hash::Error> {
                 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 
                 let password = password.as_ref();
                 let hash = hash.as_ref();
                 PasswordHash::new(hash)
                     .and_then(|hash| Argon2::default().verify_password(password, &hash))
-                    .is_ok()
             }
 
             #[cfg(feature = "ssr")]
@@ -1139,70 +1556,16 @@ pub mod auth {
                 username: S,
                 time: u128,
             ) -> Result<(String, String), jsonwebtoken::errors::Error> {
+                use crate::auth::encode_token;
+
                 let key = key.as_ref();
                 let token = encode_token(key, AuthToken::new(username, time))
                     .inspect_err(|err| error!("jwt exploded {err}"))?;
+                trace!("token created: {token:?}");
                 // .map_err(|_| OutputErr::CreateCookieErr)?;
                 let cookie = format!("Bearer={token}; Secure; HttpOnly");
+                trace!("cookie created: {cookie:?}");
                 Ok((token, cookie))
-            }
-
-            #[cfg(feature = "ssr")]
-            pub fn encode_token<Key: AsRef<[u8]>>(
-                key: Key,
-                claims: AuthToken,
-            ) -> Result<String, jsonwebtoken::errors::Error> {
-                use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
-
-                let header = Header::new(Algorithm::HS512);
-                let key = EncodingKey::from_secret(key.as_ref());
-
-                encode(&header, &claims, &key)
-            }
-
-            #[cfg(test)]
-            mod login_tests {
-                use crate::auth::api::login::PATH;
-                use crate::utils::send_from_builder;
-
-                use super::server;
-                use super::{Input, ServerErr, ServerOutput};
-                use artbounty_db::db;
-                use axum::routing::post;
-                use axum::{
-                    Router,
-                    body::Body,
-                    extract::{FromRequest, Multipart, State},
-                };
-                use axum_test::TestServer;
-                use http::request;
-                use test_log::test;
-                use tracing::trace;
-
-                #[test(tokio::test)]
-                async fn server_test() {
-                    let db = db::new_mem().await;
-                    let my_app = Router::new().route(PATH, post(server)).with_state(db);
-                    let server = TestServer::builder()
-                        .http_transport()
-                        .build(my_app)
-                        .unwrap();
-
-                    let input = Input {
-                        email: "hey@hey.com".to_string(),
-                        password: "hey@hey.com".to_string(),
-                    };
-                    let builder = server.reqwest_post(PATH);
-                    let res = send_from_builder::<ServerOutput, ServerErr>(builder, &input).await;
-                    trace!("RESPONSE: {res:#?}");
-
-                    // let db = artbounty_db::db::new_mem().await;
-                    // let state = axum::extract::State(db);
-                    // let body = Body::empty();
-                    // let req = request::Builder::new().body(body).mu.unwrap();
-                    // let multipart = Multipart::from_request(req, &State(())).await.unwrap();
-                    // let result = server(state, multipart).await;
-                }
             }
         }
     }
@@ -1229,41 +1592,135 @@ pub mod auth {
             CookieNotFound,
         }
 
+        // #[cfg(feature = "ssr")]
+        // pub fn verify_cookie<Key: AsRef<[u8]>, Cookie: AsRef<str>>(
+        //     secret: Key,
+        //     cookie: Cookie,
+        // ) -> Result<(String, jsonwebtoken::TokenData<AuthToken>), VerifyCookieErr> {
+        //     use biscotti::{Processor, ProcessorConfig, RequestCookies};
+        //     let processor: Processor = ProcessorConfig::default().into();
+        //     let secret = secret.as_ref();
+        //     let cookie = cookie.as_ref();
+        //     RequestCookies::parse_header(cookie, &processor)
+        //         .ok()
+        //         .and_then(|cookies| cookies.get("Bearer"))
+        //         .ok_or(VerifyCookieErr::CookieNotFound)
+        //         .and_then(|cookie| {
+        //             let token = cookie.value();
+        //             decode_token(secret, token)
+        //                 .map(|data| (token.to_string(), data))
+        //                 // .inspect_err(|err| error!("jwt exploded {err}"))
+        //                 .map_err(|_| VerifyCookieErr::JWT)
+        //         })
+        // }
+
         #[cfg(feature = "ssr")]
-        pub fn verify_cookie<Key: AsRef<[u8]>, Cookie: AsRef<str>>(
-            key: Key,
-            cookie: Cookie,
-        ) -> Result<(String, jsonwebtoken::TokenData<AuthToken>), VerifyCookieErr> {
+        pub fn get_auth_cookie<Cookie: AsRef<str>>(cookie: Cookie) -> Option<String> {
             use biscotti::{Processor, ProcessorConfig, RequestCookies};
             let processor: Processor = ProcessorConfig::default().into();
-            let key = key.as_ref();
             let cookie = cookie.as_ref();
             RequestCookies::parse_header(cookie, &processor)
                 .ok()
-                .and_then(|cookies| cookies.get("Bearer"))
-                .ok_or(VerifyCookieErr::CookieNotFound)
-                .and_then(|cookie| {
-                    let token = cookie.value();
-                    decode_token(key, token)
-                        .map(|data| (token.to_string(), data))
-                        // .inspect_err(|err| error!("jwt exploded {err}"))
-                        .map_err(|_| VerifyCookieErr::JWT)
-                })
+                .and_then(|cookies| cookies.get(http::header::AUTHORIZATION.as_str()))
+                .map(|cookie| cookie.value().to_string())
         }
+    }
 
-        #[cfg(feature = "ssr")]
-        pub fn decode_token<Key: AsRef<[u8]>, S: AsRef<str>>(
-            key: Key,
-            token: S,
-        ) -> Result<jsonwebtoken::TokenData<AuthToken>, jsonwebtoken::errors::Error> {
-            use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
+    #[cfg(test)]
+    mod auth_test {
+        use crate::auth::{AuthToken, decode_token};
+        use crate::utils::{ResErr, send_from_builder};
 
-            let token = token.as_ref();
-            let key = DecodingKey::from_secret(key.as_ref());
-            let mut validation = Validation::new(Algorithm::HS512);
-            validation.validate_exp = false;
+        use artbounty_db::db;
+        use axum::routing::post;
+        use axum::{
+            Router,
+            body::Body,
+            extract::{FromRequest, Multipart, State},
+        };
+        use axum_test::TestServer;
+        use http::request;
+        use test_log::test;
+        use tracing::trace;
 
-            decode::<AuthToken>(token, &key, &validation)
+        #[test(tokio::test)]
+        async fn login() {
+            let db = db::new_mem().await;
+            let my_app = Router::new()
+                .route(
+                    crate::auth::api::login::PATH,
+                    post(crate::auth::api::login::server),
+                )
+                .route(
+                    crate::auth::api::register::PATH,
+                    post(crate::auth::api::register::server),
+                )
+                .with_state(db);
+            let server = TestServer::builder()
+                .http_transport()
+                .build(my_app)
+                .unwrap();
+
+            let register = async |username: &str, email: &str, password: &str| {
+                let input = crate::auth::api::register::Input {
+                    username: username.to_string(),
+                    email: email.to_string(),
+                    password: password.to_string(),
+                };
+                let builder = server.reqwest_post(crate::auth::api::register::PATH);
+                let res = send_from_builder::<
+                    crate::auth::api::register::ServerOutput,
+                    crate::auth::api::register::ServerErr,
+                >(builder, &input)
+                .await;
+                trace!("RESPONSE: {res:#?}");
+                res.1
+            };
+
+            let login = async |email: &str, password: &str| {
+                let input = crate::auth::api::login::Input {
+                    email: email.to_string(),
+                    password: password.to_string(),
+                };
+                let builder = server.reqwest_post(crate::auth::api::login::PATH);
+                let res = send_from_builder::<
+                    crate::auth::api::login::ServerOutput,
+                    crate::auth::api::login::ServerErr,
+                >(builder, &input)
+                .await;
+                trace!("RESPONSE: {res:#?}");
+                res.0.get(http::header::SET_COOKIE).map(|v| {
+                    let v = v.to_str().unwrap();
+                    let start = "authorization=Bearer%3D";
+                    let end = "%3B%20Secure%3B%20HttpOnly";
+                    v[start.len()..v.len() - end.len()].to_string()
+                })
+            };
+            let reg = register("hey", "hey@hey.com", "hey1@hey.com").await;
+            assert!(matches!(
+                reg,
+                Ok(crate::auth::api::register::ServerOutput {})
+            ));
+            let token = login("hey@hey.com", "hey1@hey.com").await.unwrap();
+            trace!("encoded {token:#?}");
+            let token = decode_token::<AuthToken>("secret", token, false).unwrap();
+            trace!("decoded {token:#?}");
+            assert_eq!(token.claims.username, "hey");
+
+            let reg = register("hey", "hey2@hey.com", "hey1@hey.com").await;
+            assert!(matches!(
+                reg,
+                Err(ResErr::ServerErr(
+                    crate::auth::api::register::ServerErr::UsernameTaken
+                ))
+            ));
+
+            // let db = artbounty_db::db::new_mem().await;
+            // let state = axum::extract::State(db);
+            // let body = Body::empty();
+            // let req = request::Builder::new().body(body).mu.unwrap();
+            // let multipart = Multipart::from_request(req, &State(())).await.unwrap();
+            // let result = server(state, multipart).await;
         }
     }
 
