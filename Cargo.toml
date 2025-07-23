@@ -33,7 +33,8 @@ artbounty-frontend = { path = "artbounty-frontend" }
 artbounty-api = { path = "artbounty-api" }
 artbounty-db = { path = "artbounty-db" }
 artbounty-shared = { path = "artbounty-shared" }
-
+chrono = "0.4.41"
+config = "0.15.13"
 bytes = "1"
 biscotti = "0.4.0"
 email_address = "0.2.9"
