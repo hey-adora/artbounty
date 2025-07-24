@@ -108,14 +108,16 @@ pub mod register {
     #[component]
     pub fn Page() -> impl IntoView {
         let main_ref = NodeRef::new();
-        let input_username: NodeRef<Input> = NodeRef::new();
-        let input_email: NodeRef<Input> = NodeRef::new();
-        let input_password: NodeRef<Input> = NodeRef::new();
-        let input_password_confirmation: NodeRef<Input> = NodeRef::new();
-        let username_err = RwSignal::new(String::new());
-        let email_err = RwSignal::new(String::new());
-        let password_err = RwSignal::new(String::new());
-        let general_err = RwSignal::new(String::new());
+        let invite_email: NodeRef<Input> = NodeRef::new();
+        let register_username: NodeRef<Input> = NodeRef::new();
+        let register_email: NodeRef<Input> = NodeRef::new();
+        let register_password: NodeRef<Input> = NodeRef::new();
+        let register_password_confirmation: NodeRef<Input> = NodeRef::new();
+        let register_username_err = RwSignal::new(String::new());
+        let register_email_err = RwSignal::new(String::new());
+        let register_password_err = RwSignal::new(String::new());
+        let register_general_err = RwSignal::new(String::new());
+        let api_invite = artbounty_api::auth::api::invite::client.ground();
         let api_register = artbounty_api::auth::api::register::client.ground();
         // let api_register2 = api_register.clone();
         // let api_register3 = api_register.clone();
@@ -139,10 +141,10 @@ pub mod register {
         let on_register = move |e: SubmitEvent| {
             e.prevent_default();
             let (Some(username), Some(email), Some(password), Some(password_confirmation)) = (
-                input_username.get(),
-                input_email.get(),
-                input_password.get(),
-                input_password_confirmation.get(),
+                register_username.get(),
+                register_email.get(),
+                register_password.get(),
+                register_password_confirmation.get(),
             ) else {
                 return;
             };
@@ -151,10 +153,10 @@ pub mod register {
             let email = proccess_email(email.value());
             let password = proccess_password(password.value(), Some(password_confirmation.value()));
 
-            username_err.set(username.clone().err().unwrap_or_default());
-            email_err.set(email.clone().err().unwrap_or_default());
-            password_err.set(password.clone().err().unwrap_or_default());
-            general_err.set(String::new());
+            register_username_err.set(username.clone().err().unwrap_or_default());
+            register_email_err.set(email.clone().err().unwrap_or_default());
+            register_password_err.set(password.clone().err().unwrap_or_default());
+            register_general_err.set(String::new());
 
             let (Ok(username), Ok(email), Ok(password)) = (username, email, password) else {
                 return;
@@ -226,43 +228,43 @@ pub mod register {
                     </div>
                     <div class=move||format!("mx-auto flex flex-col gap-2 text-center {}", if api_register.is_complete() {""} else {"hidden"})>
                         <h1 class="text-[1.5rem]">"VERIFY EMAIL"</h1>
-                        <p class="max-w-[30rem]">"Verification email was sent to \""{move || input_username.get().map(|v| v.value()).unwrap_or(String::from("error"))}"\" click the confirmtion link in the email."</p>
+                        <p class="max-w-[30rem]">"Verification email was sent to \""{move || register_username.get().map(|v| v.value()).unwrap_or(String::from("error"))}"\" click the confirmtion link in the email."</p>
                         <a href="/login" class="underline">"Go to Login"</a>
                     </div>
                     <form method="POST" action="" on:submit=on_register class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if api_register.is_pending() || api_register.is_complete() {"hidden"} else {""})>
                         <h1 class="text-[1.5rem]  text-center my-[4rem]">"REGISTRATION"</h1>
-                        <div class=move||format!("text-red-600 {}", if general_err.with(|v| v.is_empty()) {"hidden"} else {""})>{move || { general_err.get() }}</div>
+                        <div class=move||format!("text-red-600 {}", if register_general_err.with(|v| v.is_empty()) {"hidden"} else {""})>{move || { register_general_err.get() }}</div>
                         <div class="flex flex-col justify-center gap-[3rem]">
                             <div class="flex flex-col gap-0">
                                 <label for="username" class="text-[1.2rem] ">"Username"</label>
-                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if username_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
+                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if register_username_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
                                     <ul class="list-disc ml-[1rem]">
-                                        {move || username_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                        {move || register_username_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
-                                <input placeholder="Alice" id="username" node_ref=input_username type="text" class="border-b-2 border-white w-full mt-1 " />
+                                <input placeholder="Alice" id="username" node_ref=register_username type="text" class="border-b-2 border-white w-full mt-1 " />
                             </div>
                             <div class="flex flex-col gap-0">
                                 <label for="email" class="text-[1.2rem] ">"Email"</label>
-                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if email_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
+                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if register_email_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
                                     <ul class="list-disc ml-[1rem]">
-                                        {move || email_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                        {move || register_email_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
-                                <input placeholder="alice@mail.com" id="email" node_ref=input_email type="text" class="border-b-2 border-white w-full mt-1 " />
+                                <input placeholder="alice@mail.com" id="email" node_ref=register_email type="text" class="border-b-2 border-white w-full mt-1 " />
                             </div>
                             <div class="flex flex-col gap-0">
                                 <label for="password" class="text-[1.2rem] ">"Password"</label>
-                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if password_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
+                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if register_password_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
                                     <ul class="list-disc ml-[1rem]">
-                                        {move || password_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                        {move || register_password_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
-                                <input id="password" node_ref=input_password type="password" class="border-b-2 border-white w-full mt-1 " />
+                                <input id="password" node_ref=register_password type="password" class="border-b-2 border-white w-full mt-1 " />
                             </div>
                             <div class="flex flex-col gap-0">
                                 <label for="password_confirmation" class="text-[1.3rem] ">"Password Confirmation"</label>
-                                <input id="password_confirmation" node_ref=input_password_confirmation type="password" class="border-b-2 border-white w-full mt-1 " />
+                                <input id="password_confirmation" node_ref=register_password_confirmation type="password" class="border-b-2 border-white w-full mt-1 " />
                             </div>
                         </div>
                         <div class="flex flex-col gap-[1.3rem] mx-auto my-[4rem] text-center">
