@@ -29,6 +29,7 @@ http = { workspace = true }
 biscotti = { workspace = true, optional = true }
 jsonwebtoken = { workspace = true, optional = true }
 jiff = { workspace = true }
+chrono = { workspace = true }
 reqwest = { workspace = true }
 config = { workspace = true }
 futures = { workspace = true }

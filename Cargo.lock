@@ -302,6 +302,7 @@ dependencies = [
  "bytecheck 0.8.1",
  "bytes",
  "cfg-if",
+ "chrono",
  "config",
  "futures",
  "http 1.3.1",

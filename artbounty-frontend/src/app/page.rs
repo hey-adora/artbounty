@@ -162,11 +162,12 @@ pub mod register {
 
             // todo!("create register dispatch");
 
-            api_register.dispatch(artbounty_api::auth::api::register::Input {
-                email,
-                password,
-                username,
-            });
+            // api_register.dispatch(artbounty_api::auth::api::register::Input {
+            //     email,
+            //     password,
+            //     username,
+            // });
+
             // trace!("register dispatched");
             // register.dispatch(api::register::Register {
             //     email,
