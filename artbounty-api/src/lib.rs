@@ -1469,7 +1469,6 @@ pub mod auth {
         pub mod login {
             use crate::auth::AuthToken;
             use crate::utils::{ResErr, ServerDecodeErr, encode_result, send, send_from_builder};
-            use axum::Router;
             use thiserror::Error;
             use tracing::{error, trace};
 

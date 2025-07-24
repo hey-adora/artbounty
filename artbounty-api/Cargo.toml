@@ -33,6 +33,7 @@ chrono = { workspace = true }
 reqwest = { workspace = true }
 config = { workspace = true }
 futures = { workspace = true }
+resend-rs = { workspace = true, optional = true }
 
 [dev-dependencies]
 # artbounty-db = { workspace = true, features = ["test"] }
@@ -54,5 +55,6 @@ ssr = [
     "dep:biscotti",
     "dep:argon2",
     "dep:jsonwebtoken",
+    "dep:resend-rs",
 ]
 csr = ["leptos/csr"]
