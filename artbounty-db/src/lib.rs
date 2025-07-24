@@ -99,8 +99,10 @@ pub mod db {
                             DEFINE INDEX idx_stat_country ON TABLE session COLUMNS access_token UNIQUE;
                             -- invite 
                             DEFINE TABLE invite SCHEMAFULL;
+                            DEFINE FIELD token_raw ON TABLE invite TYPE string;
                             DEFINE FIELD email ON TABLE invite TYPE string;
                             DEFINE FIELD expires ON TABLE invite TYPE datetime;
+                            DEFINE FIELD used ON TABLE invite TYPE bool DEFAULT false;
                             DEFINE FIELD modified_at ON TABLE invite TYPE datetime DEFAULT time::now();
                             DEFINE FIELD created_at ON TABLE invite TYPE datetime DEFAULT time::now();
 
@@ -119,208 +121,327 @@ pub mod db {
         }
     }
 
-    // pub mod invite {
-    //     use serde::{Deserialize, Serialize};
-    //     use surrealdb::{Datetime, RecordId};
-    //
-    //     #[derive(Debug, Serialize, Deserialize, Clone)]
-    //     pub struct Record {
-    //         pub id: RecordId,
-    //         pub email: String,
-    //         pub expires: Datetime,
-    //         pub modified_at: Datetime,
-    //         pub created_at: Datetime,
-    //     }
-    //
-    //     pub mod add {
-    //         use serde::{Deserialize, Serialize};
-    //         use surrealdb::{Connection, Datetime, RecordId};
-    //         use thiserror::Error;
-    //         use tracing::{error, trace};
-    //
-    //         use crate::db::Db;
-    //
-    //         use super::Record;
-    //
-    //         impl<C: Connection> Db<C> {
-    //             pub async fn add_invite<Email: Into<String>>(
-    //                 &self,
-    //                 email: Email,
-    //                 expiration: u128,
-    //             ) -> Result<Record, QueryErr> {
-    //                 let db = &self.db;
-    //                 let email = email.into();
-    //                 let expires =
-    //                     Datetime::from(chrono::DateTime::from_timestamp_nanos(expiration as i64));
-    //
-    //                 let result = db
-    //                     .query(
-    //                         r#"
-    //                          LET $user_email = SELECT email FROM ONLY user WHERE email = $email;
-    //                          CREATE invite SET
-    //                             email = if $user_email { null } else { $email },
-    //                             expires = $expires;
-    //                     "#,
-    //                     )
-    //                     .bind(("email", email.clone()))
-    //                     .bind(("expires", expires))
-    //                     .await
-    //                     .inspect_err(|err| trace!("add_invite query {:#?}", err))?;
-    //
-    //                 trace!("{:#?}", result);
-    //                 let mut result = result.check().map_err(|err| match err {
-    //                     surrealdb::Error::Db(surrealdb::error::Db::FieldCheck {
-    //                         thing,
-    //                         value,
-    //                         field,
-    //                         check,
-    //                     }) if value == "NULL"
-    //                         && field
-    //                             .first()
-    //                             .map(|f| f.to_string())
-    //                             .inspect(|f| trace!("field: {f}"))
-    //                             .map(|f| f == ".email")
-    //                             .unwrap_or_default() =>
-    //                     {
-    //                         QueryErr::EmailIsTaken(email)
-    //                     }
-    //                     err => {
-    //                         error!("add_invite res {:#?}", err);
-    //                         QueryErr::from(err)
-    //                     }
-    //                 })?;
-    //                 let user = result
-    //                     .take::<Option<Record>>(1)?
-    //                     .expect("record was just created");
-    //
-    //                 trace!("record created: {user:#?}");
-    //
-    //                 Ok(user)
-    //             }
-    //         }
-    //
-    //         #[derive(Debug, Error)]
-    //         pub enum QueryErr {
-    //             #[error("DB error {0}")]
-    //             DB(#[from] surrealdb::Error),
-    //
-    //             #[error("account with \"{0}\" email already exists")]
-    //             EmailIsTaken(String),
-    //         }
-    //
-    //         #[cfg(test)]
-    //         mod tests {
-    //             use surrealdb::engine::local::Mem;
-    //             use test_log::test;
-    //             use tracing::trace;
-    //
-    //             use crate::db::{Db, invite::add::QueryErr, user::add_user::AddUserErr};
-    //
-    //             #[test(tokio::test)]
-    //             async fn one() {
-    //                 let db = Db::new::<Mem>(()).await.unwrap();
-    //                 db.migrate().await.unwrap();
-    //                 let invite = db.add_invite("hey@hey.com", 0).await.unwrap();
-    //                 trace!("{invite:#?}");
-    //                 let user = db.add_user("hey1", "hey1@hey.com", "123").await.unwrap();
-    //                 let invite2 = db.add_invite("hey1@hey.com", 0).await;
-    //                 trace!("{invite2:#?}");
-    //                 assert!(matches!(invite2, Err(QueryErr::EmailIsTaken(_))));
-    //             }
-    //         }
-    //     }
-    //
-    //     pub mod get_valid {
-    //         use serde::{Deserialize, Serialize};
-    //         use surrealdb::{Connection, Datetime, RecordId};
-    //         use thiserror::Error;
-    //         use tracing::{error, trace};
-    //
-    //         use crate::db::Db;
-    //
-    //         use super::Record;
-    //
-    //         impl<C: Connection> Db<C> {
-    //             pub async fn get_valid<Email: Into<String>>(
-    //                 &self,
-    //                 email: Email,
-    //             ) -> Result<Record, QueryErr> {
-    //                 let db = &self.db;
-    //                 let email = email.into();
-    //
-    //                 let result = db
-    //                     .query(
-    //                         r#"
-    //                          SELECT * FROM ONLY invite WHERE email = $email;
-    //                     "#,
-    //                     )
-    //                     .bind(("email", email.clone()))
-    //                     .await
-    //                     .inspect_err(|err| trace!("add_invite query {:#?}", err))?;
-    //
-    //                 trace!("{:#?}", result);
-    //                 let mut result = result.check().map_err(|err| match err {
-    //                     surrealdb::Error::Db(surrealdb::error::Db::FieldCheck {
-    //                         thing,
-    //                         value,
-    //                         field,
-    //                         check,
-    //                     }) if value == "NULL"
-    //                         && field
-    //                             .first()
-    //                             .map(|f| f.to_string())
-    //                             .inspect(|f| trace!("field: {f}"))
-    //                             .map(|f| f == ".email")
-    //                             .unwrap_or_default() =>
-    //                     {
-    //                         QueryErr::EmailIsTaken(email)
-    //                     }
-    //                     err => {
-    //                         error!("add_invite res {:#?}", err);
-    //                         QueryErr::from(err)
-    //                     }
-    //                 })?;
-    //                 let user = result
-    //                     .take::<Option<Record>>(1)?
-    //                     .expect("record was just created");
-    //
-    //                 trace!("record created: {user:#?}");
-    //
-    //                 Ok(user)
-    //             }
-    //         }
-    //
-    //         #[derive(Debug, Error)]
-    //         pub enum QueryErr {
-    //             #[error("DB error {0}")]
-    //             DB(#[from] surrealdb::Error),
-    //
-    //             #[error("account with \"{0}\" email already exists")]
-    //             EmailIsTaken(String),
-    //         }
-    //
-    //         #[cfg(test)]
-    //         mod tests {
-    //             use surrealdb::engine::local::Mem;
-    //             use test_log::test;
-    //             use tracing::trace;
-    //
-    //             use crate::db::{Db, invite::add::QueryErr, user::add_user::AddUserErr};
-    //
-    //             #[test(tokio::test)]
-    //             async fn one() {
-    //                 let db = Db::new::<Mem>(()).await.unwrap();
-    //                 db.migrate().await.unwrap();
-    //                 let invite = db.add_invite("hey@hey.com", 0).await.unwrap();
-    //                 trace!("{invite:#?}");
-    //                 let user = db.add_user("hey1", "hey1@hey.com", "123").await.unwrap();
-    //                 let invite2 = db.add_invite("hey1@hey.com", 0).await;
-    //                 trace!("{invite2:#?}");
-    //                 assert!(matches!(invite2, Err(QueryErr::EmailIsTaken(_))));
-    //             }
-    //         }
-    //     }
-    // }
+    pub mod invite {
+        use serde::{Deserialize, Serialize};
+        use surrealdb::{Datetime, RecordId};
+
+        #[derive(Debug, Serialize, Deserialize, Clone)]
+        pub struct Invite {
+            pub id: RecordId,
+            pub token_raw: String,
+            pub email: String,
+            pub expires: Datetime,
+            pub used: bool,
+            pub modified_at: Datetime,
+            pub created_at: Datetime,
+        }
+
+        pub mod add_invite {
+            use std::time::Duration;
+
+            use serde::{Deserialize, Serialize};
+            use surrealdb::{Connection, Datetime, RecordId};
+            use thiserror::Error;
+            use tracing::{error, trace};
+
+            use crate::db::Db;
+
+            use super::Invite;
+
+            impl<C: Connection> Db<C> {
+                pub async fn add_invite<Token: Into<String>, Email: Into<String>>(
+                    &self,
+                    token_raw: Token,
+                    email: Email,
+                    expiration: Duration,
+                ) -> Result<Invite, AddInviteErr> {
+                    let db = &self.db;
+                    let token_raw = token_raw.into();
+                    let email = email.into();
+                    let expires = Datetime::from(chrono::DateTime::from_timestamp_nanos(
+                        expiration.as_nanos() as i64,
+                    ));
+
+                    let result = db
+                        .query(
+                            r#"
+                             LET $user_email = SELECT email FROM ONLY user WHERE email = $email;
+                             CREATE invite SET
+                                token_raw = $token_raw,
+                                email = if $user_email { null } else { $email },
+                                expires = $expires;
+                        "#,
+                        )
+                        .bind(("token_raw", token_raw))
+                        .bind(("email", email.clone()))
+                        .bind(("expires", expires))
+                        .await?;
+                        // .inspect_err(|err| trace!("add_invite query {:#?}", err))?;
+
+                    trace!("{:#?}", result);
+                    let mut result = result.check().map_err(|err| match err {
+                        surrealdb::Error::Db(surrealdb::error::Db::FieldCheck {
+                            thing,
+                            value,
+                            field,
+                            check,
+                        }) if value == "NULL"
+                            || value == "NONE"
+                                && field
+                                    .first()
+                                    .map(|f| f.to_string())
+                                    .inspect(|f| trace!("field: {f}"))
+                                    .map(|f| f == ".email")
+                                    .unwrap_or_default() =>
+                        {
+                            AddInviteErr::EmailIsTaken(email)
+                        }
+                        err => {
+                            error!("add_invite res {:#?}", err);
+                            AddInviteErr::from(err)
+                        }
+                    })?;
+                    let invite = result
+                        .take::<Option<Invite>>(1)?
+                        .expect("record was just created");
+
+                    trace!("record created: {invite:#?}");
+
+                    Ok(invite)
+                }
+            }
+
+            #[derive(Debug, Error)]
+            pub enum AddInviteErr {
+                #[error("DB error {0}")]
+                DB(#[from] surrealdb::Error),
+
+                #[error("account with \"{0}\" email already exists")]
+                EmailIsTaken(String),
+            }
+
+            #[cfg(test)]
+            mod db {
+                use std::time::Duration;
+
+                use surrealdb::engine::local::Mem;
+                use test_log::test;
+                use tracing::trace;
+
+                use crate::db::{Db, invite::add_invite::AddInviteErr, user::add_user::AddUserErr};
+
+                #[test(tokio::test)]
+                async fn add_invite() {
+                    let db = Db::new::<Mem>(()).await.unwrap();
+                    db.migrate().await.unwrap();
+                    let invite = db
+                        .add_invite("wowza", "hey@hey.com", Duration::from_nanos(0))
+                        .await
+                        .unwrap();
+                    trace!("{invite:#?}");
+                    let user = db.add_user("hey1", "hey1@hey.com", "123").await.unwrap();
+                    let invite2 = db
+                        .add_invite("wowza", "hey1@hey.com", Duration::from_nanos(0))
+                        .await;
+                    trace!("{invite2:#?}");
+                    assert!(matches!(invite2, Err(AddInviteErr::EmailIsTaken(_))));
+                }
+            }
+        }
+
+        pub mod get_invite {
+            use std::time::Duration;
+
+            use serde::{Deserialize, Serialize};
+            use surrealdb::{Connection, Datetime, RecordId};
+            use thiserror::Error;
+            use tracing::{error, trace};
+
+            use crate::db::Db;
+
+            use super::Invite;
+
+            impl<C: Connection> Db<C> {
+                pub async fn get_invite<Email: Into<String>>(
+                    &self,
+                    email: Email,
+                    time: Duration,
+                ) -> Result<Invite, GetInviteErr> {
+                    let db = &self.db;
+                    let email = email.into();
+                    let time = Datetime::from(chrono::DateTime::from_timestamp_nanos(
+                        time.as_nanos() as i64,
+                    ));
+
+                    let result = db
+                        .query(
+                            r#"
+                             SELECT * FROM invite WHERE email = $email AND used = false AND expires >= $time ORDER BY created_at DESC;
+                        "#,
+                        )
+                        .bind(("email", email.clone()))
+                        .bind(("time", time))
+                        .await
+                        .inspect_err(|err| trace!("add_invite query {:#?}", err))?;
+
+                    trace!("{:#?}", result);
+                    let mut result = result.check().map_err(|err| match err {
+                        err => {
+                            error!("add_invite res {:#?}", err);
+                            GetInviteErr::from(err)
+                        }
+                    })?;
+                    let invite = result
+                        .take::<Vec<Invite>>(0)?
+                        .first()
+                        .cloned()
+                        .ok_or(GetInviteErr::NotFound)?;
+
+                    trace!("record created: {invite:#?}");
+
+                    Ok(invite)
+                }
+            }
+
+            #[derive(Debug, Error)]
+            pub enum GetInviteErr {
+                #[error("DB error {0}")]
+                DB(#[from] surrealdb::Error),
+
+                #[error("token not found")]
+                NotFound,
+            }
+
+            #[cfg(test)]
+            mod db {
+                use std::time::Duration;
+
+                use surrealdb::engine::local::Mem;
+                use test_log::test;
+                use tracing::trace;
+
+                use crate::db::{Db, invite::get_invite::GetInviteErr, user::add_user::AddUserErr};
+
+                #[test(tokio::test)]
+                async fn get_invite() {
+                    let db = Db::new::<Mem>(()).await.unwrap();
+                    db.migrate().await.unwrap();
+                    let invite = db
+                        .add_invite("wowza", "hey@hey.com", Duration::from_nanos(0))
+                        .await
+                        .unwrap();
+                    trace!("{invite:#?}");
+                    let invite = db
+                        .add_invite("wowza1", "hey@hey.com", Duration::from_nanos(2))
+                        .await
+                        .unwrap();
+                    trace!("{invite:#?}");
+                    let invite = db
+                        .add_invite("wowza2", "hey@hey.com", Duration::from_nanos(0))
+                        .await
+                        .unwrap();
+                    trace!("{invite:#?}");
+                    let invite = db.get_invite("hey@hey.com", Duration::from_nanos(1)).await;
+                    trace!("{invite:#?}");
+                    assert_eq!(invite.unwrap().token_raw, "wowza1");
+                    let invite = db.get_invite("hey1@hey.com", Duration::from_nanos(0)).await;
+                    trace!("{invite:#?}");
+                    assert!(matches!(invite, Err(GetInviteErr::NotFound)));
+                }
+            }
+        }
+
+        pub mod use_invite {
+            use std::time::Duration;
+
+            use chrono::{DateTime, Utc};
+            use serde::{Deserialize, Serialize};
+            use surrealdb::{Connection, Datetime, RecordId};
+            use thiserror::Error;
+            use tracing::{error, trace};
+
+            use crate::db::Db;
+
+            use super::Invite;
+
+            impl<C: Connection> Db<C> {
+                pub async fn use_invite(
+                    &self,
+                    id: RecordId,
+                    time: Duration,
+                    // time: DateTime<Utc>,
+                ) -> Result<Invite, UseInviteErr> {
+                    let db = &self.db;
+                    let time = Datetime::from(chrono::DateTime::from_timestamp_nanos(
+                        time.as_nanos() as i64,
+                    ));
+
+                    let result = db
+                        .query(
+                            r#"
+                             UPDATE $id SET modified_at = $time, used = true;
+                        "#,
+                        )
+                        .bind(("id", id))
+                        .bind(("time", time))
+                        .await?;
+                        // .inspect_err(|err| trace!("use_invite query {:#?}", err))?;
+
+                    trace!("{:#?}", result);
+
+                    let mut result = result.check().map_err(|err| match err {
+                        err => {
+                            error!("use_invite res {:#?}", err);
+                            UseInviteErr::from(err)
+                        }
+                    })?;
+                    let invite = result
+                        .take::<Option<Invite>>(0)?
+                        .ok_or(UseInviteErr::NotFound)?;
+
+                    // trace!("record created: {invite:#?}");
+
+                    Ok(invite)
+                }
+            }
+
+            #[derive(Debug, Error)]
+            pub enum UseInviteErr {
+                #[error("DB error {0}")]
+                DB(#[from] surrealdb::Error),
+
+                #[error("token not found")]
+                NotFound,
+            }
+
+            #[cfg(test)]
+            mod db {
+                use std::time::Duration;
+
+                use chrono::{DateTime, Utc};
+                use surrealdb::engine::local::Mem;
+                use test_log::test;
+                use tracing::trace;
+
+                use crate::db::{invite::{get_invite::GetInviteErr, use_invite::UseInviteErr}, user::add_user::AddUserErr, Db};
+
+                #[test(tokio::test)]
+                async fn use_invite() {
+                    // let time = DateTime::<Utc>::default();
+                    let db = Db::new::<Mem>(()).await.unwrap();
+                    db.migrate().await.unwrap();
+                    let invite = db
+                        .add_invite("wowza", "hey@hey.com", Duration::from_nanos(0))
+                        .await
+                        .unwrap();
+                    // trace!("{invite:#?}");
+                    db.use_invite(invite.id, Duration::from_nanos(0)).await.unwrap();
+                    let invite = db.get_invite("hey@hey.com", Duration::from_nanos(0)).await;
+                    assert!(matches!(invite, Err(GetInviteErr::NotFound)));
+                }
+            }
+        }
+    }
 
     pub mod user {
         use serde::{Deserialize, Serialize};
@@ -421,7 +542,7 @@ pub mod db {
             }
 
             #[cfg(test)]
-            mod tests {
+            mod db {
                 use surrealdb::engine::local::Mem;
                 use test_log::test;
                 use tracing::trace;
@@ -429,7 +550,7 @@ pub mod db {
                 use crate::db::{Db, user::add_user::AddUserErr};
 
                 #[test(tokio::test)]
-                async fn one() {
+                async fn add_user() {
                     let db = Db::new::<Mem>(()).await.unwrap();
                     db.migrate().await.unwrap();
                     let user = db
@@ -525,28 +646,28 @@ pub mod db {
                 #[error("user not found")]
                 UserNotFound,
             }
-        }
 
-        #[cfg(test)]
-        pub mod tests {
-            use surrealdb::{Connection, engine::local::Mem};
-            use tracing::trace;
+            #[cfg(test)]
+            pub mod db {
+                use surrealdb::{Connection, engine::local::Mem};
+                use tracing::trace;
 
-            use crate::db::{Db, user::get_user_by_email::GetUserByEmailErr};
-            use test_log::test;
-            use thiserror::Error;
+                use crate::db::{Db, user::get_user_by_email::GetUserByEmailErr};
+                use test_log::test;
+                use thiserror::Error;
 
-            use super::User;
+                use super::User;
 
-            #[test(tokio::test)]
-            async fn one() {
-                let db = Db::new::<Mem>(()).await.unwrap();
-                db.migrate().await.unwrap();
-                let user = db.add_user("hey", "hey@hey.com", "hey").await.unwrap();
-                let user = db.get_user_by_email("hey@hey.com").await.unwrap();
-                trace!("found {user:#?}");
-                let user = db.get_user_by_email("hey2@hey.com").await;
-                assert!(matches!(user, Err(GetUserByEmailErr::UserNotFound)));
+                #[test(tokio::test)]
+                async fn get_user_by_email() {
+                    let db = Db::new::<Mem>(()).await.unwrap();
+                    db.migrate().await.unwrap();
+                    let user = db.add_user("hey", "hey@hey.com", "hey").await.unwrap();
+                    let user = db.get_user_by_email("hey@hey.com").await.unwrap();
+                    trace!("found {user:#?}");
+                    let user = db.get_user_by_email("hey2@hey.com").await;
+                    assert!(matches!(user, Err(GetUserByEmailErr::UserNotFound)));
+                }
             }
         }
 
@@ -560,7 +681,7 @@ pub mod db {
             use super::User;
 
             impl<C: Connection> Db<C> {
-                pub async fn get_user_password_hash<S: Into<String>>(
+                pub async fn get_user_password<S: Into<String>>(
                     &self,
                     email: S,
                 ) -> Result<String, GetUserPasswordErr> {
@@ -590,6 +711,35 @@ pub mod db {
 
                 #[error("user not found")]
                 UserNotFound,
+            }
+
+            #[cfg(test)]
+            pub mod db {
+                use surrealdb::{Connection, engine::local::Mem};
+                use tracing::trace;
+
+                use crate::db::{
+                    Db,
+                    user::{
+                        get_user_by_email::GetUserByEmailErr,
+                        get_user_password_hash::GetUserPasswordErr,
+                    },
+                };
+                use test_log::test;
+                use thiserror::Error;
+
+                use super::User;
+
+                #[test(tokio::test)]
+                async fn get_user_password() {
+                    let db = Db::new::<Mem>(()).await.unwrap();
+                    db.migrate().await.unwrap();
+                    let user = db.add_user("hey", "hey@hey.com", "123").await.unwrap();
+                    let user = db.get_user_password("hey@hey.com").await.unwrap();
+                    trace!("found {user:#?}");
+                    let user = db.get_user_password("hey2@hey.com").await;
+                    assert!(matches!(user, Err(GetUserPasswordErr::UserNotFound)));
+                }
             }
         }
     }
@@ -633,12 +783,28 @@ pub mod db {
                         "#,
                         )
                         .bind(("access_token", token))
-                        .bind(("username", username))
+                        .bind(("username", username.clone()))
                         .await?;
 
                     trace!("result: {result:#?}");
 
                     let result = result.check().map_err(|err| match err {
+                        surrealdb::Error::Db(surrealdb::error::Db::FieldCheck {
+                            thing,
+                            value,
+                            field,
+                            check,
+                        }) if value == "NULL"
+                            || value == "NONE"
+                                && field
+                                    .first()
+                                    .map(|f| f.to_string())
+                                    .inspect(|f| trace!("field: {f}"))
+                                    .map(|f| f == ".user_id")
+                                    .unwrap_or_default() =>
+                        {
+                            AddSessionErr::UserNotFound(username)
+                        }
                         surrealdb::Error::Db(surrealdb::error::Db::IndexExists {
                             index, ..
                         }) if index == "idx_session_access_token" => AddSessionErr::TokenExists,
@@ -650,7 +816,8 @@ pub mod db {
 
                     let session = result
                         .take::<Option<Session>>(1)?
-                        .ok_or(AddSessionErr::NotFound)?;
+                        .expect("session was just created");
+                    // .ok_or(AddSessionErr::NotFound)?;
 
                     Ok(session)
                 }
@@ -661,23 +828,26 @@ pub mod db {
                 #[error("DB error {0}")]
                 DB(#[from] surrealdb::Error),
 
-                #[error("not found")]
-                NotFound,
+                #[error("user \"{0}\" not found")]
+                UserNotFound(String),
 
                 #[error("token already exists")]
                 TokenExists,
             }
             #[cfg(test)]
-            pub mod tests {
+            pub mod db {
                 use surrealdb::{Connection, engine::local::Mem};
                 use tracing::trace;
 
-                use crate::db::{Db, user::get_user_by_email::GetUserByEmailErr};
+                use crate::db::{
+                    Db, session::add_session::AddSessionErr,
+                    user::get_user_by_email::GetUserByEmailErr,
+                };
                 use test_log::test;
                 use thiserror::Error;
 
                 #[test(tokio::test)]
-                async fn one() {
+                async fn add_session() {
                     let db = Db::new::<Mem>(()).await.unwrap();
                     db.migrate().await.unwrap();
                     let user = db.add_user("hey", "hey@hey.com", "hey").await.unwrap();
@@ -688,7 +858,11 @@ pub mod db {
 
                     let session = db.add_session("token", "hey").await;
                     trace!("session: {session:?}");
-                    assert!(session.is_err());
+                    assert!(matches!(session, Err(AddSessionErr::TokenExists)));
+
+                    let session = db.add_session("token", "hey2").await;
+                    trace!("session: {session:?}");
+                    assert!(matches!(session, Err(AddSessionErr::UserNotFound(_))));
                     // let user = db.get_user_by_email("hey@hey.com").await.unwrap();
                     // trace!("found {user:#?}");
                     // let user = db.get_user_by_email("hey2@hey.com").await;
@@ -723,9 +897,8 @@ pub mod db {
                         .await?;
                     trace!("result: {result:#?}");
 
-                    let _result = result
-                        .check()
-                        .inspect(|result| trace!("result2: {result:#?}"))?;
+                    let _result = result.check()?;
+                    // .inspect(|result| trace!("result2: {result:#?}"))?;
                     Ok(())
                 }
             }
@@ -733,21 +906,23 @@ pub mod db {
             pub enum DeleteSessionErr {
                 #[error("DB error {0}")]
                 DB(#[from] surrealdb::Error),
-
-                #[error("not found")]
-                NotFound,
+                // #[error("not found")]
+                // NotFound,
             }
             #[cfg(test)]
-            mod tests {
+            mod db {
                 use surrealdb::{Connection, engine::local::Mem};
                 use tracing::trace;
 
-                use crate::db::{Db, user::get_user_by_email::GetUserByEmailErr};
+                use crate::db::{
+                    Db, session::delete_session::DeleteSessionErr,
+                    user::get_user_by_email::GetUserByEmailErr,
+                };
                 use test_log::test;
                 use thiserror::Error;
 
                 #[test(tokio::test)]
-                async fn test_delete_session() {
+                async fn delete_session() {
                     let db = Db::new::<Mem>(()).await.unwrap();
                     db.migrate().await.unwrap();
 
@@ -771,6 +946,10 @@ pub mod db {
                     let session = db.get_session("token").await;
                     trace!("session: {session:?}");
                     assert!(session.is_err());
+
+                    // let session = db.delete_session("token").await;
+                    // trace!("session: {session:?}");
+                    // assert!(matches!(session, Err(DeleteSessionErr::NotFound)));
                 }
             }
         }
@@ -823,16 +1002,19 @@ pub mod db {
             }
 
             #[cfg(test)]
-            mod tests {
+            mod db {
                 use surrealdb::{Connection, engine::local::Mem};
                 use tracing::trace;
 
-                use crate::db::{Db, user::get_user_by_email::GetUserByEmailErr};
+                use crate::db::{
+                    Db, session::get_session::GetSessionErr,
+                    user::get_user_by_email::GetUserByEmailErr,
+                };
                 use test_log::test;
                 use thiserror::Error;
 
                 #[test(tokio::test)]
-                async fn one() {
+                async fn get_session() {
                     let db = Db::new::<Mem>(()).await.unwrap();
                     db.migrate().await.unwrap();
 
@@ -847,7 +1029,7 @@ pub mod db {
 
                     let session = db.get_session("token").await;
                     trace!("session: {session:?}");
-                    assert!(session.is_err());
+                    assert!(matches!(session, Err(GetSessionErr::NotFound)));
 
                     let session = db.add_session("token", "hey").await;
                     trace!("session: {session:?}");

@@ -1,4 +1,4 @@
-use artbounty_api::api;
+use artbounty_api::{api, app_state::AppState};
 use artbounty_db::db::DbEngine;
 use artbounty_frontend::{app::App, shell};
 use axum::{
@@ -45,6 +45,7 @@ async fn main() {
     let routes = generate_route_list(App);
 
     let comppression_layer = CompressionLayer::new().zstd(true).gzip(true).deflate(true);
+    let app_state = AppState::new().await;
 
     let cors = CorsLayer::new()
         // allow `GET` and `POST` when accessing the resource
@@ -65,7 +66,7 @@ async fn main() {
             artbounty_api::auth::api::login::PATH,
             post(artbounty_api::auth::api::login::server),
         )
-        .with_state(db);
+        .with_state(app_state);
     // let api2_router = Router::new().route("/api/login", post(async | State(db): State<DbEngine>, m: Multipart| { "".into_response() } )).with_state(db);
     // let api2_router = Router::new().route("/api/login", post(async |m: Query<i32>, State(db): State<DbEngine>| { "" } )).with_state(db);
     // .layer(middleware::from_fn(middleware2::auth::auth));
