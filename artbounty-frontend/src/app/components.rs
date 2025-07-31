@@ -1,21 +1,31 @@
 pub mod nav {
+    use artbounty_shared::fe_router;
     use leptos::prelude::*;
+
+    use crate::app::GlobalState;
 
     #[component]
     pub fn Nav() -> impl IntoView {
+        let global_state = expect_context::<GlobalState>();
+        let is_logged_in = move || global_state.acc.with(|v| v.is_some());
+        let acc_username = move || global_state.acc.with(|v| v.as_ref().map(|v|v.username.clone())).unwrap_or("error".to_string());
         view! {
             <nav class="text-gray-200 pb-1 flex gap-2 px-2 py-1 items-center justify-between">
                 <a href="/" class="font-black text-[1.3rem]">
                     "ArtBounty"
                 </a>
-                <a href="/login">"Login"</a>
-                <a href="/register">"Register"</a>
+                <div class=move||format!("{}", if is_logged_in() { "hidden" } else { "" })>
+                    <a href=fe_router::login::PATH>"Login"</a>
+                </div>
+                <div class=move||format!("{}", if is_logged_in() { "" } else { "hidden" })>
+                    <a href=move||format!("/u/{}", acc_username())>{acc_username}</a>
+                </div>
+                // <a href="/register" class="">"Register"</a>
             </nav>
         }
     }
 }
 pub mod gallery {
-
     use leptos::{html::Div, prelude::*};
     use std::default::Default;
     use std::{

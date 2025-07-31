@@ -7,15 +7,20 @@ use page::{home, login, register};
 pub mod components;
 pub mod page;
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug)]
 pub struct GlobalState {
+    pub acc: RwSignal<Option<Acc>>
 }
 
+#[derive(Clone, Default, Debug)]
+pub struct Acc {
+    pub username: String,
+}
 
 #[component]
 pub fn App() -> impl IntoView {
     provide_context(GlobalState::default());
-    let a = 77;
+    // let a = 77;
 
     // let profile = ServerAction::<api::profile::Profile>::new();
     // Effect::new(move || {

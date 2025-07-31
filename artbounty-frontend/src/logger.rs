@@ -16,6 +16,7 @@ pub struct WASMTracingConfig {
     pub line: bool,
     pub max_level: tracing::Level,
     pub colors: ColorKind,
+    pub use_println: bool,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -29,10 +30,11 @@ pub fn simple_web_logger_init() {
         tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt::with(
             tracing_subscriber::Registry::default(),
             WASMTracingLayer::new(WASMTracingConfig {
-                line: false,
-                target: false,
+                line: true,
+                target: true,
                 max_level: tracing::Level::TRACE,
                 colors: ColorKind::Web,
+                use_println: false,
             }),
         ),
     )
@@ -44,10 +46,11 @@ pub fn simple_shell_logger_init() {
         tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt::with(
             tracing_subscriber::Registry::default(),
             WASMTracingLayer::new(WASMTracingConfig {
-                line: false,
-                target: false,
+                line: true,
+                target: true,
                 max_level: tracing::Level::TRACE,
                 colors: ColorKind::Ascii,
+                use_println: true,
             }),
         ),
     )
@@ -71,6 +74,7 @@ impl<S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'
             return;
         }
         let colors = self.config.colors;
+        let use_println = self.config.use_println;
 
         let mut spans_combined = String::new();
         {
@@ -140,7 +144,7 @@ impl<S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'
                 );
             }
             ColorKind::Ascii => {
-                log1(format!(
+                let msg = format!(
                     "{}{}{}{}: {}",
                     match level {
                         tracing::Level::TRACE => "TRACE".on_blue(),
@@ -153,7 +157,12 @@ impl<S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'
                     target.bright_black(),
                     origin.bright_black(),
                     value
-                ));
+                );
+                if use_println {
+                    println!("{}", msg);
+                } else {
+                    log1(msg);
+                }
             }
         }
     }
