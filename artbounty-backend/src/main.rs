@@ -1,4 +1,4 @@
-use artbounty_api::{api, app_state::AppState};
+use artbounty_api::{api, app_state::AppState, router};
 use artbounty_db::db::DbEngine;
 use artbounty_frontend::{app::App, shell};
 use axum::{
@@ -11,7 +11,7 @@ use axum::{
 use leptos::{logging, prelude::*};
 use leptos_axum::{LeptosRoutes, generate_route_list};
 use tower_http::{
-    compression::CompressionLayer,
+    compression::{predicate, CompressionLayer, DefaultPredicate},
     cors::{self, CorsLayer},
 };
 use tracing::trace;
@@ -36,7 +36,7 @@ async fn main() {
     // DB.connect().await;
     // DB.migrate().await.unwrap();
     // let db = Db::<local::SurrealKv>::new().await.unwrap();
-    let db = artbounty_db::db::new_local().await;
+    // let db = artbounty_db::db::new_local().await;
 
     //
     let conf = get_configuration(Some("Cargo.toml")).unwrap();
@@ -44,7 +44,12 @@ async fn main() {
     let addr = leptos_options.site_addr;
     let routes = generate_route_list(App);
 
-    let comppression_layer = CompressionLayer::new().zstd(true).gzip(true).deflate(true);
+    let comppression_layer = CompressionLayer::new()
+        .br(true)
+        .zstd(true)
+        .gzip(true)
+        .deflate(true)
+        .compress_when(predicate::SizeAbove::new(0));
     let app_state = AppState::new().await;
 
     let cors = CorsLayer::new()
@@ -61,12 +66,7 @@ async fn main() {
         .fallback(leptos_axum::file_and_error_handler(shell))
         .with_state(leptos_options);
 
-    let api_router = Router::new()
-        .route(
-            artbounty_api::auth::api::login::PATH,
-            post(artbounty_api::auth::api::login::server),
-        )
-        .with_state(app_state);
+    let api_router = router::new().with_state(app_state);
     // let api2_router = Router::new().route("/api/login", post(async | State(db): State<DbEngine>, m: Multipart| { "".into_response() } )).with_state(db);
     // let api2_router = Router::new().route("/api/login", post(async |m: Query<i32>, State(db): State<DbEngine>| { "" } )).with_state(db);
     // .layer(middleware::from_fn(middleware2::auth::auth));

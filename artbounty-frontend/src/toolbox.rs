@@ -62,7 +62,7 @@ pub mod api {
         ApiErr: Clone + 'static,
     {
         inner: RwSignal<ApiInner<Func, FuncFuture, DTO, ApiValue, ApiErr>>,
-        is_pending: RwSignal<bool>,
+        // is_pending: RwSignal<bool>,
     }
 
     #[derive(Debug)]
@@ -75,6 +75,7 @@ pub mod api {
     {
         pub fut: Func,
         pub value: Option<Result<ApiValue, ApiErr>>,
+        pub pending: bool,
         pub _phantom: PhantomData<DTO>,
     }
 
@@ -97,7 +98,7 @@ pub mod api {
         fn clone(&self) -> Self {
             Self {
                 inner: self.inner.clone(),
-                is_pending: self.is_pending.clone(),
+                // is_pending: self.is_pending.clone(),
             }
         }
     }
@@ -114,6 +115,7 @@ pub mod api {
             Self {
                 fut: self.fut.clone(),
                 value: self.value.clone(),
+                pending: false,
                 _phantom: PhantomData,
             }
         }
@@ -130,42 +132,52 @@ pub mod api {
         pub fn dispatch(&self, dto: DTO) {
             self.inner.update(|v| {
                 v.value = None;
+                v.pending = true;
             });
             let fut = (self.inner.with_untracked(|v| v.fut.clone()))(dto);
-            self.is_pending.set(true);
+            // self.is_pending.set(true);
             let inner = self.inner.clone();
-            let is_pending = self.is_pending.clone();
+            // let is_pending = self.is_pending.clone();
             spawn_local(async move {
                 let result = fut.await;
                 let r = inner.try_update(|v| {
                     v.value = Some(result);
+                    v.pending = false;
                 });
                 if r.is_none() {
                     warn!("trying to set disposed value");
                     return;
                 }
-                let r = is_pending.try_set(false);
-                if r.is_some() {
-                    warn!("trying to set disposed is_pending");
-                    return;
-                }
+                // let r = is_pending.try_set(false);
+                // if r.is_some() {
+                //     warn!("trying to set disposed is_pending");
+                //     return;
+                // }
             });
         }
 
         pub fn value(&self) -> Option<Result<ApiValue, ApiErr>> {
-            self.inner.with(|v| v.value.clone() )
+            self.inner.with(|v| v.value.clone())
         }
 
         pub fn is_complete(&self) -> bool {
-            self.inner.with(|v| v.value.as_ref().map(|v| v.is_ok()).unwrap_or_default() )
+            // self.inner.with(|v| v.value.as_ref().map(|v| v.is_ok()).unwrap_or_default() )
+            self.inner.with(|v| v.value.as_ref().is_some())
         }
 
         pub fn is_pending(&self) -> bool {
-            self.is_pending.get()
+            // self.inner.with(|v| v.value.as_ref().map(|v| v.is_ok()).unwrap_or_default() )
+            self.inner.with(|v| v.pending)
+        }
+
+        pub fn is_succ(&self) -> bool {
+            self.inner
+                .with(|v| v.value.as_ref().map(|v| v.is_ok()).unwrap_or_default())
         }
 
         pub fn is_err(&self) -> bool {
-            self.inner.with(|v| v.value.as_ref().map(|v| v.is_err()).unwrap_or_default() )
+            self.inner
+                .with(|v| v.value.as_ref().map(|v| v.is_err()).unwrap_or_default())
         }
     }
 
@@ -183,9 +195,10 @@ pub mod api {
             inner: RwSignal::new(ApiInner::<Func, FuncFuture, DTO, ApiValue, ApiErr> {
                 fut,
                 value: None,
+                pending: false,
                 _phantom: PhantomData,
             }),
-            is_pending: RwSignal::new(false)
+            // is_pending: RwSignal::new(false)
         }
     }
 }

@@ -1,3 +1,42 @@
+pub mod fe_router {
+    pub mod home {
+        pub const PATH: &'static str = "";
+    }
+
+    pub mod user {
+        pub const PATH: &'static str = "/u/:user";
+    }
+
+    pub mod login {
+        pub const PATH: &'static str = "/login";
+    }
+
+    pub mod registration {
+        pub const PATH: &'static str = "/register";
+
+        #[derive(Debug, Clone, PartialEq, strum::EnumString, strum::Display)]
+        #[strum(serialize_all = "lowercase")]
+        pub enum RegKind {
+            Reg,
+            CheckEmail,
+            // Loading,
+        }
+
+        pub fn link_check_email<Email: AsRef<str>>(email: Email) -> String {
+            format!(
+                "{}?kind={}&email={}",
+                PATH,
+                RegKind::CheckEmail,
+                email.as_ref()
+            )
+        }
+
+        pub fn link_reg<Token: AsRef<str>>(token: Token) -> String {
+            format!("{}?kind={}&token={}", PATH, RegKind::Reg, token.as_ref())
+        }
+    }
+}
+
 pub mod auth {
     use crate::valid::Validator;
     use tracing::trace;

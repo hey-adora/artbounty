@@ -1,6 +1,33 @@
+pub mod router {
+    pub const API_PATH: &'static str = "/api";
+
+    #[cfg(feature = "ssr")]
+    pub fn new() -> axum::Router<crate::app_state::AppState> {
+        use axum::{Router, routing::post};
+        let routes = Router::new()
+            .route(
+                crate::auth::api::login::PATH,
+                post(crate::auth::api::login::server),
+            )
+            .route(
+                crate::auth::api::register::PATH,
+                post(crate::auth::api::register::server),
+            )
+            .route(
+                crate::auth::api::invite_decode::PATH,
+                post(crate::auth::api::invite_decode::server),
+            )
+            .route(
+                crate::auth::api::invite::PATH,
+                post(crate::auth::api::invite::server),
+            );
+        Router::new().nest(API_PATH, routes)
+    }
+}
 pub mod utils {
     use bytecheck::CheckBytes;
-    use http::HeaderMap;
+    use http::{HeaderMap, StatusCode};
+    use leptos::prelude::location;
     use reqwest::RequestBuilder;
     use rkyv::{
         Archive, Deserialize,
@@ -13,6 +40,8 @@ pub mod utils {
     };
     use thiserror::Error;
     use tracing::{debug, error, trace};
+
+    use crate::router::API_PATH;
 
     // #[cfg(feature = "ssr")]
     // pub async fn recv<ClientInput, ServerOutput, ServerErr, Fut>(
@@ -165,6 +194,8 @@ pub mod utils {
     {
         use axum::response::IntoResponse;
 
+        trace!("ENCODING SERVER INPUT: {:?}", response);
+
         let result = match response {
             Ok(server_output) => server_output.into_response(),
             Err(ResErr::ServerDecodeErr(err)) => {
@@ -174,6 +205,14 @@ pub mod utils {
                 let body = encode_result::<ServerOutput, ServerErr>(&body);
                 trace!("sending body: {body:?}");
                 (axum::http::StatusCode::BAD_REQUEST, body).into_response()
+            }
+            Err(ResErr::ServerEndpointNotFoundErr(err)) => {
+                let body: Result<ServerOutput, ResErr<ServerErr>> =
+                    Err(ResErr::ServerEndpointNotFoundErr(err));
+                trace!("encoding server output: {body:#?}");
+                let body = encode_result::<ServerOutput, ServerErr>(&body);
+                trace!("sending body: {body:?}");
+                (axum::http::StatusCode::NOT_FOUND, body).into_response()
             }
             Err(ResErr::ServerErr(err)) => err.into_response(),
             Err(ResErr::ClientErr(_)) => {
@@ -220,15 +259,16 @@ pub mod utils {
         >,
     ) -> Result<ServerOutput, ResErr<ServerErr>>
     where
-        ServerOutput: Archive,
+        ServerOutput: Archive + std::fmt::Debug,
         ServerOutput::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
             + Deserialize<ServerOutput, HighDeserializer<rkyv::rancor::Error>>,
-        ServerErr: Archive + std::error::Error + 'static,
+        ServerErr: Archive + std::error::Error + std::fmt::Debug + 'static,
         ServerErr::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
             + Deserialize<ServerErr, HighDeserializer<rkyv::rancor::Error>>,
     {
+        let origin = location().origin().unwrap();
         let path = path.as_ref();
-        let builder = reqwest::Client::new().post(format!("{}{}", "http://localhost:3000", path));
+        let builder = reqwest::Client::new().post(format!("{origin}{API_PATH}{path}"));
         send_from_builder::<ServerOutput, ServerErr>(builder, input)
             .await
             .1
@@ -246,10 +286,10 @@ pub mod utils {
         >,
     ) -> (HeaderMap, Result<ServerOutput, ResErr<ServerErr>>)
     where
-        ServerOutput: Archive,
+        ServerOutput: Archive + std::fmt::Debug,
         ServerOutput::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
             + Deserialize<ServerOutput, HighDeserializer<rkyv::rancor::Error>>,
-        ServerErr: Archive + std::error::Error + 'static,
+        ServerErr: Archive + std::error::Error + std::fmt::Debug + 'static,
         ServerErr::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
             + Deserialize<ServerErr, HighDeserializer<rkyv::rancor::Error>>,
     {
@@ -276,6 +316,15 @@ pub mod utils {
 
         let headers = res.headers().clone();
         let status = res.status();
+        let url = res.url();
+
+        if status == StatusCode::NOT_FOUND {
+            debug!("CLIENT RECV:\nstatus: {status}\nclient received headers: {headers:#?}");
+            return (
+                headers,
+                Err(ResErr::ServerEndpointNotFoundErr(url.to_string())),
+            );
+        }
 
         let r = match res
             .bytes()
@@ -301,7 +350,7 @@ pub mod utils {
             }
         };
 
-        // trace!("recv body: {body:?}");
+        trace!("recv body: {r:#?}");
         // let archived = match rkyv::access::<
         //     ArchivedResult<ServerOutput::Archived, ArchivedResErr<ServerErr>>,
         //     rkyv::rancor::Error,
@@ -371,13 +420,16 @@ pub mod utils {
         rkyv::Deserialize,
     )]
     pub enum ResErr<E: std::error::Error + 'static> {
-        #[error("client error {0}")]
+        #[error("client error: {0}")]
         ClientErr(ClientErr),
 
-        #[error("client error {0}")]
+        #[error("server error: {0}")]
         ServerDecodeErr(ServerDecodeErr),
 
-        #[error("server error {0}")]
+        #[error("server error: endpoint \"{0}\" not found")]
+        ServerEndpointNotFoundErr(String),
+
+        #[error("server error: {0}")]
         ServerErr(#[from] E),
     }
 
@@ -487,12 +539,8 @@ pub mod app_state {
 
     impl AppState {
         pub async fn new() -> Self {
-            let db = db::new_local().await;
-            let settings = settings::Settings {
-                auth: settings::Auth {
-                    secret: "secret".to_string(),
-                },
-            };
+            let settings = settings::Settings::new_from_file();
+            let db = db::new_local(&settings.db.path).await;
             let f = move || async move { get_timestamp() };
             let clock = Clock::new(f);
 
@@ -505,11 +553,7 @@ pub mod app_state {
 
         pub async fn new_testng(time: Arc<Mutex<Duration>>) -> Self {
             let db = db::new_mem().await;
-            let settings = settings::Settings {
-                auth: settings::Auth {
-                    secret: "secret".to_string(),
-                },
-            };
+            let settings = settings::Settings::new_testing();
             let f = move || {
                 let time = time.clone();
                 async move {
@@ -531,15 +575,53 @@ pub mod app_state {
 
 #[cfg(feature = "ssr")]
 pub mod settings {
+    use config::{Config, File};
 
     #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
     pub struct Settings {
+        pub site: Site,
         pub auth: Auth,
+        pub db: Db,
     }
 
     #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
     pub struct Auth {
         pub secret: String,
+    }
+
+    #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+    pub struct Db {
+        pub path: String,
+    }
+
+    #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+    pub struct Site {
+        pub address: String,
+    }
+
+    impl Settings {
+        pub fn new_from_file() -> Self {
+            Config::builder()
+                .add_source(File::with_name("artbounty"))
+                .build()
+                .unwrap()
+                .try_deserialize()
+                .unwrap()
+        }
+
+        pub fn new_testing() -> Self {
+            Self {
+                site: Site {
+                    address: "http://localhost:3000".to_string(),
+                },
+                auth: Auth {
+                    secret: "secret".to_string(),
+                },
+                db: Db {
+                    path: "memory".to_string(),
+                },
+            }
+        }
     }
 }
 
@@ -976,7 +1058,301 @@ pub mod auth {
         decode::<Claims>(token, &secret, &validation)
     }
 
+    #[cfg(feature = "ssr")]
+    pub fn create_cookie<Key: AsRef<[u8]>, S: Into<String>>(
+        key: Key,
+        username: S,
+        time: std::time::Duration,
+    ) -> Result<(String, String), jsonwebtoken::errors::Error> {
+        use std::time::Duration;
+
+        use tracing::trace;
+
+        use crate::auth::encode_token;
+
+        let key = key.as_ref();
+        let token = encode_token(key, AuthToken::new(username, time.as_nanos()))
+            .inspect_err(|err| error!("jwt exploded {err}"))?;
+        trace!("token created: {token:?}");
+        // .map_err(|_| OutputErr::CreateCookieErr)?;
+        let cookie = format!("Bearer={token}; Secure; HttpOnly");
+        trace!("cookie created: {cookie:?}");
+        Ok((token, cookie))
+    }
+
+    #[cfg(test)]
+    pub fn test_extract_cookie<Secret: Into<String>>(
+        secret: Secret,
+        headers: &http::HeaderMap,
+    ) -> Option<jsonwebtoken::TokenData<AuthToken>> {
+        use crate::auth::decode_token;
+
+        headers.get(http::header::SET_COOKIE).map(|v| {
+            let v = v.to_str().unwrap();
+            let start = "authorization=Bearer%3D";
+            let end = "%3B%20Secure%3B%20HttpOnly";
+            let cookie = v[start.len()..v.len() - end.len()].to_string();
+            let secret = secret.into();
+            decode_token::<AuthToken>(secret, cookie, false).unwrap()
+        })
+    }
+
     pub mod api {
+        pub mod invite_decode {
+            use std::time::Duration;
+
+            use crate::utils::{ResErr, ServerDecodeErr, encode_result, send, send_from_builder};
+            use thiserror::Error;
+            use tracing::{error, trace};
+
+            pub const PATH: &'static str = "/invite_decode";
+
+            #[derive(
+                Debug,
+                Clone,
+                serde::Serialize,
+                serde::Deserialize,
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+            )]
+            pub struct Input {
+                pub token: String,
+            }
+
+            #[derive(
+                Debug,
+                Clone,
+                serde::Serialize,
+                serde::Deserialize,
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+            )]
+            pub struct ServerOutput {
+                pub email: String,
+            }
+
+            #[cfg(feature = "ssr")]
+            impl axum::response::IntoResponse for ServerOutput {
+                fn into_response(self) -> axum::response::Response {
+                    let bytes = encode_result::<ServerOutput, ServerErr>(&Ok(self));
+                    (axum::http::StatusCode::OK, bytes).into_response()
+                }
+            }
+
+            #[derive(
+                Debug,
+                Error,
+                Clone,
+                serde::Serialize,
+                serde::Deserialize,
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+            )]
+            pub enum ServerErr {
+                #[error("internal server error")]
+                ServerErr,
+
+                #[error("jwt error")]
+                JWT,
+
+                #[error("jwt expired error")]
+                JWTExpired,
+            }
+
+            #[cfg(feature = "ssr")]
+            impl axum::response::IntoResponse for ServerErr {
+                fn into_response(self) -> axum::response::Response {
+                    let status = match &self {
+                        _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    };
+                    let bytes =
+                        encode_result::<ServerOutput, ServerErr>(&Err(ResErr::ServerErr(self)));
+                    (status, bytes).into_response()
+                }
+            }
+
+            #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+            pub struct InviteToken {
+                pub email: String,
+                pub created_at: u128,
+                pub exp: u64,
+            }
+
+            impl InviteToken {
+                pub fn new<S: Into<String>>(
+                    email: S,
+                    created_at: std::time::Duration,
+                    exp: std::time::Duration,
+                ) -> Self {
+                    Self {
+                        email: email.into(),
+                        created_at: created_at.as_nanos(),
+                        exp: exp.as_secs(),
+                    }
+                }
+            }
+
+            pub async fn client(input: Input) -> Result<ServerOutput, ResErr<ServerErr>> {
+                send::<ServerOutput, ServerErr>(PATH, &input).await
+            }
+
+            #[cfg(feature = "ssr")]
+            pub async fn server(
+                axum::extract::State(app_state): axum::extract::State<crate::app_state::AppState>,
+                // axum::extract::State(settings): axum::extract::State<crate::settings::Settings>,
+                // axum::extract::State(clock): axum::extract::State<crate::clock::Clock>,
+                multipart: axum::extract::Multipart,
+            ) -> impl axum::response::IntoResponse {
+                trace!("executing invite api");
+                use artbounty_shared::auth::{
+                    proccess_email, proccess_password, proccess_username,
+                };
+
+                use crate::{
+                    api,
+                    auth::{
+                        AuthToken, decode_token, encode_token, get_nanos, get_timestamp,
+                        hash_password,
+                    },
+                    utils::{self, decode_multipart, encode_server_output},
+                };
+                // tokio::time::sleep(Duration::from_secs(2)).await;
+                let wrap = async || {
+                    let input = decode_multipart::<Input, ServerErr>(multipart).await?;
+                    trace!("input!!!!!! {input:#?}");
+                    let time = app_state.clock.now().await;
+                    let exp = time + Duration::from_secs(60 * 30);
+
+                    let token = decode_token::<InviteToken>(
+                        &app_state.settings.auth.secret,
+                        input.token,
+                        true,
+                    )
+                    .map_err(|err| match err.kind() {
+                        jsonwebtoken::errors::ErrorKind::ExpiredSignature => ServerErr::JWTExpired,
+                        _ => ServerErr::JWT,
+                    })?;
+
+                    // let token = match token {
+                    //     Ok(token) => token,
+                    //     Err() =>
+                    // };
+
+                    // match result {
+                    //     Ok(_) => {}
+                    //     Err(artbounty_db::db::invite::add_invite::AddInviteErr::DB(_)) => {
+                    //         return Result::<ServerOutput, ResErr<ServerErr>>::Err(
+                    //             ResErr::ServerErr(ServerErr::ServerErr),
+                    //         );
+                    //     }
+                    //     Err(_) => {}
+                    // }
+
+                    Result::<ServerOutput, ResErr<ServerErr>>::Ok(ServerOutput {
+                        email: token.claims.email,
+                    })
+                };
+                trace!("1");
+                let res = wrap().await;
+                let res = encode_server_output(res).await;
+                res
+            }
+
+            #[cfg(test)]
+            pub async fn test_send<Token: Into<String>>(
+                server: &axum_test::TestServer,
+                token: Token,
+            ) -> (http::HeaderMap, Result<ServerOutput, ResErr<ServerErr>>) {
+                use crate::router::API_PATH;
+
+                let input = Input {
+                    token: token.into(),
+                };
+                let path = format!("{}{}", API_PATH, PATH);
+                let builder = server.reqwest_post(&path);
+                let res = send_from_builder::<ServerOutput, ServerErr>(builder, &input).await;
+                trace!("RESPONSE: {res:#?}");
+                res
+            }
+
+            #[cfg(test)]
+            mod api {
+                use std::sync::Arc;
+                use std::time::Duration;
+
+                use crate::app_state::AppState;
+                use crate::auth::api::invite::InviteToken;
+                use crate::auth::{decode_token, encode_token, get_nanos, get_timestamp};
+                use crate::clock::Clock;
+                use crate::utils::send_from_builder;
+                use crate::{router, settings};
+
+                use artbounty_db::db;
+                use axum::Router;
+                use axum::routing::post;
+                use axum_test::TestServer;
+                use test_log::test;
+                use tokio::sync::Mutex;
+                use tokio::time::sleep;
+                use tracing::trace;
+
+                #[test(tokio::test)]
+                async fn token() {
+                    // let time = get_nanos();
+                    let time = get_timestamp();
+                    let exp = time + Duration::from_secs(2);
+                    let invite_token = InviteToken::new("hey@hey.com", time, exp);
+                    let invite_token = encode_token("secret", invite_token).unwrap();
+                    sleep(Duration::from_secs(1)).await;
+                    let invite_claims =
+                        decode_token::<InviteToken>("secret", &invite_token, true).unwrap();
+                    trace!("invite claims: {invite_claims:#?}");
+                    sleep(Duration::from_secs(2)).await;
+                    let time2 = get_timestamp();
+                    trace!("\n1: {}\n2: {}", time2.as_nanos(), exp.as_nanos());
+                    let invite_claims = decode_token::<InviteToken>("secret", &invite_token, true);
+                    assert!(invite_claims.is_err());
+                }
+
+                #[test(tokio::test)]
+                async fn invite_decode() {
+                    let current_time = get_timestamp();
+                    let time = Arc::new(Mutex::new(current_time));
+                    let app_state = AppState::new_testng(time).await;
+                    let my_app = router::new().with_state(app_state.clone());
+
+                    let server = TestServer::builder()
+                        .http_transport()
+                        .build(my_app)
+                        .unwrap();
+
+                    {
+                        let time = app_state.clock.now().await;
+                        let exp = time + Duration::from_secs(60 * 30);
+                        let invite = InviteToken::new("hey@hey.com", time, exp);
+                        let invite_token =
+                            encode_token(&app_state.settings.auth.secret, invite).unwrap();
+                        let res =
+                            crate::auth::api::invite_decode::test_send(&server, invite_token).await;
+                        // let input = crate::auth::api::invite::Input {
+                        //     email: "hey@hey.com".to_string(),
+                        // };
+                        // let builder = server.reqwest_post(crate::auth::api::invite::PATH);
+                        // let res = send_from_builder::<
+                        //     crate::auth::api::invite::ServerOutput,
+                        //     crate::auth::api::invite::ServerErr,
+                        // >(builder, &input)
+                        // .await;
+                        trace!("RESPONSE: {res:#?}");
+                        res.1.unwrap();
+                    }
+                    // res.1.unwrap();
+                }
+            }
+        }
         pub mod invite {
             use std::time::Duration;
 
@@ -984,7 +1360,7 @@ pub mod auth {
             use thiserror::Error;
             use tracing::{error, trace};
 
-            pub const PATH: &'static str = "/api/invite";
+            pub const PATH: &'static str = "/invite";
 
             #[derive(
                 Debug,
@@ -1081,15 +1457,18 @@ pub mod auth {
                 multipart: axum::extract::Multipart,
             ) -> impl axum::response::IntoResponse {
                 trace!("executing invite api");
-                use artbounty_shared::auth::{
-                    proccess_email, proccess_password, proccess_username,
+                use artbounty_shared::{
+                    auth::{proccess_email, proccess_password, proccess_username},
+                    fe_router::registration,
                 };
+                use tracing::debug;
 
                 use crate::{
                     api,
                     auth::{encode_token, get_nanos, get_timestamp, hash_password},
                     utils::{self, decode_multipart, encode_server_output},
                 };
+                // tokio::time::sleep(Duration::from_secs(2)).await;
                 let wrap = async || {
                     let input = decode_multipart::<Input, ServerErr>(multipart).await?;
                     trace!("input!!!!!! {input:#?}");
@@ -1101,19 +1480,35 @@ pub mod auth {
 
                     trace!("invite token created: {invite_token}");
 
-                    let result = app_state
+                    let invite = app_state
                         .db
-                        .add_invite(invite_token, input.email, exp)
+                        .add_invite(time.clone(), invite_token, input.email, exp)
                         .await;
-                    match result {
-                        Ok(_) => {}
-                        Err(artbounty_db::db::invite::add_invite::AddInviteErr::DB(_)) => {
-                            return Result::<ServerOutput, ResErr<ServerErr>>::Err(
-                                ResErr::ServerErr(ServerErr::ServerErr),
+                    trace!("result {invite:?}");
+
+                    match invite {
+                        Ok(invite) => {
+                            let link = format!(
+                                "{}{}",
+                                &app_state.settings.site.address,
+                                registration::link_reg(&invite.token_raw),
                             );
+                            trace!("{link}");
                         }
-                        Err(_) => {}
+                        Err(err) => {
+                            debug!("invite failed {err}");
+                        }
                     }
+
+                    // match result {
+                    //     Ok(_) => {}
+                    //     Err(artbounty_db::db::invite::add_invite::AddInviteErr::DB(_)) => {
+                    //         return Result::<ServerOutput, ResErr<ServerErr>>::Err(
+                    //             ResErr::ServerErr(ServerErr::ServerErr),
+                    //         );
+                    //     }
+                    //     Err(_) => {}
+                    // }
 
                     Result::<ServerOutput, ResErr<ServerErr>>::Ok(ServerOutput {})
                 };
@@ -1128,10 +1523,13 @@ pub mod auth {
                 server: &axum_test::TestServer,
                 email: Email,
             ) -> (http::HeaderMap, Result<ServerOutput, ResErr<ServerErr>>) {
+                use crate::router::API_PATH;
+
                 let input = Input {
                     email: email.into(),
                 };
-                let builder = server.reqwest_post(PATH);
+                let path = format!("{}{}", API_PATH, PATH);
+                let builder = server.reqwest_post(&path);
                 let res = send_from_builder::<ServerOutput, ServerErr>(builder, &input).await;
                 trace!("RESPONSE: {res:#?}");
                 res
@@ -1143,13 +1541,14 @@ pub mod auth {
                 use std::time::Duration;
 
                 use crate::app_state::AppState;
-                use crate::auth::api::invite::InviteToken;
+                use crate::auth::api::invite::{InviteToken, test_send};
                 use crate::auth::{decode_token, encode_token, get_nanos, get_timestamp};
                 use crate::clock::Clock;
-                use crate::settings;
                 use crate::utils::send_from_builder;
+                use crate::{router, settings};
 
                 use artbounty_db::db;
+                use artbounty_db::db::invite::get_invite::GetInviteErr;
                 use axum::Router;
                 use axum::routing::post;
                 use axum_test::TestServer;
@@ -1181,12 +1580,7 @@ pub mod auth {
                     let current_time = get_timestamp();
                     let time = Arc::new(Mutex::new(current_time));
                     let app_state = AppState::new_testng(time).await;
-                    let my_app = Router::new()
-                        .route(
-                            crate::auth::api::invite::PATH,
-                            post(crate::auth::api::invite::server),
-                        )
-                        .with_state(app_state);
+                    let my_app = router::new().with_state(app_state.clone());
 
                     let server = TestServer::builder()
                         .http_transport()
@@ -1194,17 +1588,54 @@ pub mod auth {
                         .unwrap();
 
                     {
-                        let input = crate::auth::api::invite::Input {
-                            email: "hey@hey.com".to_string(),
-                        };
-                        let builder = server.reqwest_post(crate::auth::api::invite::PATH);
-                        let res = send_from_builder::<
-                            crate::auth::api::invite::ServerOutput,
-                            crate::auth::api::invite::ServerErr,
-                        >(builder, &input)
+                        let res =
+                            crate::auth::api::invite::test_send(&server, "hey1@hey.com").await;
+                        assert!(matches!(
+                            res.1,
+                            Ok(crate::auth::api::invite::ServerOutput {})
+                        ));
+                        let invite = app_state
+                            .db
+                            .get_invite("hey1@hey.com", current_time)
+                            .await
+                            .unwrap();
+                        let res = crate::auth::api::register::test_send(
+                            &server,
+                            "hey",
+                            invite.token_raw,
+                            "hey1@hey.com",
+                        )
                         .await;
-                        trace!("RESPONSE: {res:#?}");
-                        res.1.unwrap();
+                        let res =
+                            crate::auth::api::invite::test_send(&server, "hey1@hey.com").await;
+                        // trace!("{}");
+                        assert!(matches!(
+                            res.1,
+                            Ok(crate::auth::api::invite::ServerOutput {})
+                        ));
+                        let invite = app_state.db.get_invite("hey1@hey.com", current_time).await;
+                        assert!(matches!(invite, Err(GetInviteErr::NotFound)));
+                        let invite = app_state.db.get_invite("hey2@hey.com", current_time).await;
+                        assert!(matches!(invite, Err(GetInviteErr::NotFound)));
+                        let res =
+                            crate::auth::api::invite::test_send(&server, "hey2@hey.com").await;
+                        assert!(matches!(
+                            res.1,
+                            Ok(crate::auth::api::invite::ServerOutput {})
+                        ));
+                        let invite = app_state.db.get_invite("hey2@hey.com", current_time).await;
+                        assert!(matches!(invite, Ok(_)));
+                        // let input = crate::auth::api::invite::Input {
+                        //     email: "hey@hey.com".to_string(),
+                        // };
+                        // let builder = server.reqwest_post(crate::auth::api::invite::PATH);
+                        // let res = send_from_builder::<
+                        //     crate::auth::api::invite::ServerOutput,
+                        //     crate::auth::api::invite::ServerErr,
+                        // >(builder, &input)
+                        // .await;
+                        // trace!("RESPONSE: {res:#?}");
+                        // res.1.unwrap();
                     }
                     // res.1.unwrap();
                 }
@@ -1215,7 +1646,7 @@ pub mod auth {
             use thiserror::Error;
             use tracing::{error, trace};
 
-            pub const PATH: &'static str = "/api/register";
+            pub const PATH: &'static str = "/register";
 
             #[derive(
                 Debug,
@@ -1241,7 +1672,9 @@ pub mod auth {
                 rkyv::Serialize,
                 rkyv::Deserialize,
             )]
-            pub struct ServerOutput {}
+            pub struct ServerOutput {
+                pub username: String,
+            }
 
             #[cfg(feature = "ssr")]
             impl axum::response::IntoResponse for ServerOutput {
@@ -1282,6 +1715,12 @@ pub mod auth {
                 #[error("jwt error")]
                 JWT,
 
+                #[error("jwt expired error")]
+                JWTExpired,
+
+                #[error("create cookie err")]
+                CreateCookieErr,
+
                 #[error("internal server error")]
                 ServerErr,
             }
@@ -1311,27 +1750,37 @@ pub mod auth {
             #[cfg(feature = "ssr")]
             pub async fn server(
                 axum::extract::State(app_state): axum::extract::State<crate::app_state::AppState>,
+                jar: axum_extra::extract::cookie::CookieJar,
                 multipart: axum::extract::Multipart,
             ) -> impl axum::response::IntoResponse {
                 use artbounty_db::db::user::add_user::AddUserErr;
                 use artbounty_shared::auth::{
                     proccess_email, proccess_password, proccess_username,
                 };
+                use axum_extra::extract::{CookieJar, cookie::Cookie};
 
                 use crate::{
                     api,
-                    auth::{api::invite::InviteToken, decode_token, get_nanos, hash_password},
+                    auth::{
+                        api::invite::InviteToken, create_cookie, decode_token, get_nanos,
+                        hash_password,
+                    },
                     utils::{self, decode_multipart, encode_server_output},
                 };
                 let wrap = async || {
                     let input = decode_multipart::<Input, ServerErr>(multipart).await?;
                     trace!("input!!!!!! {input:#?}");
+                    let token_raw = input.email_token;
+                    let time = app_state.clock.now().await;
                     let email_token = decode_token::<InviteToken>(
                         &app_state.settings.auth.secret,
-                        input.email_token,
+                        &token_raw,
                         true,
                     )
-                    .map_err(|_| ServerErr::JWT)?;
+                    .map_err(|err| match err.kind() {
+                        jsonwebtoken::errors::ErrorKind::ExpiredSignature => ServerErr::JWTExpired,
+                        _ => ServerErr::JWT,
+                    })?;
 
                     let username = proccess_username(input.username)
                         .map_err(|err| ServerErr::UsernameInvalid(err))?;
@@ -1341,7 +1790,7 @@ pub mod auth {
                         .and_then(|pss| hash_password(pss).map_err(|_| "hasher error".to_string()))
                         .map_err(|err| ServerErr::PasswordInvalid(err))?;
 
-                    app_state
+                    let user = app_state
                         .db
                         .add_user(username, email, password)
                         .await
@@ -1351,10 +1800,40 @@ pub mod auth {
                             _ => ServerErr::ServerErr,
                         })?;
 
-                    Result::<ServerOutput, ResErr<ServerErr>>::Ok(ServerOutput {})
+                    let result = app_state
+                        .db
+                        .use_invite(token_raw, time)
+                        .await
+                        .map_err(|err| {
+                            error!("failed to run use_invite {err}");
+                            ServerErr::ServerErr
+                        })?;
+
+                    let (_token, cookie) =
+                        create_cookie(&app_state.settings.auth.secret, user.username.clone(), time)
+                            .map_err(|_| ServerErr::CreateCookieErr)?;
+
+                    Result::<(String, ServerOutput), ResErr<ServerErr>>::Ok((
+                        cookie,
+                        ServerOutput {
+                            username: user.username,
+                        },
+                    ))
                 };
-                let res = wrap().await;
-                let res = encode_server_output(res).await;
+                let res = match wrap().await {
+                    Ok((cookie, output)) => {
+                        let res = Result::<ServerOutput, ResErr<ServerErr>>::Ok(output);
+                        let cookies =
+                            jar.add(Cookie::new(http::header::AUTHORIZATION.as_str(), cookie));
+                        let res = encode_server_output(res).await;
+                        (cookies, res)
+                    }
+                    Err(err) => {
+                        let res = Result::<ServerOutput, ResErr<ServerErr>>::Err(err);
+                        let res = encode_server_output(res).await;
+                        (jar, res)
+                    }
+                };
                 res
             }
 
@@ -1369,12 +1848,15 @@ pub mod auth {
                 email_token: EmailToken,
                 password: Password,
             ) -> (http::HeaderMap, Result<ServerOutput, ResErr<ServerErr>>) {
+                use crate::router::API_PATH;
+
                 let input = crate::auth::api::register::Input {
                     username: username.into(),
                     email_token: email_token.into(),
                     password: password.into(),
                 };
-                let builder = server.reqwest_post(crate::auth::api::register::PATH);
+                let path = format!("{}{}", API_PATH, PATH);
+                let builder = server.reqwest_post(&path);
                 let res = send_from_builder::<
                     crate::auth::api::register::ServerOutput,
                     crate::auth::api::register::ServerErr,
@@ -1391,7 +1873,8 @@ pub mod auth {
 
                 use crate::app_state::AppState;
                 use crate::auth::api::invite::InviteToken;
-                use crate::auth::{encode_token, get_timestamp};
+                use crate::auth::{encode_token, get_timestamp, test_extract_cookie};
+                use crate::router;
                 use crate::utils::{ResErr, send_from_builder};
 
                 use artbounty_db::db;
@@ -1409,16 +1892,7 @@ pub mod auth {
                     let app_state = AppState::new_testng(time).await;
                     let secret = app_state.settings.auth.secret.clone();
                     let db = app_state.db.clone();
-                    let my_app = Router::new()
-                        .route(
-                            crate::auth::api::invite::PATH,
-                            post(crate::auth::api::invite::server),
-                        )
-                        .route(
-                            crate::auth::api::register::PATH,
-                            post(crate::auth::api::register::server),
-                        )
-                        .with_state(app_state);
+                    let my_app = router::new().with_state(app_state.clone());
                     let server = TestServer::builder()
                         .http_transport()
                         .build(my_app)
@@ -1450,6 +1924,23 @@ pub mod auth {
                             ))
                         ));
 
+                        let token = test_extract_cookie(&app_state.settings.auth.secret, &res.0);
+                        assert!(token.is_none());
+
+                        let res = crate::auth::api::register::test_send(
+                            &server,
+                            "hey",
+                            invite.token_raw,
+                            "hey1@hey.com",
+                        )
+                        .await;
+
+                        assert!(res.1.is_ok());
+
+                        let token =
+                            test_extract_cookie(&app_state.settings.auth.secret, &res.0).unwrap();
+                        assert_eq!(token.claims.username, "hey");
+
                         // let input = crate::auth::api::register::Input {
                         //     username: "hey".to_string(),
                         //     email_token,
@@ -1472,7 +1963,7 @@ pub mod auth {
             use thiserror::Error;
             use tracing::{error, trace};
 
-            pub const PATH: &'static str = "/api/login";
+            pub const PATH: &'static str = "/login";
 
             #[derive(
                 Debug,
@@ -1572,7 +2063,7 @@ pub mod auth {
                 // todo!();
                 use crate::{
                     api,
-                    auth::get_nanos,
+                    auth::{create_cookie, get_nanos},
                     utils::{self, decode_multipart, encode_server_output},
                 };
                 // let db = artbounty_db::db::new_mem().await;
@@ -1587,9 +2078,10 @@ pub mod auth {
                         .map_err(|_| ServerErr::Incorrect)?;
                     verify_password(input.password, user.password)
                         .map_err(|_| ServerErr::Incorrect)?;
-                    let time = get_nanos();
-                    let (_token, cookie) = create_cookie("secret", user.username, time)
-                        .map_err(|_| ServerErr::CreateCookieErr)?;
+                    let time = app_state.clock.now().await;
+                    let (_token, cookie) =
+                        create_cookie(&app_state.settings.auth.secret, user.username, time)
+                            .map_err(|_| ServerErr::CreateCookieErr)?;
 
                     Result::<String, ResErr<ServerErr>>::Ok(cookie)
                 };
@@ -1707,55 +2199,23 @@ pub mod auth {
                     .and_then(|hash| Argon2::default().verify_password(password, &hash))
             }
 
-            #[cfg(feature = "ssr")]
-            pub fn create_cookie<Key: AsRef<[u8]>, S: Into<String>>(
-                key: Key,
-                username: S,
-                time: u128,
-            ) -> Result<(String, String), jsonwebtoken::errors::Error> {
-                use crate::auth::encode_token;
-
-                let key = key.as_ref();
-                let token = encode_token(key, AuthToken::new(username, time))
-                    .inspect_err(|err| error!("jwt exploded {err}"))?;
-                trace!("token created: {token:?}");
-                // .map_err(|_| OutputErr::CreateCookieErr)?;
-                let cookie = format!("Bearer={token}; Secure; HttpOnly");
-                trace!("cookie created: {cookie:?}");
-                Ok((token, cookie))
-            }
-
             #[cfg(test)]
             pub async fn test_send<Email: Into<String>, Password: Into<String>>(
                 server: &axum_test::TestServer,
                 email: Email,
                 password: Password,
             ) -> (http::HeaderMap, Result<ServerOutput, ResErr<ServerErr>>) {
+                use crate::router::API_PATH;
+
                 let input = Input {
                     email: email.into(),
                     password: password.into(),
                 };
-                let builder = server.reqwest_post(PATH);
+                let path = format!("{}{}", API_PATH, PATH);
+                let builder = server.reqwest_post(&path);
                 let res = send_from_builder::<ServerOutput, ServerErr>(builder, &input).await;
                 trace!("RESPONSE: {res:#?}");
                 res
-            }
-
-            #[cfg(test)]
-            pub fn test_extract_cookie<Secret: Into<String>>(
-                secret: Secret,
-                headers: &http::HeaderMap,
-            ) -> Option<jsonwebtoken::TokenData<AuthToken>> {
-                use crate::auth::decode_token;
-
-                headers.get(http::header::SET_COOKIE).map(|v| {
-                    let v = v.to_str().unwrap();
-                    let start = "authorization=Bearer%3D";
-                    let end = "%3B%20Secure%3B%20HttpOnly";
-                    let cookie = v[start.len()..v.len() - end.len()].to_string();
-                    let secret = secret.into();
-                    decode_token::<AuthToken>(secret, cookie, false).unwrap()
-                })
             }
 
             #[cfg(test)]
@@ -1765,8 +2225,10 @@ pub mod auth {
 
                 use crate::app_state::AppState;
                 use crate::auth::api::invite::InviteToken;
-                use crate::auth::api::login::test_extract_cookie;
-                use crate::auth::{AuthToken, decode_token, encode_token, get_timestamp};
+                use crate::auth::{
+                    AuthToken, decode_token, encode_token, get_timestamp, test_extract_cookie,
+                };
+                use crate::router;
                 use crate::utils::{ResErr, send_from_builder};
 
                 use artbounty_db::db;
@@ -1789,20 +2251,7 @@ pub mod auth {
                     let app_state = AppState::new_testng(time).await;
                     let db = app_state.db.clone();
                     let secret = app_state.settings.auth.secret.clone();
-                    let my_app = Router::new()
-                        .route(
-                            crate::auth::api::invite::PATH,
-                            post(crate::auth::api::invite::server),
-                        )
-                        .route(
-                            crate::auth::api::login::PATH,
-                            post(crate::auth::api::login::server),
-                        )
-                        .route(
-                            crate::auth::api::register::PATH,
-                            post(crate::auth::api::register::server),
-                        )
-                        .with_state(app_state);
+                    let my_app = router::new().with_state(app_state);
                     let server = TestServer::builder()
                         .http_transport()
                         .build(my_app)
@@ -1821,7 +2270,7 @@ pub mod auth {
                     .await;
                     assert!(matches!(
                         res.1,
-                        Ok(crate::auth::api::register::ServerOutput {})
+                        Ok(crate::auth::api::register::ServerOutput { username })
                     ));
                     let res =
                         crate::auth::api::login::test_send(&server, "hey@hey.com", "hey1@hey.com")

@@ -14,8 +14,8 @@ pub mod db {
     // pub static DB: LazyLock<Db<local::Db>> = LazyLock::new(Db::init);
 
     pub type DbEngine = Db<local::Db>;
-    pub async fn new_local() -> Db<local::Db> {
-        let db = Db::<local::Db>::new::<SurrealKv>("db6").await.unwrap();
+    pub async fn new_local(path: impl AsRef<str>) -> Db<local::Db> {
+        let db = Db::<local::Db>::new::<SurrealKv>(path.as_ref()).await.unwrap();
         db.connect().await;
         db.migrate().await.unwrap();
 
@@ -113,10 +113,9 @@ pub mod db {
                     SELECT * FROM migration;
                 ",
                 )
-                .await.inspect(|result| trace!("DB RESULT {:#?}", result) )?;
-            result
-                .check()
-                .inspect(|result| trace!("RESULT CHECK {:#?}", result))?;
+                .await.inspect_err(|result| trace!("DB RESULT {:#?}", result) )?;
+            result.check()?;
+            // .inspect(|result| trace!("RESULT CHECK {:#?}", result))?;
             Ok(())
         }
     }
@@ -151,6 +150,7 @@ pub mod db {
             impl<C: Connection> Db<C> {
                 pub async fn add_invite<Token: Into<String>, Email: Into<String>>(
                     &self,
+                    time: Duration,
                     token_raw: Token,
                     email: Email,
                     expiration: Duration,
@@ -158,6 +158,9 @@ pub mod db {
                     let db = &self.db;
                     let token_raw = token_raw.into();
                     let email = email.into();
+                    let time = Datetime::from(chrono::DateTime::from_timestamp_nanos(
+                        time.as_nanos() as i64,
+                    ));
                     let expires = Datetime::from(chrono::DateTime::from_timestamp_nanos(
                         expiration.as_nanos() as i64,
                     ));
@@ -169,14 +172,19 @@ pub mod db {
                              CREATE invite SET
                                 token_raw = $token_raw,
                                 email = if $user_email { null } else { $email },
-                                expires = $expires;
+                                expires = $expires,
+                                used = false,
+                                modified_at = $modified_at,
+                                created_at = $created_at;
                         "#,
                         )
                         .bind(("token_raw", token_raw))
                         .bind(("email", email.clone()))
                         .bind(("expires", expires))
-                        .await?;
-                        // .inspect_err(|err| trace!("add_invite query {:#?}", err))?;
+                        .bind(("modified_at", time.clone()))
+                        .bind(("created_at", time))
+                        .await
+                        .inspect_err(|err| error!("add_invite query {:#?}", err))?;
 
                     trace!("{:#?}", result);
                     let mut result = result.check().map_err(|err| match err {
@@ -202,7 +210,8 @@ pub mod db {
                         }
                     })?;
                     let invite = result
-                        .take::<Option<Invite>>(1)?
+                        .take::<Option<Invite>>(1)
+                        .inspect_err(|err| error!("add_invite serialize error {:#?}", err))?
                         .expect("record was just created");
 
                     trace!("record created: {invite:#?}");
@@ -233,15 +242,26 @@ pub mod db {
                 #[test(tokio::test)]
                 async fn add_invite() {
                     let db = Db::new::<Mem>(()).await.unwrap();
+                    let time = Duration::from_nanos(0);
                     db.migrate().await.unwrap();
                     let invite = db
-                        .add_invite("wowza", "hey@hey.com", Duration::from_nanos(0))
+                        .add_invite(
+                            time.clone(),
+                            "wowza",
+                            "hey@hey.com",
+                            Duration::from_nanos(0),
+                        )
                         .await
                         .unwrap();
                     trace!("{invite:#?}");
                     let user = db.add_user("hey1", "hey1@hey.com", "123").await.unwrap();
                     let invite2 = db
-                        .add_invite("wowza", "hey1@hey.com", Duration::from_nanos(0))
+                        .add_invite(
+                            time.clone(),
+                            "wowza",
+                            "hey1@hey.com",
+                            Duration::from_nanos(0),
+                        )
                         .await;
                     trace!("{invite2:#?}");
                     assert!(matches!(invite2, Err(AddInviteErr::EmailIsTaken(_))));
@@ -325,19 +345,20 @@ pub mod db {
                 #[test(tokio::test)]
                 async fn get_invite() {
                     let db = Db::new::<Mem>(()).await.unwrap();
+                    let time = Duration::from_nanos(0);
                     db.migrate().await.unwrap();
                     let invite = db
-                        .add_invite("wowza", "hey@hey.com", Duration::from_nanos(0))
+                        .add_invite(time, "wowza", "hey@hey.com", Duration::from_nanos(0))
                         .await
                         .unwrap();
                     trace!("{invite:#?}");
                     let invite = db
-                        .add_invite("wowza1", "hey@hey.com", Duration::from_nanos(2))
+                        .add_invite(time, "wowza1", "hey@hey.com", Duration::from_nanos(2))
                         .await
                         .unwrap();
                     trace!("{invite:#?}");
                     let invite = db
-                        .add_invite("wowza2", "hey@hey.com", Duration::from_nanos(0))
+                        .add_invite(time, "wowza2", "hey@hey.com", Duration::from_nanos(0))
                         .await
                         .unwrap();
                     trace!("{invite:#?}");
@@ -365,13 +386,14 @@ pub mod db {
             use super::Invite;
 
             impl<C: Connection> Db<C> {
-                pub async fn use_invite(
+                pub async fn use_invite<TokenRaw: Into<String>>(
                     &self,
-                    id: RecordId,
+                    token_raw: TokenRaw,
                     time: Duration,
                     // time: DateTime<Utc>,
                 ) -> Result<Invite, UseInviteErr> {
                     let db = &self.db;
+                    let token_raw = token_raw.into();
                     let time = Datetime::from(chrono::DateTime::from_timestamp_nanos(
                         time.as_nanos() as i64,
                     ));
@@ -379,13 +401,13 @@ pub mod db {
                     let result = db
                         .query(
                             r#"
-                             UPDATE $id SET modified_at = $time, used = true;
+                             UPDATE invite SET modified_at = $time, used = true WHERE token_raw = $token_raw;
                         "#,
                         )
-                        .bind(("id", id))
+                        .bind(("token_raw", token_raw))
                         .bind(("time", time))
                         .await?;
-                        // .inspect_err(|err| trace!("use_invite query {:#?}", err))?;
+                    // .inspect_err(|err| trace!("use_invite query {:#?}", err))?;
 
                     trace!("{:#?}", result);
 
@@ -423,19 +445,28 @@ pub mod db {
                 use test_log::test;
                 use tracing::trace;
 
-                use crate::db::{invite::{get_invite::GetInviteErr, use_invite::UseInviteErr}, user::add_user::AddUserErr, Db};
+                use crate::db::{
+                    Db,
+                    invite::{get_invite::GetInviteErr, use_invite::UseInviteErr},
+                    user::add_user::AddUserErr,
+                };
 
                 #[test(tokio::test)]
                 async fn use_invite() {
                     // let time = DateTime::<Utc>::default();
                     let db = Db::new::<Mem>(()).await.unwrap();
+                    let time = Duration::from_nanos(0);
                     db.migrate().await.unwrap();
                     let invite = db
-                        .add_invite("wowza", "hey@hey.com", Duration::from_nanos(0))
+                        .add_invite(time, "wowza", "hey@hey.com", Duration::from_nanos(0))
                         .await
                         .unwrap();
                     // trace!("{invite:#?}");
-                    db.use_invite(invite.id, Duration::from_nanos(0)).await.unwrap();
+                    let invite = db.get_invite("hey@hey.com", Duration::from_nanos(0)).await;
+                    assert!(matches!(invite, Ok(_)));
+                    db.use_invite("wowza", Duration::from_nanos(0))
+                        .await
+                        .unwrap();
                     let invite = db.get_invite("hey@hey.com", Duration::from_nanos(0)).await;
                     assert!(matches!(invite, Err(GetInviteErr::NotFound)));
                 }
