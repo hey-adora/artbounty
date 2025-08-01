@@ -15,7 +15,9 @@ pub mod db {
 
     pub type DbEngine = Db<local::Db>;
     pub async fn new_local(path: impl AsRef<str>) -> Db<local::Db> {
-        let db = Db::<local::Db>::new::<SurrealKv>(path.as_ref()).await.unwrap();
+        let db = Db::<local::Db>::new::<SurrealKv>(path.as_ref())
+            .await
+            .unwrap();
         db.connect().await;
         db.migrate().await.unwrap();
 
@@ -791,22 +793,22 @@ pub mod db {
         pub mod add_session {
             use surrealdb::Connection;
             use thiserror::Error;
-            use tracing::trace;
+            use tracing::{error, trace};
 
             use crate::db::Db;
 
             use super::Session;
 
             impl<C: Connection> Db<C> {
-                pub async fn add_session<S: Into<String>>(
+                pub async fn add_session(
                     &self,
-                    token: S,
-                    username: S,
+                    token: impl Into<String>,
+                    username: impl Into<String>,
                 ) -> Result<Session, AddSessionErr> {
                     let db = &self.db;
                     let token: String = token.into();
                     let username: String = username.into();
-                    let result = db
+                    let mut result = db
                         .query(
                             r#"
                              LET $user_id = SELECT id FROM ONLY user WHERE username = $username;
@@ -815,38 +817,45 @@ pub mod db {
                         )
                         .bind(("access_token", token))
                         .bind(("username", username.clone()))
-                        .await?;
+                        .await
+                        .inspect_err(|err| error!("err {err}"))
+                        .inspect(|result| trace!("result: {result:#?}"))?
+                        .check()
+                        .map_err(|err| match err {
+                            surrealdb::Error::Db(surrealdb::error::Db::FieldCheck {
+                                thing,
+                                value,
+                                field,
+                                check,
+                            }) if value == "NULL"
+                                || value == "NONE"
+                                    && field
+                                        .first()
+                                        .map(|f| f.to_string())
+                                        .inspect(|f| trace!("field: {f}"))
+                                        .map(|f| f == ".user_id")
+                                        .unwrap_or_default() =>
+                            {
+                                AddSessionErr::UserNotFound(username)
+                            }
+                            surrealdb::Error::Db(surrealdb::error::Db::IndexExists {
+                                index,
+                                ..
+                            }) if index == "idx_session_access_token" => AddSessionErr::TokenExists,
+                            err => {
+                                error!("unexpected error {err}");
+                                err.into()
+                            }
+                        })?;
 
-                    trace!("result: {result:#?}");
-
-                    let result = result.check().map_err(|err| match err {
-                        surrealdb::Error::Db(surrealdb::error::Db::FieldCheck {
-                            thing,
-                            value,
-                            field,
-                            check,
-                        }) if value == "NULL"
-                            || value == "NONE"
-                                && field
-                                    .first()
-                                    .map(|f| f.to_string())
-                                    .inspect(|f| trace!("field: {f}"))
-                                    .map(|f| f == ".user_id")
-                                    .unwrap_or_default() =>
-                        {
-                            AddSessionErr::UserNotFound(username)
-                        }
-                        surrealdb::Error::Db(surrealdb::error::Db::IndexExists {
-                            index, ..
-                        }) if index == "idx_session_access_token" => AddSessionErr::TokenExists,
-                        err => err.into(),
-                    });
-
-                    trace!("result2: {result:#?}");
-                    let mut result = result?;
+                    // let result = result.check();
+                    //
+                    // trace!("result2: {result:#?}");
+                    // let mut result = result?;
 
                     let session = result
-                        .take::<Option<Session>>(1)?
+                        .take::<Option<Session>>(1)
+                        .inspect_err(|err| error!("add session error: {err}"))?
                         .expect("session was just created");
                     // .ok_or(AddSessionErr::NotFound)?;
 
@@ -905,7 +914,7 @@ pub mod db {
         pub mod delete_session {
             use surrealdb::Connection;
             use thiserror::Error;
-            use tracing::trace;
+            use tracing::{error, trace};
 
             use crate::db::Db;
 
@@ -925,10 +934,13 @@ pub mod db {
                 "#,
                         )
                         .bind(("access_token", token))
-                        .await?;
-                    trace!("result: {result:#?}");
+                        .await
+                        .inspect_err(|err| error!("delete session error: {err}"))
+                        .inspect(|result| trace!("result: {result:#?}"))?
+                        .check()
+                        .inspect_err(|err| error!("unexpected error: {err}"))?;
 
-                    let _result = result.check()?;
+                    // let _result = result.check()?;
                     // .inspect(|result| trace!("result2: {result:#?}"))?;
                     Ok(())
                 }
@@ -988,7 +1000,7 @@ pub mod db {
         pub mod get_session {
             use surrealdb::Connection;
             use thiserror::Error;
-            use tracing::trace;
+            use tracing::{error, trace};
 
             use crate::db::Db;
 
@@ -1001,22 +1013,24 @@ pub mod db {
                 ) -> Result<Session, GetSessionErr> {
                     let db = &self.db;
                     let token: String = token.into();
-                    let result = db
+                    let mut result = db
                         .query(
                             r#"
                      SELECT * FROM session WHERE access_token = $access_token;
                 "#,
                         )
                         .bind(("access_token", token))
-                        .await?;
+                        .await
+                        .inspect_err(|err| error!("get_session query {:#?}", err))?;
                     trace!("result: {result:#?}");
 
-                    let mut result = result
-                        .check()
-                        .inspect(|result| trace!("result2: {result:#?}"))?;
+                    // let mut result = result
+                    //     .check()
+                    //     .inspect(|result| trace!("result2: {result:#?}"))?;
 
                     let session = result
-                        .take::<Option<Session>>(0)?
+                        .take::<Option<Session>>(0)
+                        .inspect_err(|err| error!("get session error: {err}"))?
                         .ok_or(GetSessionErr::NotFound)?;
 
                     Ok(session)
