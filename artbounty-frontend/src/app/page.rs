@@ -452,6 +452,7 @@ pub mod register {
 }
 
 pub mod login {
+    use crate::app::{Acc, GlobalState};
     use crate::toolbox::prelude::*;
     use crate::{app::components::nav::Nav, toolbox::api::ground};
     use artbounty_api::api;
@@ -464,11 +465,13 @@ pub mod login {
 
     #[component]
     pub fn Page() -> impl IntoView {
+        let global_state = expect_context::<GlobalState>();
         let main_ref = NodeRef::new();
         let input_email: NodeRef<Input> = NodeRef::new();
         let input_password: NodeRef<Input> = NodeRef::new();
         let general_err = RwSignal::new(String::new());
         let email_err = RwSignal::new(String::new());
+        let navigate = leptos_router::hooks::use_navigate();
 
         let api_login = artbounty_api::auth::api::login::client.ground();
         let on_login = move |e: SubmitEvent| {
@@ -502,6 +505,13 @@ pub mod login {
             };
             trace!("received {result:#?}");
             match result {
+                Ok(res) => {
+                    global_state.acc.set(Some(Acc {
+                        username: res.username,
+                    }));
+
+                    navigate("/", Default::default());
+                }
                 Err(ResErr::ClientErr(err)) => {
                     general_err.set(format!("Error sending request \"{err}\"."));
                 }
@@ -514,19 +524,19 @@ pub mod login {
                 )) => {
                     general_err.set("Server error.".to_string());
                 }
-                _ => {
-                    general_err.set("Unknown error.".to_string());
+                Err(err) => {
+                    general_err.set(err.to_string());
                 }
             }
         });
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] min-h-[100dvh]">
                 <Nav/>
-                <div class=move || format!("grid  text-white {}", if api_login.is_pending() || api_login.is_complete() {"items-center"} else {"justify-stretch"})>
+                <div class=move || format!("grid  text-white {}", if api_login.is_pending() {"items-center"} else {"justify-stretch"})>
                     <div class=move||format!("mx-auto text-[1.5rem] {}", if api_login.is_pending() {""} else {"hidden"})>
                         <h1>"LOADING..."</h1>
                     </div>
-                    <form method="POST" action="" on:submit=on_login class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if api_login.is_pending() || api_login.is_complete() {"hidden"} else {""})>
+                    <form method="POST" action="" on:submit=on_login class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if api_login.is_pending() || api_login.is_succ() {"hidden"} else {""})>
                         <h1 class="text-[1.5rem]  text-center my-[4rem]">"LOGIN"</h1>
                         <div class=move||format!("text-red-600 {}", if general_err.with(|v| v.is_empty()) {"hidden"} else {""})>{move || { general_err.get() }}</div>
                         <div class="flex flex-col justify-center gap-[3rem]">
