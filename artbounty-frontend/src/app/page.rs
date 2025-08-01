@@ -1,4 +1,85 @@
-pub mod profile {}
+pub mod profile {
+    use std::rc::Rc;
+
+    use crate::app::components::{
+        gallery::{Gallery, Img},
+        nav::Nav,
+    };
+    use crate::toolbox::prelude::*;
+    use artbounty_api::utils::ResErr;
+    use leptos::Params;
+    use leptos::prelude::*;
+    use leptos_router::{hooks::use_params, params::Params};
+
+    use leptos_router::hooks::use_query;
+    use tracing::trace;
+
+    #[derive(Params, PartialEq, Clone)]
+    pub struct UserParams {
+        pub username: Option<String>,
+    }
+
+    #[component]
+    pub fn Page() -> impl IntoView {
+        let main_ref = NodeRef::new();
+        let api_user = artbounty_api::auth::api::user::client.ground();
+        let param = use_params::<UserParams>();
+        let param_username =
+            move || param.read().as_ref().ok().and_then(|v| v.username.clone());
+        // let user = RwSignal::<Option<artbounty_api::auth::api::user::ServerOutput>>::new(None);
+        // let user = move |callback: fn(&artbounty_api::auth::api::user::ServerOutput) -> String| {
+        //     api_user
+        //         .inner
+        //         .with(|v| {
+        //             v.value.as_ref().map(|v| match v {
+        //                 Ok(v) => callback(v),
+        //                 Err(ResErr::ServerErr(artbounty_api::auth::api::user::ServerErr::NotFound)) =>,
+        //                 Err(err) => "err".to_string(),
+        //             })
+        //         })
+        //         .unwrap_or("loading...".to_string())
+        // };
+        let user_username = RwSignal::new("loading...".to_string());
+
+        Effect::new(move || {
+            let Some(username) = param_username() else {
+                return;
+            };
+            api_user.dispatch(artbounty_api::auth::api::user::Input { username });
+        });
+
+        Effect::new(move || {
+            let result = api_user.value();
+            trace!("user received1 {result:?}");
+            let Some(result) = result else {
+                trace!("user received2 {result:?}");
+                return;
+            };
+            trace!("user received?");
+
+            match result {
+                Ok(v) => {
+                    user_username.set(v.username);
+                }
+                Err(ResErr::ServerErr(artbounty_api::auth::api::user::ServerErr::NotFound)) => {
+                    user_username.set("User Not Found".to_string());
+                }
+                Err(err) => {
+                    user_username.set(err.to_string());
+                }
+            }
+        });
+
+        view! {
+            <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen">
+                <Nav/>
+                <div>
+                    <h1>{move || user_username.get()}</h1>
+                </div>
+            </main>
+        }
+    }
+}
 pub mod home {
     use std::rc::Rc;
 

@@ -641,6 +641,75 @@ pub mod db {
             }
         }
 
+        pub mod get_user_by_username {
+            use surrealdb::Connection;
+            use tracing::{error, trace};
+
+            use crate::db::Db;
+            use thiserror::Error;
+
+            use super::User;
+
+            impl<C: Connection> Db<C> {
+                pub async fn get_user_by_username<Username: Into<String>>(
+                    &self,
+                    username: Username,
+                ) -> Result<User, GetUserByUsernameErr> {
+                    let db = &self.db;
+                    let username = username.into();
+
+                    let mut result = db
+                        .query(
+                            r#"
+                            SELECT * FROM user WHERE username = $username;
+                        "#,
+                        )
+                        .bind(("username", username))
+                        .await
+                        .inspect_err(|err| error!("get user by username error: {err}"))
+                        .inspect(|e| trace!("result {e:#?}"))?
+                        .check()
+                        .inspect_err(|err| error!("get user by username check error: {err}"))?;
+                    result
+                        .take::<Option<User>>(0)
+                        .inspect_err(|err| error!("unexpected err {err}"))?
+                        .ok_or(GetUserByUsernameErr::UserNotFound)
+                }
+            }
+
+            #[derive(Debug, Error)]
+            pub enum GetUserByUsernameErr {
+                #[error("DB error {0}")]
+                DB(#[from] surrealdb::Error),
+
+                #[error("user not found")]
+                UserNotFound,
+            }
+
+            #[cfg(test)]
+            pub mod db {
+                use surrealdb::{Connection, engine::local::Mem};
+                use tracing::trace;
+
+                use crate::db::{user::{get_user_by_email::GetUserByEmailErr, get_user_by_username::GetUserByUsernameErr}, Db};
+                use test_log::test;
+                use thiserror::Error;
+
+                use super::User;
+
+                #[test(tokio::test)]
+                async fn get_user_by_email() {
+                    let db = Db::new::<Mem>(()).await.unwrap();
+                    db.migrate().await.unwrap();
+                    let user = db.add_user("hey", "hey@hey.com", "hey").await.unwrap();
+                    let user = db.get_user_by_username("hey").await.unwrap();
+                    trace!("found {user:#?}");
+                    let user = db.get_user_by_username("hey2").await;
+                    assert!(matches!(user, Err(GetUserByUsernameErr::UserNotFound)));
+                }
+            }
+        }
+
         pub mod get_user_by_email {
             use surrealdb::Connection;
 
