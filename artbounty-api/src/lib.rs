@@ -24,6 +24,10 @@ pub mod router {
             .route(
                 crate::auth::api::profile::PATH,
                 post(crate::auth::api::profile::server),
+            )
+            .route(
+                crate::auth::api::user::PATH,
+                post(crate::auth::api::user::server),
             );
         Router::new().nest(API_PATH, routes)
     }
@@ -320,9 +324,10 @@ pub mod utils {
 
         let headers = res.headers().clone();
         let status = res.status();
-        let url = res.url();
+        let url = res.url().clone();
+        let bytes = res.bytes().await;
 
-        if status == StatusCode::NOT_FOUND {
+        if status == StatusCode::NOT_FOUND && bytes.as_ref().map(|v| v.len() == 0).unwrap_or_default() {
             debug!("CLIENT RECV:\nstatus: {status}\nclient received headers: {headers:#?}");
             return (
                 headers,
@@ -330,9 +335,8 @@ pub mod utils {
             );
         }
 
-        let r = match res
-            .bytes()
-            .await
+        let r = match 
+            bytes
             .inspect(|bytes| debug!("CLIENT RECV:\nstatus: {status}\nclient received: {bytes:?}\nclient received headers: {headers:#?}"))
             .inspect_err(|err| error!("client byte stream err: {err}"))
             .map_err(|_| ResErr::ClientErr(ClientErr::ByteStreamFail))
@@ -1129,6 +1133,201 @@ pub mod auth {
     }
 
     pub mod api {
+        pub mod user {
+            use std::time::Duration;
+
+            use crate::utils::{ResErr, ServerDecodeErr, encode_result, send, send_from_builder};
+            use thiserror::Error;
+            use tracing::{error, trace};
+
+            pub const PATH: &'static str = "/user";
+
+            #[derive(
+                Debug,
+                Clone,
+                serde::Serialize,
+                serde::Deserialize,
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+            )]
+            pub struct Input {
+                pub username: String,
+            }
+
+            #[derive(
+                Debug,
+                Clone,
+                serde::Serialize,
+                serde::Deserialize,
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+            )]
+            pub struct ServerOutput {
+                pub username: String,
+            }
+
+            #[cfg(feature = "ssr")]
+            impl axum::response::IntoResponse for ServerOutput {
+                fn into_response(self) -> axum::response::Response {
+                    let bytes = encode_result::<ServerOutput, ServerErr>(&Ok(self));
+                    (axum::http::StatusCode::OK, bytes).into_response()
+                }
+            }
+
+            #[derive(
+                Debug,
+                Error,
+                Clone,
+                serde::Serialize,
+                serde::Deserialize,
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+            )]
+            pub enum ServerErr {
+                #[error("internal server error")]
+                ServerErr,
+
+                #[error("user not found")]
+                NotFound,
+                // #[error("jwt error")]
+                // Unauthorized,
+                //
+                // #[error("jwt error")]
+                // NoCookie,
+                //
+                // #[error("jwt error")]
+                // JWT,
+                // #[error("jwt expired error")]
+                // JWTExpired,
+            }
+
+            #[cfg(feature = "ssr")]
+            impl axum::response::IntoResponse for ServerErr {
+                fn into_response(self) -> axum::response::Response {
+                    let status = match &self {
+                        ServerErr::NotFound => axum::http::StatusCode::NOT_FOUND,
+                        _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    };
+                    let bytes =
+                        encode_result::<ServerOutput, ServerErr>(&Err(ResErr::ServerErr(self)));
+                    (status, bytes).into_response()
+                }
+            }
+
+            pub async fn client(input: Input) -> Result<ServerOutput, ResErr<ServerErr>> {
+                send::<ServerOutput, ServerErr>(PATH, &input).await
+            }
+
+            #[cfg(feature = "ssr")]
+            pub async fn server(
+                axum::extract::State(app_state): axum::extract::State<crate::app_state::AppState>,
+                jar: axum_extra::extract::cookie::CookieJar,
+                multipart: axum::extract::Multipart,
+            ) -> impl axum::response::IntoResponse {
+                trace!("executing profile api");
+                use artbounty_db::db::user::get_user_by_username;
+                use axum_extra::extract::cookie::Cookie;
+                use http::header::AUTHORIZATION;
+
+                use crate::{
+                    auth::{
+                        AuthToken, cut_cookie_value_decoded, decode_token, encode_token, get_nanos,
+                    },
+                    utils::{decode_multipart, encode_server_output},
+                };
+                let result = (async || -> Result<ServerOutput, ResErr<ServerErr>> {
+                    let input = decode_multipart::<Input, ServerErr>(multipart).await?;
+                    trace!("input!!!!!! {input:#?}");
+                    let user = app_state
+                        .db
+                        .get_user_by_username(input.username)
+                        .await
+                        .map_err(|err| match err {
+                            get_user_by_username::GetUserByUsernameErr::UserNotFound => {
+                                ServerErr::NotFound
+                            }
+                            _ => ServerErr::ServerErr,
+                        })?;
+
+                    Ok(ServerOutput {
+                        username: user.username,
+                    })
+                })()
+                .await;
+
+                encode_server_output(result)
+            }
+
+            #[cfg(test)]
+            pub async fn test_send(
+                server: &axum_test::TestServer,
+                username: impl Into<String>,
+            ) -> (http::HeaderMap, Result<ServerOutput, ResErr<ServerErr>>) {
+                use crate::router::API_PATH;
+
+                let input = Input {
+                    username: username.into(),
+                };
+                let path = format!("{}{}", API_PATH, PATH);
+                let builder = server.reqwest_post(&path);
+                let res = send_from_builder::<ServerOutput, ServerErr>(builder, &input).await;
+                trace!("RESPONSE: {res:#?}");
+                res
+            }
+
+            #[cfg(test)]
+            mod api {
+                use std::sync::Arc;
+                use std::time::Duration;
+
+                use crate::app_state::AppState;
+                use crate::auth::api::invite::InviteToken;
+                use crate::auth::{
+                    create_cookie, cut_cookie_full_with_expiration_encoded, decode_token,
+                    encode_token, get_nanos, get_timestamp, test_extract_cookie,
+                    test_extract_cookie_and_decode,
+                };
+                use crate::clock::Clock;
+                use crate::utils::{send_from_builder, ResErr};
+                use crate::{router, settings};
+
+                use artbounty_db::db;
+                use axum::Router;
+                use axum::routing::post;
+                use axum_test::TestServer;
+                use http::header::SET_COOKIE;
+                use test_log::test;
+                use tokio::sync::Mutex;
+                use tokio::time::sleep;
+                use tracing::trace;
+                use super::ServerErr;
+
+                #[test(tokio::test)]
+                async fn user() {
+                    let current_time = get_timestamp();
+                    let time = Arc::new(Mutex::new(current_time));
+                    let app_state = AppState::new_testng(time).await;
+                    let my_app = router::new().with_state(app_state.clone());
+
+                    let server = TestServer::builder()
+                        .http_transport()
+                        .build(my_app)
+                        .unwrap();
+
+                    {
+                        let time = app_state.clock.now().await;
+                        let exp = time + Duration::from_secs(60 * 30);
+                        let user = crate::auth::api::user::test_send(&server, "hey").await;
+                        assert!(matches!(user.1, Err(ResErr::ServerErr(ServerErr::NotFound))));
+                        let _ = app_state.db.add_user("hey", "hey@hey.com", "123").await;
+                        let user = crate::auth::api::user::test_send(&server, "hey").await.1.unwrap();
+                    }
+                }
+            }
+        }
         pub mod profile {
             use std::time::Duration;
 
@@ -2474,19 +2673,22 @@ pub mod auth {
                         .await
                         .map_err(|err| ServerErr::ServerErr)?;
 
-                    let output = ServerOutput{username: user.username};
+                    let output = ServerOutput {
+                        username: user.username,
+                    };
 
                     Result::<(String, ServerOutput), ResErr<ServerErr>>::Ok((cookie, output))
                 })()
                 .await;
 
                 let jar = match result.as_ref() {
-                    Ok((cookie, _)) => {
-                        jar.add(Cookie::new(http::header::AUTHORIZATION.as_str(), cookie.clone()))
-                    }
+                    Ok((cookie, _)) => jar.add(Cookie::new(
+                        http::header::AUTHORIZATION.as_str(),
+                        cookie.clone(),
+                    )),
                     Err(_) => jar,
                 };
-                let output = result.map(|v|v.1);
+                let output = result.map(|v| v.1);
                 (jar, encode_server_output(output))
                 // let res = match wrap().await {
                 //     Ok(cookie) => {

@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use leptos_router::components::*;
 use leptos_router::path;
 use log::trace;
-use page::{home, login, register};
+use page::{home, login, profile, register};
 
 use crate::toolbox::prelude::*;
 
@@ -59,6 +59,7 @@ pub fn App() -> impl IntoView {
         <Router>
             <Routes fallback=|| "not found">
                 <Route path=path!("") view=home::Page />
+                <Route path=path!("/u/:username") view=profile::Page />
                 <ProtectedRoute path=path!("/login") condition=move||Some(global_state.is_logged_in()) redirect_path=|| "/" view=login::Page />
                 <ProtectedRoute path=path!("/register") condition=move||Some(global_state.is_logged_in()) redirect_path=|| "/" view=register::Page />
             </Routes>

@@ -16,6 +16,7 @@ pub mod api {
         prelude::{ArcRwSignal, Get, Read, RwSignal, Set, Update, With, WithUntracked},
         task::spawn_local,
     };
+    use log::trace;
     use tracing::warn;
 
     pub trait Grounder<Func, FuncFuture, DTO, ApiValue, ApiErr>
@@ -61,7 +62,7 @@ pub mod api {
         ApiValue: Clone + 'static,
         ApiErr: Clone + 'static,
     {
-        inner: RwSignal<ApiInner<Func, FuncFuture, DTO, ApiValue, ApiErr>>,
+        pub inner: RwSignal<ApiInner<Func, FuncFuture, DTO, ApiValue, ApiErr>>,
         // is_pending: RwSignal<bool>,
     }
 
@@ -139,11 +140,15 @@ pub mod api {
             let inner = self.inner.clone();
             // let is_pending = self.is_pending.clone();
             spawn_local(async move {
+                trace!("fut starting");
                 let result = fut.await;
+                trace!("fut finished");
                 let r = inner.try_update(|v| {
                     v.value = Some(result);
                     v.pending = false;
+                    trace!("value set");
                 });
+
                 if r.is_none() {
                     warn!("trying to set disposed value");
                     return;
