@@ -691,7 +691,13 @@ pub mod db {
                 use surrealdb::{Connection, engine::local::Mem};
                 use tracing::trace;
 
-                use crate::db::{user::{get_user_by_email::GetUserByEmailErr, get_user_by_username::GetUserByUsernameErr}, Db};
+                use crate::db::{
+                    Db,
+                    user::{
+                        get_user_by_email::GetUserByEmailErr,
+                        get_user_by_username::GetUserByUsernameErr,
+                    },
+                };
                 use test_log::test;
                 use thiserror::Error;
 
