@@ -24,8 +24,7 @@ pub mod profile {
         let main_ref = NodeRef::new();
         let api_user = artbounty_api::auth::api::user::client.ground();
         let param = use_params::<UserParams>();
-        let param_username =
-            move || param.read().as_ref().ok().and_then(|v| v.username.clone());
+        let param_username = move || param.read().as_ref().ok().and_then(|v| v.username.clone());
         // let user = RwSignal::<Option<artbounty_api::auth::api::user::ServerOutput>>::new(None);
         // let user = move |callback: fn(&artbounty_api::auth::api::user::ServerOutput) -> String| {
         //     api_user

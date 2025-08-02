@@ -11,7 +11,7 @@ use axum::{
 use leptos::{logging, prelude::*};
 use leptos_axum::{LeptosRoutes, generate_route_list};
 use tower_http::{
-    compression::{predicate, CompressionLayer, DefaultPredicate},
+    compression::{CompressionLayer, DefaultPredicate, predicate},
     cors::{self, CorsLayer},
 };
 use tracing::trace;

@@ -1,24 +1,69 @@
 pub mod nav {
+    use crate::toolbox::prelude::*;
     use artbounty_shared::fe_router;
     use leptos::prelude::*;
+    use log::error;
+    use web_sys::SubmitEvent;
 
     use crate::app::GlobalState;
 
     #[component]
+
     pub fn Nav() -> impl IntoView {
         let global_state = expect_context::<GlobalState>();
-        let is_logged_in = move || global_state.acc.with(|v| v.is_some());
-        let acc_username = move || global_state.acc.with(|v| v.as_ref().map(|v|v.username.clone())).unwrap_or("error".to_string());
+        let api_logout = artbounty_api::auth::api::logout::client.ground();
+        // let is_logged_in = move || global_state.acc.with(|v| v.is_some());
+        let logout_or_loading = move || {
+            if api_logout.is_pending() {
+                "loading..."
+            } else {
+                "Logout"
+            }
+        };
+        let acc_username = move || {
+            global_state
+                .acc
+                .with(|v| v.as_ref().map(|v| v.username.clone()))
+                .unwrap_or("error".to_string())
+        };
+        let on_logout = move |e: SubmitEvent| {
+            e.prevent_default();
+
+            api_logout.dispatch(artbounty_api::auth::api::logout::Input {});
+        };
+
+        Effect::new(move || {
+            let Some(result) = api_logout.value() else {
+                return;
+            };
+
+            match result {
+                Ok(_) => {
+                    global_state.logout();
+                },
+                Err(err) => {
+                    error!("error logging out {err}");
+                }
+            }
+        });
+        // hey69@hey.com
+
         view! {
             <nav class="text-gray-200 pb-1 flex gap-2 px-2 py-1 items-center justify-between">
                 <a href="/" class="font-black text-[1.3rem]">
                     "ArtBounty"
                 </a>
-                <div class=move||format!("{}", if is_logged_in() { "hidden" } else { "" })>
+                <div class=move||format!("{}", if global_state.acc_pending() { "" } else { "hidden" })>
+                    <p>"loading..."</p>
+                </div>
+                <div class=move||format!("{}", if global_state.is_logged_in() || global_state.acc_pending() { "hidden" } else { "" })>
                     <a href=fe_router::login::PATH>"Login"</a>
                 </div>
-                <div class=move||format!("{}", if is_logged_in() { "" } else { "hidden" })>
+                <div class=move||format!("flex gap-2 {}", if global_state.is_logged_in() { "" } else { "hidden" })>
                     <a href=move||format!("/u/{}", acc_username())>{acc_username}</a>
+                    <form method="POST" action="" on:submit=on_logout >
+                        <input type="submit" value=logout_or_loading class="transition-all duration-300 ease-in hover:font-bold"/>
+                    </form>
                 </div>
                 // <a href="/register" class="">"Register"</a>
             </nav>
@@ -161,7 +206,6 @@ pub mod gallery {
             let (resized_imgs, _scroll_by) =
                 add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth, row_height);
             gallery.set(resized_imgs);
-
         });
 
         let a = view! {
