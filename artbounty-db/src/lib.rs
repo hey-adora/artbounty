@@ -98,7 +98,7 @@ pub mod db {
                             DEFINE FIELD country ON TABLE stat TYPE string;
                             DEFINE FIELD modified_at ON TABLE stat TYPE datetime DEFAULT time::now();
                             DEFINE FIELD created_at ON TABLE stat TYPE datetime DEFAULT time::now();
-                            DEFINE INDEX idx_stat_country ON TABLE session COLUMNS access_token UNIQUE;
+                            DEFINE INDEX idx_stat_country ON TABLE stat COLUMNS country UNIQUE;
                             -- invite 
                             DEFINE TABLE invite SCHEMAFULL;
                             DEFINE FIELD token_raw ON TABLE invite TYPE string;
@@ -107,6 +107,20 @@ pub mod db {
                             DEFINE FIELD used ON TABLE invite TYPE bool DEFAULT false;
                             DEFINE FIELD modified_at ON TABLE invite TYPE datetime DEFAULT time::now();
                             DEFINE FIELD created_at ON TABLE invite TYPE datetime DEFAULT time::now();
+                            -- post 
+                            DEFINE TABLE post SCHEMAFULL;
+                            DEFINE FIELD user_id ON TABLE post TYPE record<user>;
+                            DEFINE FIELD show ON TABLE post TYPE bool;
+                            DEFINE FIELD title ON TABLE post TYPE string;
+                            DEFINE FIELD description ON TABLE post TYPE string;
+                            DEFINE FIELD file ON TABLE post TYPE array<object>;
+                            DEFINE FIELD file.*.extension ON TABLE post TYPE string;
+                            DEFINE FIELD file.*.hash ON TABLE post TYPE string;
+                            DEFINE FIELD file.*.width ON TABLE post TYPE int;
+                            DEFINE FIELD file.*.height ON TABLE post TYPE int;
+                            DEFINE FIELD modified_at ON TABLE post TYPE datetime;
+                            DEFINE FIELD created_at ON TABLE post TYPE datetime;
+                            -- DEFINE INDEX idx_post_hash ON TABLE post COLUMNS hash UNIQUE;
 
                             CREATE migration SET version = 0;
                         };
@@ -121,7 +135,219 @@ pub mod db {
             Ok(())
         }
     }
+    pub mod post {
+        use serde::{Deserialize, Serialize};
+        use surrealdb::{Datetime, RecordId};
 
+        #[derive(Debug, Serialize, Deserialize, Clone)]
+        pub struct Post {
+            pub id: RecordId,
+            pub user_id: RecordId,
+            pub show: bool,
+            pub title: String,
+            pub file: Vec<PostFile>,
+            pub modified_at: Datetime,
+            pub created_at: Datetime,
+        }
+
+        #[derive(Debug, Serialize, Deserialize, Clone)]
+        pub struct PostFile {
+            pub extension: String,
+            pub hash: String,
+            pub width: u32,
+            pub height: u32,
+        }
+
+        pub mod add_post {
+            use std::time::Duration;
+
+            use serde::{Deserialize, Serialize};
+            use surrealdb::{Connection, Datetime, RecordId};
+            use thiserror::Error;
+            use tracing::{error, trace};
+
+            use crate::db::{post::PostFile, Db};
+
+            use super::Post;
+
+            // #[derive(Debug, Serialize, Deserialize, Clone)]
+            // pub struct AddPostDto {
+            //     // pub user_id: RecordId,
+            //     // pub show: bool,
+            //     pub extension: String,
+            //     pub hash: String,
+            //     pub width: u32,
+            //     pub height: u32,
+            // }
+
+            impl<C: Connection> Db<C> {
+                pub async fn add_post(
+                    &self,
+                    time: Duration,
+                    username: impl Into<String>,
+                    title: impl Into<String>,
+                    description: impl Into<String>,
+                    files: Vec<PostFile>,
+                ) -> Result<Vec<Post>, AddPostErr> {
+                    let db = &self.db;
+                    let username = username.into();
+                    let title = title.into();
+                    let description = description.into();
+                    let time = Datetime::from(chrono::DateTime::from_timestamp_nanos(
+                        time.as_nanos() as i64,
+                    ));
+
+                    let result = db
+                        .query(
+                            r#"
+                             LET $user = SELECT id FROM ONLY user WHERE username = $username;
+                             --LET $len = $files.len();
+                             --FOR $i in 0..1 {
+                             --};
+                             CREATE post SET
+                                user_id = $user.id,
+                                show = true,
+                                title = $title,
+                                description = $description,
+                                file = $files,
+                                -- extension = $files[$i].extension,
+                                -- hash = $files[$i].hash,
+                                -- width = $files[$i].width,
+                                -- height = $files[$i].height,
+                                modified_at = $modified_at,
+                                created_at = $created_at;
+
+                            -- SELECT * FROM post WHERE created_at = $created_at AND user_id = $user.id
+                        "#,
+                        )
+                        // .query(
+                        //     r#"
+                        //      LET $user = SELECT id FROM ONLY user WHERE username = $username;
+                        //      LET $len = $files.len();
+                        //      LET $posts = (<array>1..$len).map(|$i| {
+                        //         $new = CREATE post SET
+                        //             user_id = $user.id,
+                        //             show = true,
+                        //             extension = $files[$i].extension,
+                        //             hash = $files[$i].hash,
+                        //             width = $files[$i].width,
+                        //             height = $files[$i].height,
+                        //             modified_at = $modified_at,
+                        //             created_at = $created_at;
+                        //         $new
+                        //      });
+                        //
+                        //      RETURN $posts;
+                        // "#,
+                        // )
+                        .bind(("files", files))
+                        .bind(("username", username))
+                        .bind(("title", title))
+                        .bind(("description", description))
+                        .bind(("modified_at", time.clone()))
+                        .bind(("created_at", time))
+                        .await
+                        .inspect_err(|err| error!("add_post query {:#?}", err))?;
+
+                    trace!("{:#?}", result);
+                    let mut result = result.check().map_err(|err| match err {
+                        // surrealdb::Error::Db(surrealdb::error::Db::FieldCheck {
+                        //     thing,
+                        //     value,
+                        //     field,
+                        //     check,
+                        // }) if value == "NULL"
+                        //     || value == "NONE"
+                        //         && field
+                        //             .first()
+                        //             .map(|f| f.to_string())
+                        //             .inspect(|f| trace!("field: {f}"))
+                        //             .map(|f| f == ".email")
+                        //             .unwrap_or_default() =>
+                        // {
+                        //     AddInviteErr::EmailIsTaken(email)
+                        // }
+                        err => {
+                            error!("add_post res {:#?}", err);
+                            AddPostErr::from(err)
+                        }
+                    })?;
+                    let result = result
+                        .take::<Vec<Post>>(1)
+                        .inspect_err(|err| error!("add_post serialize error {:#?}", err))?;
+
+                    trace!("record created: {result:#?}");
+
+                    Ok(result)
+                }
+            }
+
+            #[derive(Debug, Error)]
+            pub enum AddPostErr {
+                #[error("DB error {0}")]
+                DB(#[from] surrealdb::Error),
+                // #[error("account with \"{0}\" email already exists")]
+                // EmailIsTaken(String),
+            }
+
+            #[cfg(test)]
+            mod db {
+                use std::time::Duration;
+
+                use surrealdb::engine::local::Mem;
+                use test_log::test;
+                use tracing::trace;
+
+                use crate::db::{
+                    invite::add_invite::AddInviteErr, post::PostFile, user::add_user::AddUserErr, Db
+                };
+
+                #[test(tokio::test)]
+                async fn add_post() {
+                    let db = Db::new::<Mem>(()).await.unwrap();
+                    let time = Duration::from_nanos(0);
+                    db.migrate().await.unwrap();
+                    db.add_user("hey", "hey@hey.com", "123").await.unwrap();
+                    let posts = db
+                        .add_post(
+                            time.clone(),
+                            "hey",
+                            "title",
+                            "description",
+                            vec![
+                                PostFile {
+                                    extension: ".png".to_string(),
+                                    hash: "A".to_string(),
+                                    width: 1,
+                                    height: 1,
+                                },
+                                PostFile {
+                                    extension: ".png".to_string(),
+                                    hash: "B".to_string(),
+                                    width: 1,
+                                    height: 1,
+                                },
+                            ],
+                        )
+                        .await
+                        .unwrap();
+                    trace!("{posts:#?}");
+                    assert!(posts.len() == 1);
+                    // let user = db.add_user("hey1", "hey1@hey.com", "123").await.unwrap();
+                    // let invite2 = db
+                    //     .add_invite(
+                    //         time.clone(),
+                    //         "wowza",
+                    //         "hey1@hey.com",
+                    //         Duration::from_nanos(0),
+                    //     )
+                    //     .await;
+                    // trace!("{invite2:#?}");
+                    // assert!(matches!(invite2, Err(AddInviteErr::EmailIsTaken(_))));
+                }
+            }
+        }
+    }
     pub mod invite {
         use serde::{Deserialize, Serialize};
         use surrealdb::{Datetime, RecordId};

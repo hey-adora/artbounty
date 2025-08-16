@@ -60,6 +60,7 @@ pub mod nav {
                     <a href=fe_router::login::PATH>"Login"</a>
                 </div>
                 <div class=move||format!("flex gap-2 {}", if global_state.is_logged_in() { "" } else { "hidden" })>
+                    <a href="/post">"U"</a>
                     <a href=move||format!("/u/{}", acc_username())>{acc_username}</a>
                     <form method="POST" action="" on:submit=on_logout >
                         <input type="submit" value=logout_or_loading class="transition-all duration-300 ease-in hover:font-bold"/>

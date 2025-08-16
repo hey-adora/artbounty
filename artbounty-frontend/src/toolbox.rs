@@ -1002,8 +1002,7 @@ pub mod file {
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
     use web_sys::{
-        DragEvent, File, ReadableStreamDefaultReader,
-        js_sys::{Object, Reflect, Uint8Array},
+        js_sys::{Object, Reflect, Uint8Array}, DragEvent, File, FileList, ReadableStreamDefaultReader
     };
 
     #[derive(Error, Debug, Clone)]
@@ -1071,15 +1070,20 @@ pub mod file {
 
     impl GetFiles for DragEvent {
         fn get_files(&self) -> Vec<File> {
+            let Some(files) = self.data_transfer().and_then(|v| v.files()) else {
+                return Vec::new();
+            };
+            get_files(&files)
+        }
+    }
+
+    impl GetFiles for FileList {
+        fn get_files(&self) -> Vec<File> {
             get_files(self)
         }
     }
 
-    pub fn get_files(drag_event: &DragEvent) -> Vec<File> {
-        let Some(files) = drag_event.data_transfer().and_then(|v| v.files()) else {
-            return Vec::new();
-        };
-
+    pub fn get_files(files: &FileList) -> Vec<File> {
         (0..files.length())
             .filter_map(|i| files.get(i))
             .collect::<Vec<File>>()
@@ -1180,7 +1184,7 @@ pub mod dropzone {
     }
 
     pub trait AddDropZone {
-        fn on_file_drop<F, R>(&self, callback: F)
+        fn use_file_drop<F, R>(&self, callback: F)
         where
             R: Future<Output = anyhow::Result<()>> + 'static,
             F: FnMut(Event, DragEvent) -> R + 'static;
@@ -1192,7 +1196,7 @@ pub mod dropzone {
         E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
     {
         #[track_caller]
-        fn on_file_drop<F, R>(&self, callback: F)
+        fn use_file_drop<F, R>(&self, callback: F)
         where
             R: Future<Output = anyhow::Result<()>> + 'static,
             F: FnMut(Event, DragEvent) -> R + 'static,
