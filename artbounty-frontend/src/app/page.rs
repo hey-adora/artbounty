@@ -58,13 +58,6 @@ pub mod post {
             let (Ok(title), Ok(description)) = (title, description) else {
                 return;
             };
-            // let Some(upload_image) = ( as ) else {
-            //     return;
-            // };
-            // let Some(files) = upload_image.files() else {
-            //     return;
-            // };
-            // let files = files.get_files();
             spawn_local(async move {
                 let mut files_data = Vec::<Vec<u8>>::new();
                 'for_file: for file in files {
@@ -100,55 +93,6 @@ pub mod post {
                 });
             });
         };
-        // let is_upload_busy = move || {
-        //     api_post.is_pending()
-        // };
-        // let api_user = artbounty_api::auth::api::user::client.ground();
-        // let param = use_params::<UserParams>();
-        // let param_username = move || param.read().as_ref().ok().and_then(|v| v.username.clone());
-        // // let user = RwSignal::<Option<artbounty_api::auth::api::user::ServerOutput>>::new(None);
-        // // let user = move |callback: fn(&artbounty_api::auth::api::user::ServerOutput) -> String| {
-        // //     api_user
-        // //         .inner
-        // //         .with(|v| {
-        // //             v.value.as_ref().map(|v| match v {
-        // //                 Ok(v) => callback(v),
-        // //                 Err(ResErr::ServerErr(artbounty_api::auth::api::user::ServerErr::NotFound)) =>,
-        // //                 Err(err) => "err".to_string(),
-        // //             })
-        // //         })
-        // //         .unwrap_or("loading...".to_string())
-        // // };
-        // let user_username = RwSignal::new("loading...".to_string());
-        //
-        // Effect::new(move || {
-        //     let Some(username) = param_username() else {
-        //         return;
-        //     };
-        //     api_user.dispatch(artbounty_api::auth::api::user::Input { username });
-        // });
-        //
-        // Effect::new(move || {
-        //     let result = api_user.value();
-        //     trace!("user received1 {result:?}");
-        //     let Some(result) = result else {
-        //         trace!("user received2 {result:?}");
-        //         return;
-        //     };
-        //     trace!("user received?");
-        //
-        //     match result {
-        //         Ok(v) => {
-        //             user_username.set(v.username);
-        //         }
-        //         Err(ResErr::ServerErr(artbounty_api::auth::api::user::ServerErr::NotFound)) => {
-        //             user_username.set("User Not Found".to_string());
-        //         }
-        //         Err(err) => {
-        //             user_username.set(err.to_string());
-        //         }
-        //     }
-        // });
 
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen">
@@ -234,19 +178,6 @@ pub mod profile {
         let api_user = artbounty_api::auth::api::user::client.ground();
         let param = use_params::<UserParams>();
         let param_username = move || param.read().as_ref().ok().and_then(|v| v.username.clone());
-        // let user = RwSignal::<Option<artbounty_api::auth::api::user::ServerOutput>>::new(None);
-        // let user = move |callback: fn(&artbounty_api::auth::api::user::ServerOutput) -> String| {
-        //     api_user
-        //         .inner
-        //         .with(|v| {
-        //             v.value.as_ref().map(|v| match v {
-        //                 Ok(v) => callback(v),
-        //                 Err(ResErr::ServerErr(artbounty_api::auth::api::user::ServerErr::NotFound)) =>,
-        //                 Err(err) => "err".to_string(),
-        //             })
-        //         })
-        //         .unwrap_or("loading...".to_string())
-        // };
         let user_username = RwSignal::new("loading...".to_string());
 
         Effect::new(move || {
@@ -389,7 +320,7 @@ pub mod register {
     use crate::app::{Acc, GlobalState};
     use crate::toolbox::prelude::*;
     use artbounty_api::utils::ResErr;
-    use artbounty_api::{api, auth};
+    use artbounty_api::{auth};
     use artbounty_shared::auth::{proccess_email, proccess_password, proccess_username};
     use artbounty_shared::fe_router::registration::{self, RegKind};
     use leptos::Params;
@@ -407,24 +338,6 @@ pub mod register {
         pub loading: Option<bool>,
         pub kind: Option<RegKind>,
     }
-
-    // #[derive(Debug, Clone, PartialEq, strum::EnumString, strum::Display)]
-    // #[strum(serialize_all = "lowercase")]
-    // pub enum RegKind {
-    //     Reg,
-    //     CheckEmail,
-    //     // Loading,
-    // }
-
-    // #[derive(Params, PartialEq)]
-    // struct InviteParams {
-    //     pub email: Option<String>,
-    // }
-
-    // #[derive(Params, PartialEq)]
-    // struct RegParams2 {
-    //     pub token: String,
-    // }
 
     use crate::app::components::nav::Nav;
     #[component]
@@ -447,13 +360,10 @@ pub mod register {
         let api_invite_decode = artbounty_api::auth::api::invite_decode::client.ground();
         let api_register = artbounty_api::auth::api::register::client.ground();
         let query = use_query::<RegParams>();
-        // let invite_query = use_query::<RegParams>();
-        // let query2 = use_query::<RegParams2>();
         let navigate = leptos_router::hooks::use_navigate();
 
         let get_query_token = move || query.read().as_ref().ok().and_then(|v| v.token.clone());
         let get_query_email = move || query.read().as_ref().ok().and_then(|v| v.email.clone());
-        // let get_query_loading = move || query.read().as_ref().ok().and_then(|v| v.loading.clone());
         let get_query_kind = move || query.read().as_ref().ok().and_then(|v| v.kind.clone());
         let query_kind_is_check_email = move || {
             get_query_kind()
@@ -465,44 +375,10 @@ pub mod register {
                 .map(|v| v == RegKind::Reg)
                 .unwrap_or_default()
         };
-        // let query_kind_is_loading = move || get_query_kind().map(|v| v == RegKind::Loading).unwrap_or_default();
         let get_query_email_or_err = move || get_query_email().unwrap_or(String::from("error"));
         let is_loading = move || {
             api_register.is_pending() || api_invite.is_pending() || api_invite_decode.is_pending()
         };
-        // let get_invite_decoded_email = move || {
-        //     api_invite_decode
-        //         .value()
-        //         .and_then(|v| v.ok())
-        //         .map(|v| v.email)
-        // };
-
-        // let has_token2 = move || { query2.read().as_ref().ok().map(|v| v.token.clone()) };
-        // Effect::new(move || {
-        //     let token = get_token();
-        //     // let token2 = has_token2();
-        //     trace!("token??? = {:?}", token);
-        //     // trace!("token???2 = {:?}", token2);
-        // });
-
-        // let api_register2 = api_register.clone();
-        // let api_register3 = api_register.clone();
-        // let api_register4 = api_register.clone();
-        // let api_register5 = api_register.clone();
-        // let api_register6 = api_register.clone();
-        // let registration_completed = move || false;
-        // let registration_pending = move || false;
-        // let registration_result = move || Option::<artbounty_api::auth::api::register>::None;
-        // let register = artbounty_api::auth::api::login::client.ground();
-        // let register = ServerAction::<api::register::Register>::new();
-        // let registration_completed = move || {
-        //     register
-        //         .value()
-        //         .with(|v| v.as_ref().map(|v| v.is_ok()))
-        //         .unwrap_or_default()
-        // };
-        // let registration_pending = move || register.pending().get();
-        // let registration_result = move || register.value().get().and_then(|v| v.ok());
 
         let on_invite = move |e: SubmitEvent| {
             e.prevent_default();
@@ -551,20 +427,11 @@ pub mod register {
                 return;
             };
 
-            // todo!("create register dispatch");
-
             api_register.dispatch(artbounty_api::auth::api::register::Input {
                 email_token: token,
                 password,
                 username,
             });
-
-            // trace!("register dispatched");
-            // register.dispatch(api::register::Register {
-            //     email,
-            //     password,
-            //     username,
-            // });
         };
         Effect::new({
             let navigate = navigate.clone();
@@ -744,7 +611,6 @@ pub mod login {
     use crate::app::{Acc, GlobalState};
     use crate::toolbox::prelude::*;
     use crate::{app::components::nav::Nav, toolbox::api::ground};
-    use artbounty_api::api;
     use artbounty_api::utils::ResErr;
     use artbounty_shared::auth::proccess_email;
     use leptos::{html::Input, prelude::*};

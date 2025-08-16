@@ -170,16 +170,6 @@ pub mod db {
 
             use super::Post;
 
-            // #[derive(Debug, Serialize, Deserialize, Clone)]
-            // pub struct AddPostDto {
-            //     // pub user_id: RecordId,
-            //     // pub show: bool,
-            //     pub extension: String,
-            //     pub hash: String,
-            //     pub width: u32,
-            //     pub height: u32,
-            // }
-
             impl<C: Connection> Db<C> {
                 pub async fn add_post(
                     &self,
@@ -220,26 +210,6 @@ pub mod db {
                             -- SELECT * FROM post WHERE created_at = $created_at AND user_id = $user.id
                         "#,
                         )
-                        // .query(
-                        //     r#"
-                        //      LET $user = SELECT id FROM ONLY user WHERE username = $username;
-                        //      LET $len = $files.len();
-                        //      LET $posts = (<array>1..$len).map(|$i| {
-                        //         $new = CREATE post SET
-                        //             user_id = $user.id,
-                        //             show = true,
-                        //             extension = $files[$i].extension,
-                        //             hash = $files[$i].hash,
-                        //             width = $files[$i].width,
-                        //             height = $files[$i].height,
-                        //             modified_at = $modified_at,
-                        //             created_at = $created_at;
-                        //         $new
-                        //      });
-                        //
-                        //      RETURN $posts;
-                        // "#,
-                        // )
                         .bind(("files", files))
                         .bind(("username", username))
                         .bind(("title", title))
@@ -251,22 +221,6 @@ pub mod db {
 
                     trace!("{:#?}", result);
                     let mut result = result.check().map_err(|err| match err {
-                        // surrealdb::Error::Db(surrealdb::error::Db::FieldCheck {
-                        //     thing,
-                        //     value,
-                        //     field,
-                        //     check,
-                        // }) if value == "NULL"
-                        //     || value == "NONE"
-                        //         && field
-                        //             .first()
-                        //             .map(|f| f.to_string())
-                        //             .inspect(|f| trace!("field: {f}"))
-                        //             .map(|f| f == ".email")
-                        //             .unwrap_or_default() =>
-                        // {
-                        //     AddInviteErr::EmailIsTaken(email)
-                        // }
                         err => {
                             error!("add_post res {:#?}", err);
                             AddPostErr::from(err)
@@ -333,17 +287,6 @@ pub mod db {
                         .unwrap();
                     trace!("{posts:#?}");
                     assert!(posts.len() == 1);
-                    // let user = db.add_user("hey1", "hey1@hey.com", "123").await.unwrap();
-                    // let invite2 = db
-                    //     .add_invite(
-                    //         time.clone(),
-                    //         "wowza",
-                    //         "hey1@hey.com",
-                    //         Duration::from_nanos(0),
-                    //     )
-                    //     .await;
-                    // trace!("{invite2:#?}");
-                    // assert!(matches!(invite2, Err(AddInviteErr::EmailIsTaken(_))));
                 }
             }
         }
@@ -1149,16 +1092,10 @@ pub mod db {
                             }
                         })?;
 
-                    // let result = result.check();
-                    //
-                    // trace!("result2: {result:#?}");
-                    // let mut result = result?;
-
                     let session = result
                         .take::<Option<Session>>(1)
                         .inspect_err(|err| error!("add session error: {err}"))?
                         .expect("session was just created");
-                    // .ok_or(AddSessionErr::NotFound)?;
 
                     Ok(session)
                 }
@@ -1204,10 +1141,6 @@ pub mod db {
                     let session = db.add_session("token", "hey2").await;
                     trace!("session: {session:?}");
                     assert!(matches!(session, Err(AddSessionErr::UserNotFound(_))));
-                    // let user = db.get_user_by_email("hey@hey.com").await.unwrap();
-                    // trace!("found {user:#?}");
-                    // let user = db.get_user_by_email("hey2@hey.com").await;
-                    // assert!(matches!(user, Err(GetUserByEmailErr::UserNotFound)));
                 }
             }
         }
@@ -1231,8 +1164,8 @@ pub mod db {
                     let result = db
                         .query(
                             r#"
-                     DELETE session WHERE access_token = $access_token;
-                "#,
+                             DELETE session WHERE access_token = $access_token;
+                        "#,
                         )
                         .bind(("access_token", token))
                         .await
@@ -1241,8 +1174,6 @@ pub mod db {
                         .check()
                         .inspect_err(|err| error!("unexpected error: {err}"))?;
 
-                    // let _result = result.check()?;
-                    // .inspect(|result| trace!("result2: {result:#?}"))?;
                     Ok(())
                 }
             }
@@ -1390,106 +1321,3 @@ pub mod db {
     }
 }
 
-// #[cfg(test)]
-// mod database_tests {
-//     use surrealdb::engine::local::{Mem, SurrealKv};
-//     use test_log::test;
-//     use tracing::trace;
-//
-//     use crate::db::Db;
-//
-//     // #[test(tokio::test)]
-//     // async fn test_get_user_by_email() {
-//     //     let db = Db::new::<Mem>(()).await.unwrap();
-//     //     // let db2 = Db::new::<SurrealKv>("").await.unwrap();
-//     //     db.migrate().await.unwrap();
-//     //
-//     //     let _user = db
-//     //         .add_user(
-//     //             "hey".to_string(),
-//     //             "hey@hey.com".to_string(),
-//     //             "hey".to_string(),
-//     //         )
-//     //         .await
-//     //         .unwrap();
-//     //     let user = db.get_user_by_email("hey@hey.com").await;
-//     //     trace!("user: {user:?}");
-//     //     assert!(user.is_ok());
-//     // }
-//
-//     #[test(tokio::test)]
-//     async fn test_get_user_password() {
-//         let db = Db::new::<Mem>(()).await.unwrap();
-//         db.migrate().await.unwrap();
-//
-//         let _user = db
-//             .add_user(
-//                 "hey".to_string(),
-//                 "hey@hey.com".to_string(),
-//                 "hey".to_string(),
-//             )
-//             .await
-//             .unwrap();
-//         let password = db.get_user_password_hash("hey@hey.com").await;
-//         trace!("pss: {password:?}");
-//         assert!(password.is_ok());
-//     }
-//
-//     #[test(tokio::test)]
-//     async fn test_add_session() {
-//         let db = Db::new::<Mem>(()).await.unwrap();
-//         db.migrate().await.unwrap();
-//
-//         let _user = db
-//             .add_user(
-//                 "hey".to_string(),
-//                 "hey@hey.com".to_string(),
-//                 "hey".to_string(),
-//             )
-//             .await
-//             .unwrap();
-//
-//         let session = db.add_session("token", "hey").await;
-//         trace!("session: {session:?}");
-//         assert!(session.is_ok());
-//
-//         let session = db.add_session("token", "hey").await;
-//         trace!("session: {session:?}");
-//         assert!(session.is_err());
-//     }
-
-// #[test(tokio::test)]
-// async fn register() {
-//     let db = Db::new::<Mem>(()).await.unwrap();
-//     db.migrate().await.unwrap();
-//     let user = db
-//         .add_user(
-//             "hey".to_string(),
-//             "hey@hey.com".to_string(),
-//             "hey".to_string(),
-//         )
-//         .await
-//         .unwrap();
-//     trace!("{user:#?}");
-//
-//     let user = db
-//         .add_user(
-//             "hey2".to_string(),
-//             "hey@hey.com".to_string(),
-//             "hey".to_string(),
-//         )
-//         .await;
-//     trace!("{user:#?}");
-//     assert!(matches!(user, Err(AddUserErr::EmailIsTaken(_))));
-//
-//     let user = db
-//         .add_user(
-//             "hey".to_string(),
-//             "hey2@hey.com".to_string(),
-//             "hey".to_string(),
-//         )
-//         .await;
-//     trace!("{user:#?}");
-//     assert!(matches!(user, Err(AddUserErr::UsernameIsTaken(_))));
-// }
-// }
