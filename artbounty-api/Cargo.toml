@@ -34,6 +34,10 @@ reqwest = { workspace = true }
 config = { workspace = true }
 futures = { workspace = true }
 resend-rs = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
+webp = { workspace = true, optional = true }
+little_exif = { workspace = true, optional = true }
+gxhash = { workspace = true, optional = true }
 
 [dev-dependencies]
 # artbounty-db = { workspace = true, features = ["test"] }
@@ -56,5 +60,9 @@ ssr = [
     "dep:argon2",
     "dep:jsonwebtoken",
     "dep:resend-rs",
+    "dep:image",
+    "dep:webp",
+    "dep:little_exif",
+    "dep:gxhash",
 ]
 csr = ["leptos/csr"]

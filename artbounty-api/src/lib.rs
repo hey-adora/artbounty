@@ -32,6 +32,10 @@ pub mod router {
             .route(
                 crate::auth::api::logout::PATH,
                 post(crate::auth::api::logout::server),
+            )
+            .route(
+                crate::post::api::create::PATH,
+                post(crate::post::api::create::server),
             );
         Router::new().nest(API_PATH, routes)
     }
@@ -210,25 +214,58 @@ pub mod utils {
 
         let result = match response {
             Ok(server_output) => server_output.into_response(),
-            Err(ResErr::ServerDecodeErr(err)) => {
+            // Err(ResErr::ServerDecodeErr(err)) => {
+            //     let body: Result<ServerOutput, ResErr<ServerErr>> =
+            //         Err(ResErr::ServerDecodeErr(err));
+            //     trace!("encoding server output: {body:#?}");
+            //     let body = encode_result::<ServerOutput, ServerErr>(&body);
+            //     trace!("sending body: {body:?}");
+            //     (axum::http::StatusCode::BAD_REQUEST, body).into_response()
+            // }
+            // Err(ResErr::ServerEndpointNotFoundErr(err)) => {
+            //     let body: Result<ServerOutput, ResErr<ServerErr>> =
+            //         Err(ResErr::ServerEndpointNotFoundErr(err));
+            //     trace!("encoding server output: {body:#?}");
+            //     let body = encode_result::<ServerOutput, ServerErr>(&body);
+            //     trace!("sending body: {body:?}");
+            //     (axum::http::StatusCode::NOT_FOUND, body).into_response()
+            // }
+            // Err(ResErr::Unauthorized(ResErrUnauthorized::BadToken)) => {
+            //     let body: Result<ServerOutput, ResErr<ServerErr>> =
+            //         Err(ResErr::ServerEndpointNotFoundErr(err));
+            //     trace!("encoding server output: {body:#?}");
+            //     let body = encode_result::<ServerOutput, ServerErr>(&body);
+            //     trace!("sending body: {body:?}");
+            //     (axum::http::StatusCode::NOT_FOUND, body).into_response()
+            // }
+            Err(ResErr::ServerErr(err)) => err.into_response(),
+            Err(ResErr::ClientErr(_)) => {
+                unreachable!("client error shouldnt be send by the server")
+            }
+            Err(ResErr::Unauthorized(ResErrUnauthorized::BadToken)) => {
+                use http::header::{AUTHORIZATION, SET_COOKIE};
+
                 let body: Result<ServerOutput, ResErr<ServerErr>> =
-                    Err(ResErr::ServerDecodeErr(err));
+                    Err(ResErr::Unauthorized(ResErrUnauthorized::BadToken));
+                trace!("encoding server output: {body:#?}");
+                let body = encode_result::<ServerOutput, ServerErr>(&body);
+                trace!("sending body: {body:?}");
+                // let jar = jar.add(Cookie::new(
+                //     AUTHORIZATION.as_str(),
+                //     "Bearer=DELETED; Secure; HttpOnly; expires=Thu, 01 Jan 1970 00:00:00 GMT",
+                // ));
+                let headers = axum::response::AppendHeaders([(
+                    SET_COOKIE,
+                    "authorization=Bearer%3DDELETED%3B%20Secure%3B%20HttpOnly%3B%20expires%3DThu%2C%2001%20Jan%201970%2000%3A00%3A00%20GMT",
+                )]);
+                (axum::http::StatusCode::UNAUTHORIZED, headers, body).into_response()
+            }
+            Err(err) => {
+                let body: Result<ServerOutput, ResErr<ServerErr>> = Err(err);
                 trace!("encoding server output: {body:#?}");
                 let body = encode_result::<ServerOutput, ServerErr>(&body);
                 trace!("sending body: {body:?}");
                 (axum::http::StatusCode::BAD_REQUEST, body).into_response()
-            }
-            Err(ResErr::ServerEndpointNotFoundErr(err)) => {
-                let body: Result<ServerOutput, ResErr<ServerErr>> =
-                    Err(ResErr::ServerEndpointNotFoundErr(err));
-                trace!("encoding server output: {body:#?}");
-                let body = encode_result::<ServerOutput, ServerErr>(&body);
-                trace!("sending body: {body:?}");
-                (axum::http::StatusCode::NOT_FOUND, body).into_response()
-            }
-            Err(ResErr::ServerErr(err)) => err.into_response(),
-            Err(ResErr::ClientErr(_)) => {
-                unreachable!("client error shouldnt be send by the server")
             }
         };
 
@@ -443,8 +480,35 @@ pub mod utils {
         #[error("server error: endpoint \"{0}\" not found")]
         ServerEndpointNotFoundErr(String),
 
+        #[error("unauthorized")]
+        Unauthorized(ResErrUnauthorized),
+
         #[error("server error: {0}")]
         ServerErr(#[from] E),
+    }
+
+    #[derive(
+        Debug,
+        Error,
+        Clone,
+        serde::Serialize,
+        serde::Deserialize,
+        rkyv::Archive,
+        rkyv::Serialize,
+        rkyv::Deserialize,
+    )]
+    pub enum ResErrUnauthorized {
+        #[error("unauthorized")]
+        Unauthorized,
+
+        #[error("no auth cookie")]
+        NoCookie,
+
+        #[error("jwt error")]
+        BadToken,
+
+        #[error("something is terribly wrong")]
+        DbErr,
     }
 
     // #[cfg(feature = "ssr")]
@@ -611,6 +675,7 @@ pub mod settings {
     #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
     pub struct Site {
         pub address: String,
+        pub files_path: String,
     }
 
     impl Settings {
@@ -627,6 +692,7 @@ pub mod settings {
             Self {
                 site: Site {
                     address: "http://localhost:3000".to_string(),
+                    files_path: "../target/tmp/files".to_string(),
                 },
                 auth: Auth {
                     secret: "secret".to_string(),
@@ -989,14 +1055,624 @@ pub mod api {
     // }
 }
 
+pub mod post {
+    pub mod api {
+        pub mod create {
+            #[cfg(feature = "ssr")]
+            use std::sync::Arc;
+            use std::time::Duration;
+
+            use crate::utils::{ResErr, ServerDecodeErr, encode_result, send, send_from_builder};
+            #[cfg(feature = "ssr")]
+            use axum::Extension;
+            use thiserror::Error;
+            use tracing::{error, trace};
+
+            pub const PATH: &'static str = "/post";
+
+            #[derive(
+                Debug,
+                Clone,
+                serde::Serialize,
+                serde::Deserialize,
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+            )]
+            pub struct Input {
+                pub title: String,
+                pub description: String,
+                pub files: Vec<Vec<u8>>,
+            }
+
+            // #[derive(
+            //     Debug,
+            //     Clone,
+            //     serde::Serialize,
+            //     serde::Deserialize,
+            //     rkyv::Archive,
+            //     rkyv::Serialize,
+            //     rkyv::Deserialize,
+            // )]
+            // pub struct InputFile {
+            //     // pub extension: String,
+            //     pub data: Vec<u8>,
+            // }
+
+            #[derive(
+                Debug,
+                Clone,
+                serde::Serialize,
+                serde::Deserialize,
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+            )]
+            pub struct ServerOutput {
+                pub imgs: Vec<ServerOutputImg>,
+            }
+
+            #[derive(
+                Debug,
+                Clone,
+                serde::Serialize,
+                serde::Deserialize,
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+            )]
+            pub struct ServerOutputImg {
+                pub hash: String,
+                pub extension: String,
+            }
+
+            #[cfg(feature = "ssr")]
+            impl axum::response::IntoResponse for ServerOutput {
+                fn into_response(self) -> axum::response::Response {
+                    let bytes = encode_result::<ServerOutput, ServerErr>(&Ok(self));
+                    (axum::http::StatusCode::OK, bytes).into_response()
+                }
+            }
+
+            #[derive(
+                Debug,
+                Error,
+                Clone,
+                serde::Serialize,
+                serde::Deserialize,
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+            )]
+            pub enum ServerErr {
+                #[error("internal server error")]
+                ServerErr,
+
+                #[error("unauthorized")]
+                Unauthorized,
+
+                #[error("img errors")]
+                ImgErrors(Vec<ServerErrImg>),
+
+                #[error("failed to create output dir for imgs")]
+                ImgFailedToCreateOutputDir(String),
+
+                #[error("failed to save images metadata")]
+                ImgFailedToSaveImgMeta,
+
+                #[error("failed to save images to disk {0}")]
+                ImgFailedToSaveImgToDisk(String),
+            }
+
+            #[derive(
+                Debug,
+                Error,
+                Clone,
+                serde::Serialize,
+                serde::Deserialize,
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+            )]
+            pub enum ServerErrImg {
+                #[error("unsupported format {0}")]
+                UnsupportedFormat(String),
+
+                #[error("failed to decode {0}")]
+                FailedToDecode(String),
+
+                #[error("failed to create webp encoder {0}")]
+                FailedToCreateWebpEncoder(String),
+
+                #[error("failed to encode webp {0}")]
+                FailedToEncodeWebp(String),
+
+                #[error("failed to read metadata {0}")]
+                FailedToReadMetadata(String),
+            }
+
+            #[cfg(feature = "ssr")]
+            impl axum::response::IntoResponse for ServerErr {
+                fn into_response(self) -> axum::response::Response {
+                    let status = match &self {
+                        // ServerErr::NoCookie => axum::http::StatusCode::OK,
+                        _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    };
+                    let bytes =
+                        encode_result::<ServerOutput, ServerErr>(&Err(ResErr::ServerErr(self)));
+                    (status, bytes).into_response()
+                }
+            }
+
+            pub async fn client(input: Input) -> Result<ServerOutput, ResErr<ServerErr>> {
+                send::<ServerOutput, ServerErr>(PATH, &input).await
+            }
+
+            #[cfg(feature = "ssr")]
+            pub async fn server(
+                axum::extract::State(app_state): axum::extract::State<crate::app_state::AppState>,
+                jar: axum_extra::extract::cookie::CookieJar,
+                // username: Extension<String>,
+                multipart: axum::extract::Multipart,
+            ) -> impl axum::response::IntoResponse {
+                // let username = &*username;
+                trace!("executing post api");
+                use std::{io::Cursor, path::Path, str::FromStr};
+
+                use crate::auth::check_auth;
+                use axum_extra::extract::cookie::Cookie;
+                use gxhash::{gxhash64, gxhash128};
+                use http::header::AUTHORIZATION;
+                use image::{ImageFormat, ImageReader};
+                use little_exif::{filetype::FileExtension, metadata::Metadata};
+                use tokio::fs;
+
+                use crate::{
+                    auth::{
+                        AuthToken, cut_cookie_value_decoded, decode_token, encode_token, get_nanos,
+                    },
+                    utils::{decode_multipart, encode_server_output},
+                };
+
+                let result = (async || -> Result<ServerOutput, ResErr<ServerErr>> {
+                    use artbounty_db::db::post::PostFile;
+
+                    let auth_token = check_auth(&app_state, &jar).await?;
+
+                    let input = decode_multipart::<Input, ServerErr>(multipart).await?;
+                    // trace!("{input:?}");
+                    let files = input
+                        .files
+                        .into_iter()
+                        .map(|v| {
+                            // let exif_remover_format = FileExtension::from_str(&v.extension)
+                            //     .map_err(|_| ServerErrImg::UnsupportedFormat("uwknown".to_string()))?;
+                            // let encoder_format: ImageFormat = ImageFormat::from_extension(&v.extension)
+                            //     .ok_or(ServerErrImg::UnsupportedFormat("uwknown".to_string()))?;
+                            // let metadata = Metadata
+                            let img_data_for_thumbnail = v.clone();
+                            let img_data_for_org = v;
+                            ImageReader::new(Cursor::new(img_data_for_thumbnail))
+                                .with_guessed_format()
+                                .inspect_err(|err| error!("error guesing the format {err}"))
+                                .map_err(|err| ServerErrImg::UnsupportedFormat(err.to_string()))
+                                .and_then(|v| {
+                                    let img_format = v.format().ok_or(
+                                        ServerErrImg::UnsupportedFormat("uwknown".to_string()),
+                                    )?;
+                                    v.decode()
+                                        .inspect_err(|err| error!("error decoding img {err}"))
+                                        .map_err(|err| {
+                                            ServerErrImg::FailedToDecode(err.to_string())
+                                        })
+                                        .map(|img| (img_format, img))
+                                })
+                                .and_then(|(img_format, img)| {
+                                    let width = img.width();
+                                    let height = img.height();
+                                    webp::Encoder::from_image(&img)
+                                        .inspect_err(|err| {
+                                            error!("failed to create webp encoder {err}")
+                                        })
+                                        .map_err(|err| {
+                                            ServerErrImg::FailedToDecode(err.to_string())
+                                        })
+                                        .and_then(|encoder| {
+                                            encoder
+                                                .encode_simple(false, 90.0)
+                                                .inspect_err(|err| {
+                                                    error!("failed to create webp encoder {err:?}")
+                                                })
+                                                .map_err(|err| {
+                                                    ServerErrImg::FailedToEncodeWebp(format!(
+                                                        "{err:?}"
+                                                    ))
+                                                })
+                                        })
+                                        .map(|img| (img_format, (width, height), img))
+                                })
+                                .and_then(|(img_format, (width, height), img_data_thumbnail)| {
+                                    let img_format = img_format.extensions_str()[0];
+                                    let mut img_data_org = img_data_for_org;
+                                    FileExtension::from_str(img_format)
+                                        .map_err(|_| {
+                                            ServerErrImg::UnsupportedFormat(img_format.to_string())
+                                        })
+                                        .and_then(|img_format| {
+                                            little_exif::metadata::Metadata::clear_metadata(
+                                                &mut img_data_org,
+                                                img_format,
+                                            )
+                                            .inspect_err(|err| {
+                                                error!("failed to read metadata {err:?}")
+                                            })
+                                            .map_err(
+                                                |err| {
+                                                    ServerErrImg::FailedToReadMetadata(
+                                                        err.to_string(),
+                                                    )
+                                                },
+                                            )
+                                        })
+                                        .map(|_| {
+                                            use artbounty_db::db::post::PostFile;
+
+                                            (
+                                                PostFile {
+                                                    extension: img_format.to_string(),
+                                                    hash: format!(
+                                                        "{:X}",
+                                                        gxhash128(&img_data_org, 0)
+                                                    ),
+                                                    width,
+                                                    height,
+                                                },
+                                                img_data_org,
+                                                img_data_thumbnail.to_vec(),
+                                            )
+                                        })
+                                })
+                        })
+                        .fold(
+                            (
+                                Vec::<(PostFile, Vec<u8>, Vec<u8>)>::new(),
+                                Vec::<ServerErrImg>::new(),
+                            ),
+                            |(mut oks, mut errs), file| {
+                                match file {
+                                    Ok(v) => {
+                                        oks.push(v);
+                                    }
+                                    Err(v) => {
+                                        errs.push(v);
+                                    }
+                                }
+
+                                (oks, errs)
+                            },
+                        );
+                    if !files.1.is_empty() {
+                        return Err(ResErr::from(ServerErr::ImgErrors(files.1)));
+                    }
+
+                    let files = files.0;
+                    let root_path = Path::new(&app_state.settings.site.files_path);
+                    let mut output_imgs = Vec::<ServerOutputImg>::new();
+                    for file in &files {
+                        let file_path =
+                            root_path.join(format!("{}.{}", &file.0.hash, &file.0.extension));
+                        if file_path.exists() {
+                            trace!(
+                                "file already exists {}",
+                                file_path.to_str().unwrap_or("err")
+                            );
+                            continue;
+                        }
+
+                        // root_path.join(format!("{:X}.{}", &file.0.hash, &file.0.extension));
+                        trace!("saving {}", file_path.to_str().unwrap_or("err"));
+                        // let result = fs::write(&path, &file.1).await;
+                        (match fs::write(&file_path, &file.1).await {
+                            Ok(v) => Ok(v),
+                            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                                fs::create_dir_all(&root_path)
+                                    .await
+                                    .inspect(|_| trace!("created img output dir {:?}", &file_path))
+                                    .inspect_err(|err| {
+                                        error!("error creating img output dir {err}")
+                                    })
+                                    .map_err(|err| {
+                                        ServerErr::ImgFailedToCreateOutputDir(err.to_string())
+                                    })?;
+                                fs::write(&file_path, &file.1).await
+                            }
+                            Err(err) => {
+                                //
+                                Err(err)
+                            }
+                        })
+                        .inspect_err(|err| error!("failed to save img to disk {err:?}"))
+                        .map_err(|err| ServerErr::ImgFailedToSaveImgToDisk(err.to_string()))?;
+                        output_imgs.push(ServerOutputImg {
+                            hash: file.0.hash.clone(),
+                            extension: file.0.extension.clone(),
+                        });
+                        // if let Err(ref err) = result
+                        //     && err.kind() == std::io::ErrorKind::NotFound
+                        // {
+                        //     fs::create_dir_all(path)
+                        //         .await
+                        //         .inspect_err(|err| error!("error creating img output dir {err}"))
+                        //         .map_err(|err| {
+                        //             ServerErr::ImgFailedToCreateOutputDir(err.to_string())
+                        //         })?;
+                        // }
+                        //
+                        // result
+                        //     .inspect_err(|err| error!("failed to save img to disk {err:?}"))
+                        //     .map_err(|err| ServerErr::ImgFailedToSaveImgToDisk(err.to_string()))?;
+                        // app_state.settings.site.files_path
+                    }
+
+                    let time = app_state.clock.now().await;
+                    let post_files = files.into_iter().map(|v| v.0).collect::<Vec<PostFile>>();
+                    app_state
+                        .db
+                        .add_post(
+                            time,
+                            &auth_token.username,
+                            &input.title,
+                            &input.description,
+                            post_files,
+                        )
+                        .await
+                        .inspect_err(|err| error!("failed to save images {err:?}"))
+                        .map_err(|_| ServerErr::ImgFailedToSaveImgMeta)?;
+
+                    Result::<ServerOutput, ResErr<ServerErr>>::Ok(ServerOutput {
+                        imgs: output_imgs,
+                    })
+                })()
+                .await;
+
+                // let exif_remover_format = ;
+
+                // let metadata = ;
+                // .map(|img| {
+                //     let width = img.width();
+                //     let height = img.height();
+                //     let color = img.color();
+                //     let rgb = img.to_rgb8();
+                //
+                //     let encoder = webp::Encoder::from_image(&img);
+                //
+                //     // let webp_encoder = image::codecs::webp::WebPEncoder::encode(
+                //     //     &rgb, color, width, height,
+                //     // );
+                //     // let webp_encoder = webp::Encoder::new(
+                //     //     &self.bytes,
+                //     //     self.color,
+                //     //     self.width,
+                //     //     self.height,
+                //     // );
+                //     // webp_encoder.encode_simple(false, 10f32).or_else(|e| {
+                //     //     Err(ImgDataEncodeWebpError::Encode(format!("{:?}", e)))
+                //     // })?;
+                //     // let bytes: Vec<u8> = r.to_vec();
+                // });
+
+                // let mut img: image::DynamicImage =
+                //     image::io::Reader::new(Cursor::new(org_bytes))
+                //         .with_guessed_format()?
+                //         .decode()?;
+                // let width = img.width();
+                // let height = img.height();
+
+                // Result::<AddPostDto, ServerErrImg>::Ok(AddPostDto {
+                //     extension: ".png".to_string(),
+                //     hash: "123".to_string(),
+                //     width: 1,
+                //     height: 1,
+                // })
+                // for file in input.files {
+                //
+                // }
+
+                // app_state
+                //     .db
+                //     .delete_session(token)
+                //     .await
+                //     .map_err(|err| ResErr::ServerErr(ServerErr::ServerErr))?;
+                // let token = match decode_token::<AuthToken>(
+                //     &app_state.settings.auth.secret,
+                //     &token,
+                //     false,
+                // ) {
+                //     Ok(v) => v,
+                //     Err(err) => {
+                //         error!("invalid token was stored {err}");
+                //         return Err(ResErr::ServerErr(ServerErr::JWT));
+                //     }
+                // };
+
+                // let jar = jar.add(Cookie::new(
+                //     AUTHORIZATION.as_str(),
+                //     "Bearer=DELETED; Secure; HttpOnly; expires=Thu, 01 Jan 1970 00:00:00 GMT",
+                // ));
+                // (jar, encode_server_output(result))
+                encode_server_output(result)
+            }
+
+            #[cfg(test)]
+            pub async fn test_send<
+                Token: Into<String>,
+                Files: AsRef<[File]>,
+                File: AsRef<std::path::Path>,
+            >(
+                server: &axum_test::TestServer,
+                title: impl Into<String>,
+                description: impl Into<String>,
+                file_paths: Files,
+                token: Token,
+            ) -> (http::HeaderMap, Result<ServerOutput, ResErr<ServerErr>>) {
+                use std::{ffi::OsStr, path::Path};
+
+                use tokio::fs;
+
+                use crate::router::API_PATH;
+                let mut files = Vec::new();
+                let paths = file_paths.as_ref();
+                let title = title.into();
+                let description = description.into();
+                for path in paths {
+                    let path = path.as_ref();
+                    trace!("reading path: {path:?}");
+                    // let name = path.extension().unwrap().to_str().unwrap().to_string();
+                    let data = fs::read(path).await.unwrap();
+                    files.push(data);
+                    // files.push(InputFile {
+                    //     extension: name,
+                    //     data,
+                    // });
+                }
+
+                let input = Input {
+                    title,
+                    description,
+                    files,
+                };
+                let path = format!("{}{}", API_PATH, PATH);
+                let token: String = token.into();
+                let builder = server.reqwest_post(&path).header(
+                    http::header::COOKIE,
+                    format!("authorization=Bearer%3D{}%3B%20Secure%3B%20HttpOnly", token),
+                );
+                let res = send_from_builder::<ServerOutput, ServerErr>(builder, &input).await;
+                trace!("RESPONSE: {res:#?}");
+                res
+            }
+
+            #[cfg(test)]
+            mod api {
+                use std::path::Path;
+                use std::sync::Arc;
+                use std::time::Duration;
+                use tokio::fs;
+
+                use crate::app_state::AppState;
+                use crate::auth::api::invite::InviteToken;
+                use crate::auth::{
+                    create_cookie, cut_cookie_full_with_expiration_encoded, decode_token,
+                    encode_token, get_nanos, get_timestamp, test_extract_cookie,
+                    test_extract_cookie_and_decode,
+                };
+                use crate::clock::Clock;
+                use crate::utils::send_from_builder;
+                use crate::{router, settings};
+
+                use artbounty_db::db;
+                use axum::{Router, middleware};
+                // use axum::routing::post;
+                use axum_test::TestServer;
+                use gxhash::gxhash128;
+                use http::header::SET_COOKIE;
+                use test_log::test;
+                use tokio::sync::Mutex;
+                use tokio::time::sleep;
+                use tracing::trace;
+
+                #[test(tokio::test)]
+                async fn post() {
+                    let current_time = get_timestamp();
+                    let time = Arc::new(Mutex::new(current_time));
+                    let app_state = AppState::new_testng(time).await;
+                    let my_app = router::new()
+                        // .route_layer(middleware::from_fn_with_state(
+                        //     app_state.clone(),
+                        // ))
+                        .with_state(app_state.clone());
+
+                    let server = TestServer::builder()
+                        .http_transport()
+                        .build(my_app)
+                        .unwrap();
+
+                    {
+                        let time = app_state.clock.now().await;
+                        let exp = time + Duration::from_secs(60 * 30);
+
+                        crate::auth::api::invite::test_send(&server, "hey1@hey.com")
+                            .await
+                            .1
+                            .unwrap();
+                        let invite = app_state
+                            .db
+                            .get_invite("hey1@hey.com", current_time)
+                            .await
+                            .unwrap();
+                        let (cookies, res) = crate::auth::api::register::test_send(
+                            &server,
+                            "hey",
+                            &invite.token_raw,
+                            "wowowowow123@",
+                        )
+                        .await;
+                        let token = test_extract_cookie(&cookies).unwrap();
+                        let dir = std::env::current_dir()
+                            .unwrap()
+                            .to_str()
+                            .unwrap()
+                            .to_string();
+                        trace!("current working dir: {dir}");
+                        // crate::auth::api::post::test_send(&server, [ format!("{}../assets/favicon.ico", dir) ], token)
+                        let res = crate::post::api::create::test_send(
+                            &server,
+                            "hello",
+                            "stuff",
+                            ["/mnt/hdd2/pictures/me/EX6P5GmWsAE3uij.jpg"],
+                            token,
+                        )
+                        .await
+                        .1
+                        .unwrap();
+                        trace!("post api server ouput: {res:#?}");
+
+                        for img in res.imgs {
+                            let file_path = format!(
+                                "{}/{}.{}",
+                                &app_state.settings.site.files_path, img.hash, img.extension
+                            );
+                            let file_path = Path::new(&file_path);
+                            let data = fs::read(file_path).await.unwrap();
+                            let new_hash = format!("{:X}", gxhash128(&data, 0));
+                            assert_eq!(img.hash, new_hash);
+                            fs::remove_file(&file_path).await.unwrap();
+                        }
+                        // let res =
+                        //     crate::auth::api::logout::test_send(&server, &invite.token_raw).await;
+                        // let cookie = cut_cookie_full_with_expiration_encoded(
+                        //     res.0.get(SET_COOKIE).unwrap().to_str().unwrap(),
+                        // );
+                        // assert_eq!(cookie, "DELETED");
+                    }
+                    // res.1.unwrap();
+                }
+            }
+        }
+    }
+}
+
 pub mod auth {
     use tracing::error;
 
+    #[cfg(feature = "ssr")]
+    use crate::utils::ResErr;
+
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     pub struct AuthToken {
-        username: String,
-        created_at: u128,
-        exp: u64,
+        pub username: String,
+        pub created_at: u128,
+        pub exp: u64,
     }
 
     impl AuthToken {
@@ -1112,6 +1788,94 @@ pub mod auth {
         &v[start.len()..v.len() - end.len()]
     }
 
+    #[cfg(feature = "ssr")]
+    pub async fn check_auth<ServerErr>(
+        app_state: &crate::app_state::AppState,
+        jar: &axum_extra::extract::cookie::CookieJar,
+    ) -> Result<AuthToken, ResErr<ServerErr>>
+    where
+        ServerErr: std::error::Error + 'static,
+        //     ServerOutput: for<'a> rkyv::Serialize<
+        //             rkyv::rancor::Strategy<
+        //                 rkyv::ser::Serializer<rkyv::util::AlignedVec, rkyv::ser::allocator::ArenaHandle<'a>, rkyv::ser::Sharing::Share>,
+        //                 bytecheck::rancor::Error,
+        //             >,
+        //         > + std::fmt::Debug
+        //         + axum::response::IntoResponse,
+        //     ServerErr: for<'a> rkyv::Serialize<
+        //             rkyv::rancor::Strategy<
+        //                 rkyv::ser::Serializer<AlignedVec, ArenaHandle<'a>, Share>,
+        //                 bytecheck::rancor::Error,
+        //             >,
+        //         > + Archive
+        //         + std::error::Error
+        //         + axum::response::IntoResponse
+        //         + std::fmt::Debug
+        //         + 'static,
+    {
+        use axum_extra::extract::cookie::Cookie;
+        use http::header::AUTHORIZATION;
+
+        use crate::utils::{ResErr, ResErrUnauthorized};
+
+        let token = jar
+            .get(AUTHORIZATION.as_str())
+            .ok_or(ResErr::Unauthorized(ResErrUnauthorized::NoCookie))
+            .map(|v| cut_cookie_value_decoded(v.value()).to_string())?;
+
+        let _session = app_state
+            .db
+            .get_session(&token)
+            .await
+            .map_err(|err| ResErr::<ServerErr>::Unauthorized(ResErrUnauthorized::NoCookie))?;
+
+        let token = match decode_token::<AuthToken>(&app_state.settings.auth.secret, &token, false)
+        {
+            Ok(v) => v,
+            Err(err) => {
+                error!("invalid token was stored {err}");
+                app_state
+                    .db
+                    .delete_session(token)
+                    .await
+                    .map_err(|err| ResErr::Unauthorized(ResErrUnauthorized::DbErr))?;
+                return Err(ResErr::Unauthorized(ResErrUnauthorized::BadToken));
+            }
+        };
+        // let result = (async || -> Result<ServerOutput, ResErr<ServerErr>> {
+        //     let token =
+        //         match decode_token::<AuthToken>(&app_state.settings.auth.secret, &token, false) {
+        //             Ok(v) => v,
+        //             Err(err) => {
+        //                 error!("invalid token was stored {err}");
+        //                 app_state
+        //                     .db
+        //                     .delete_session(token)
+        //                     .await
+        //                     .map_err(|err| ResErr::ServerErr(ServerErr::ServerErr))?;
+        //                 return Err(ResErr::ServerErr(ServerErr::JWT));
+        //             }
+        //         };
+        //
+        //     Ok(ServerOutput {
+        //         username: token.claims.username,
+        //     })
+        // })()
+        // .await;
+        //
+        // let jar = match &result {
+        //     Err(ResErr::ServerErr(ServerErr::JWT)) => ,
+        //     _ => jar,
+        // };
+
+        // let jar = jar.add(Cookie::new(
+        //         AUTHORIZATION.as_str(),
+        //         "Bearer=DELETED; Secure; HttpOnly; expires=Thu, 01 Jan 1970 00:00:00 GMT",
+        //     ));
+
+        Ok(token.claims)
+    }
+
     #[cfg(test)]
     pub fn test_extract_cookie(headers: &http::HeaderMap) -> Option<String> {
         use crate::auth::decode_token;
@@ -1136,6 +1900,16 @@ pub mod auth {
                 decode_token::<AuthToken>(secret, cookie, false).unwrap(),
             )
         })
+    }
+
+    #[cfg(test)]
+    mod util {
+        use crate::auth::cut_cookie_value_decoded;
+
+        #[test]
+        fn cut_cookie() {
+            cut_cookie_value_decoded("");
+        }
     }
 
     pub mod api {
@@ -1622,15 +2396,15 @@ pub mod auth {
             pub enum ServerErr {
                 #[error("internal server error")]
                 ServerErr,
-
-                #[error("jwt error")]
-                Unauthorized,
-
-                #[error("jwt error")]
-                NoCookie,
-
-                #[error("jwt error")]
-                JWT,
+                //
+                // #[error("jwt error")]
+                // Unauthorized,
+                //
+                // #[error("jwt error")]
+                // NoCookie,
+                //
+                // #[error("jwt error")]
+                // JWT,
                 // #[error("jwt expired error")]
                 // JWTExpired,
             }
@@ -1639,7 +2413,7 @@ pub mod auth {
             impl axum::response::IntoResponse for ServerErr {
                 fn into_response(self) -> axum::response::Response {
                     let status = match &self {
-                        ServerErr::NoCookie => axum::http::StatusCode::OK,
+                        // ServerErr::NoCookie => axum::http::StatusCode::OK,
                         _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                     };
                     let bytes =
@@ -1668,59 +2442,64 @@ pub mod auth {
                     utils::encode_server_output,
                 };
 
-                let token = match jar
-                    .get(AUTHORIZATION.as_str())
-                    .ok_or(ResErr::ServerErr(ServerErr::NoCookie))
-                    .map(|v| cut_cookie_value_decoded(v.value()).to_string())
-                {
-                    Ok(v) => v,
-                    Err(err) => {
-                        return (
-                            jar,
-                            encode_server_output(Result::<ServerOutput, ResErr<ServerErr>>::Err(
-                                err,
-                            )),
-                        );
-                    }
-                };
+                // let token = match jar
+                //     .get(AUTHORIZATION.as_str())
+                //     .ok_or(ResErr::ServerErr(ServerErr::NoCookie))
+                //     .map(|v| cut_cookie_value_decoded(v.value()).to_string())
+                // {
+                //     Ok(v) => v,
+                //     Err(err) => {
+                //         return (
+                //             jar,
+                //             encode_server_output(Result::<ServerOutput, ResErr<ServerErr>>::Err(
+                //                 err,
+                //             )),
+                //         );
+                //     }
+                // };
 
                 let result = (async || -> Result<ServerOutput, ResErr<ServerErr>> {
-                    let _session = app_state
-                        .db
-                        .get_session(&token)
-                        .await
-                        .map_err(|err| ResErr::ServerErr(ServerErr::Unauthorized))?;
-                    let token = match decode_token::<AuthToken>(
-                        &app_state.settings.auth.secret,
-                        &token,
-                        false,
-                    ) {
-                        Ok(v) => v,
-                        Err(err) => {
-                            error!("invalid token was stored {err}");
-                            app_state
-                                .db
-                                .delete_session(token)
-                                .await
-                                .map_err(|err| ResErr::ServerErr(ServerErr::ServerErr))?;
-                            return Err(ResErr::ServerErr(ServerErr::JWT));
-                        }
-                    };
+                    use crate::auth::check_auth;
+
+                    let auth_token = check_auth(&app_state, &jar).await?;
+
+                    // let _session = app_state
+                    //     .db
+                    //     .get_session(&token)
+                    //     .await
+                    //     .map_err(|err| ResErr::ServerErr(ServerErr::Unauthorized))?;
+                    // let token = match decode_token::<AuthToken>(
+                    //     &app_state.settings.auth.secret,
+                    //     &token,
+                    //     false,
+                    // ) {
+                    //     Ok(v) => v,
+                    //     Err(err) => {
+                    //         error!("invalid token was stored {err}");
+                    //         app_state
+                    //             .db
+                    //             .delete_session(token)
+                    //             .await
+                    //             .map_err(|err| ResErr::ServerErr(ServerErr::ServerErr))?;
+                    //         return Err(ResErr::ServerErr(ServerErr::JWT));
+                    //     }
+                    // };
 
                     Ok(ServerOutput {
-                        username: token.claims.username,
+                        username: auth_token.username,
                     })
                 })()
                 .await;
 
-                let jar = match &result {
-                    Err(ResErr::ServerErr(ServerErr::JWT)) => jar.add(Cookie::new(
-                        AUTHORIZATION.as_str(),
-                        "Bearer=DELETED; Secure; HttpOnly; expires=Thu, 01 Jan 1970 00:00:00 GMT",
-                    )),
-                    _ => jar,
-                };
-                (jar, encode_server_output(result))
+                // let jar = match &result {
+                //     Err(ResErr::ServerErr(ServerErr::JWT)) => jar.add(Cookie::new(
+                //         AUTHORIZATION.as_str(),
+                //         "Bearer=DELETED; Secure; HttpOnly; expires=Thu, 01 Jan 1970 00:00:00 GMT",
+                //     )),
+                //     _ => jar,
+                // };
+                // (jar, encode_server_output(result))
+                encode_server_output(result)
 
                 // let token = match  {
                 //         Ok(v) => v,
@@ -1817,7 +2596,7 @@ pub mod auth {
                     test_extract_cookie_and_decode,
                 };
                 use crate::clock::Clock;
-                use crate::utils::send_from_builder;
+                use crate::utils::{ResErrUnauthorized, send_from_builder};
                 use crate::{router, settings};
 
                 use artbounty_db::db;
@@ -1854,8 +2633,8 @@ pub mod auth {
                         trace!("RESPONSE: {res:#?}");
                         assert!(matches!(
                             res.1,
-                            Err(crate::utils::ResErr::ServerErr(
-                                crate::auth::api::profile::ServerErr::Unauthorized
+                            Err(crate::utils::ResErr::Unauthorized(
+                                ResErrUnauthorized::NoCookie
                             ))
                         ));
 
@@ -3211,61 +3990,144 @@ pub mod auth {
         }
     }
 
-    pub mod middleware {
-        #[cfg(feature = "ssr")]
-        use crate::auth::AuthToken;
-
-        #[derive(
-            Debug,
-            Clone,
-            thiserror::Error,
-            serde::Serialize,
-            serde::Deserialize,
-            rkyv::Archive,
-            rkyv::Serialize,
-            rkyv::Deserialize,
-        )]
-        pub enum VerifyCookieErr {
-            #[error("jwt error")]
-            JWT,
-
-            #[error("Bearer cookie not found")]
-            CookieNotFound,
-        }
-
-        // #[cfg(feature = "ssr")]
-        // pub fn verify_cookie<Key: AsRef<[u8]>, Cookie: AsRef<str>>(
-        //     secret: Key,
-        //     cookie: Cookie,
-        // ) -> Result<(String, jsonwebtoken::TokenData<AuthToken>), VerifyCookieErr> {
-        //     use biscotti::{Processor, ProcessorConfig, RequestCookies};
-        //     let processor: Processor = ProcessorConfig::default().into();
-        //     let secret = secret.as_ref();
-        //     let cookie = cookie.as_ref();
-        //     RequestCookies::parse_header(cookie, &processor)
-        //         .ok()
-        //         .and_then(|cookies| cookies.get("Bearer"))
-        //         .ok_or(VerifyCookieErr::CookieNotFound)
-        //         .and_then(|cookie| {
-        //             let token = cookie.value();
-        //             decode_token(secret, token)
-        //                 .map(|data| (token.to_string(), data))
-        //                 // .inspect_err(|err| error!("jwt exploded {err}"))
-        //                 .map_err(|_| VerifyCookieErr::JWT)
-        //         })
-        // }
-
-        #[cfg(feature = "ssr")]
-        pub fn get_auth_cookie<Cookie: AsRef<str>>(cookie: Cookie) -> Option<String> {
-            use biscotti::{Processor, ProcessorConfig, RequestCookies};
-            let processor: Processor = ProcessorConfig::default().into();
-            let cookie = cookie.as_ref();
-            RequestCookies::parse_header(cookie, &processor)
-                .ok()
-                .and_then(|cookies| cookies.get(http::header::AUTHORIZATION.as_str()))
-                .map(|cookie| cookie.value().to_string())
-        }
-    }
+    // pub mod middleware {
+    //     use axum::{
+    //         RequestExt,
+    //         extract::{FromRequest, Request},
+    //         middleware::{self, Next},
+    //         response::{IntoResponse, Response},
+    //     };
+    //     use http::header::AUTHORIZATION;
+    //     use tower::Layer;
+    //     use tracing::trace;
+    //
+    //     #[cfg(feature = "ssr")]
+    //     use crate::auth::AuthToken;
+    //     use crate::auth::{cut_cookie_value_decoded, decode_token};
+    //
+    //     #[derive(
+    //         Debug,
+    //         Clone,
+    //         thiserror::Error,
+    //         serde::Serialize,
+    //         serde::Deserialize,
+    //         rkyv::Archive,
+    //         rkyv::Serialize,
+    //         rkyv::Deserialize,
+    //     )]
+    //     pub enum VerifyCookieErr {
+    //         #[error("jwt error")]
+    //         JWT,
+    //
+    //         #[error("Bearer cookie not found")]
+    //         CookieNotFound,
+    //     }
+    //
+    //     pub async fn index(
+    //         axum::extract::State(app_state): axum::extract::State<crate::app_state::AppState>,
+    //         mut req: Request,
+    //         next: Next,
+    //     ) -> Response {
+    //         let extensions = req.extensions_mut();
+    //         extensions.insert(String::from("hello"));
+    //         let jar: axum_extra::extract::cookie::CookieJar = req.extract_parts().await.unwrap();
+    //         // let a = axum_extra::extract::cookie::CookieJar::from_request(, state).await;
+    //         let cooks = jar
+    //             .get(AUTHORIZATION.as_str())
+    //             .map(|cookie| cut_cookie_value_decoded(cookie.value()).to_string())
+    //             .and_then(|token| {
+    //                 decode_token::<AuthToken>(&app_state.settings.auth.secret, &token, false).ok()
+    //             });
+    //         // trace!("cooooks {cooks:?}");
+    //         // let r = "oof".into_response();
+    //         // encode_server_output(Result::<ServerOutput, ResErr<ServerErr>>::Err(err));
+    //
+    //         // let token = match jar
+    //         //     .get(AUTHORIZATION.as_str())
+    //         //     .ok_or(ResErr::ServerErr(ServerErr::NoCookie))
+    //         //     .map(|v| cut_cookie_value_decoded(v.value()).to_string())
+    //         // {
+    //         //     Ok(v) => v,
+    //         //     Err(err) => {
+    //         //         return (
+    //         //             jar,
+    //         //             encode_server_output(Result::<ServerOutput, ResErr<ServerErr>>::Err(err)),
+    //         //         );
+    //         //     }
+    //         // };
+    //         //
+    //         // let result = (async || -> Result<ServerOutput, ResErr<ServerErr>> {
+    //         //     let _session = app_state
+    //         //         .db
+    //         //         .get_session(&token)
+    //         //         .await
+    //         //         .map_err(|err| ResErr::ServerErr(ServerErr::Unauthorized))?;
+    //         //     let token =
+    //         //         match decode_token::<AuthToken>(&app_state.settings.auth.secret, &token, false)
+    //         //         {
+    //         //             Ok(v) => v,
+    //         //             Err(err) => {
+    //         //                 error!("invalid token was stored {err}");
+    //         //                 app_state
+    //         //                     .db
+    //         //                     .delete_session(token)
+    //         //                     .await
+    //         //                     .map_err(|err| ResErr::ServerErr(ServerErr::ServerErr))?;
+    //         //                 return Err(ResErr::ServerErr(ServerErr::JWT));
+    //         //             }
+    //         //         };
+    //         //
+    //         //     Ok(ServerOutput {
+    //         //         username: token.claims.username,
+    //         //     })
+    //         // })()
+    //         // .await;
+    //         //
+    //         // let jar = match &result {
+    //         //     Err(ResErr::ServerErr(ServerErr::JWT)) => jar.add(Cookie::new(
+    //         //         AUTHORIZATION.as_str(),
+    //         //         "Bearer=DELETED; Secure; HttpOnly; expires=Thu, 01 Jan 1970 00:00:00 GMT",
+    //         //     )),
+    //         //     _ => jar,
+    //         // };
+    //
+    //         let r = next.run(req).await;
+    //         r
+    //     }
+    //
+    //     // #[cfg(feature = "ssr")]
+    //     // pub fn verify_cookie<Key: AsRef<[u8]>, Cookie: AsRef<str>>(
+    //     //     secret: Key,
+    //     //     cookie: Cookie,
+    //     // ) -> Result<(String, jsonwebtoken::TokenData<AuthToken>), VerifyCookieErr> {
+    //     //     use biscotti::{Processor, ProcessorConfig, RequestCookies};
+    //     //     let processor: Processor = ProcessorConfig::default().into();
+    //     //     let secret = secret.as_ref();
+    //     //     let cookie = cookie.as_ref();
+    //     //     RequestCookies::parse_header(cookie, &processor)
+    //     //         .ok()
+    //     //         .and_then(|cookies| cookies.get("Bearer"))
+    //     //         .ok_or(VerifyCookieErr::CookieNotFound)
+    //     //         .and_then(|cookie| {
+    //     //             let token = cookie.value();
+    //     //             decode_token(secret, token)
+    //     //                 .map(|data| (token.to_string(), data))
+    //     //                 // .inspect_err(|err| error!("jwt exploded {err}"))
+    //     //                 .map_err(|_| VerifyCookieErr::JWT)
+    //     //         })
+    //     // }
+    //
+    //     #[cfg(feature = "ssr")]
+    //     pub fn get_auth_cookie<Cookie: AsRef<str>>(cookie: Cookie) -> Option<String> {
+    //         use biscotti::{Processor, ProcessorConfig, RequestCookies};
+    //         let processor: Processor = ProcessorConfig::default().into();
+    //         let cookie = cookie.as_ref();
+    //         RequestCookies::parse_header(cookie, &processor)
+    //             .ok()
+    //             .and_then(|cookies| cookies.get(http::header::AUTHORIZATION.as_str()))
+    //             .map(|cookie| cookie.value().to_string())
+    //     }
+    // }
 
     // pub async fn auth() -> Result<TokenData<Claims>, ServerFnError> {
     //     let header: HeaderMap = extract().await.unwrap();

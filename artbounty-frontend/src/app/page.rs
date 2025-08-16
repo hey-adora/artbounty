@@ -1,3 +1,212 @@
+pub mod post {
+    use std::rc::Rc;
+
+    use crate::app::components::{
+        gallery::{Gallery, Img},
+        nav::Nav,
+    };
+    use crate::toolbox::prelude::*;
+    use artbounty_api::utils::ResErr;
+    use artbounty_shared::auth::{proccess_email, proccess_post_description, proccess_post_title};
+    use leptos::prelude::*;
+    use leptos::{Params, task::spawn_local};
+    use leptos_router::{hooks::use_params, params::Params};
+
+    use leptos_router::hooks::use_query;
+    use tracing::{error, trace};
+    use web_sys::{HtmlInputElement, HtmlTextAreaElement, SubmitEvent};
+
+    #[derive(Params, PartialEq, Clone)]
+    pub struct UserParams {
+        pub username: Option<String>,
+    }
+
+    #[component]
+    pub fn Page() -> impl IntoView {
+        let main_ref = NodeRef::new();
+        let upload_title = NodeRef::new();
+        let upload_title_err = RwSignal::new(String::new());
+        let upload_image = NodeRef::new();
+        let upload_description = NodeRef::new();
+        let upload_description_err = RwSignal::new(String::new());
+        let upload_tags = NodeRef::new();
+        let upload_tags_err = RwSignal::new(String::new());
+        let upload_general_err = RwSignal::new(String::new());
+        let api_post = artbounty_api::post::api::create::client.ground();
+        let on_upload = move |e: SubmitEvent| {
+            e.prevent_default();
+            trace!("uploading...");
+            let (Some(files), Some(title), Some(description), Some(tags)) = (
+                upload_image
+                    .get_untracked()
+                    .and_then(|f: HtmlInputElement| f.files())
+                    .map(|f| f.get_files()),
+                upload_title.get_untracked() as Option<HtmlInputElement>,
+                upload_description.get_untracked() as Option<HtmlTextAreaElement>,
+                upload_tags.get_untracked() as Option<HtmlTextAreaElement>,
+            ) else {
+                return;
+            };
+
+            let title = proccess_post_title(title.value());
+            let description = proccess_post_description(description.value());
+
+            upload_title_err.set(title.clone().err().unwrap_or_default());
+            upload_description_err.set(description.clone().err().unwrap_or_default());
+            // upload_tags_err.set(description.clone().err().unwrap_or_default());
+            upload_general_err.set(String::new());
+            let (Ok(title), Ok(description)) = (title, description) else {
+                return;
+            };
+            // let Some(upload_image) = ( as ) else {
+            //     return;
+            // };
+            // let Some(files) = upload_image.files() else {
+            //     return;
+            // };
+            // let files = files.get_files();
+            spawn_local(async move {
+                let mut files_data = Vec::<Vec<u8>>::new();
+                'for_file: for file in files {
+                    // let a = file.;
+                    let stream = match file.get_file_stream() {
+                        Ok(stream) => stream,
+                        Err(err) => {
+                            error!("error getting file stream \"{err}\"");
+                            continue;
+                        }
+                    };
+
+                    let mut data = Vec::<u8>::new();
+                    while let Some(chunk) = match stream.get_stream_chunk().await {
+                        Ok(chunk) => chunk,
+                        Err(err) => {
+                            error!("error getting file stream chunk \"{err}\"");
+                            continue 'for_file;
+                        }
+                    } {
+                        chunk.push_to_vec(&mut data);
+                    }
+                    // let data_str = String::from_utf8_lossy(&data);
+                    trace!("file: {:02X?}", data);
+                    files_data.push(data);
+                }
+                trace!("files data read");
+                api_post.dispatch(artbounty_api::post::api::create::Input {
+                    title,
+                    description,
+                    files: files_data,
+
+                });
+            });
+        };
+        // let is_upload_busy = move || {
+        //     api_post.is_pending()
+        // };
+        // let api_user = artbounty_api::auth::api::user::client.ground();
+        // let param = use_params::<UserParams>();
+        // let param_username = move || param.read().as_ref().ok().and_then(|v| v.username.clone());
+        // // let user = RwSignal::<Option<artbounty_api::auth::api::user::ServerOutput>>::new(None);
+        // // let user = move |callback: fn(&artbounty_api::auth::api::user::ServerOutput) -> String| {
+        // //     api_user
+        // //         .inner
+        // //         .with(|v| {
+        // //             v.value.as_ref().map(|v| match v {
+        // //                 Ok(v) => callback(v),
+        // //                 Err(ResErr::ServerErr(artbounty_api::auth::api::user::ServerErr::NotFound)) =>,
+        // //                 Err(err) => "err".to_string(),
+        // //             })
+        // //         })
+        // //         .unwrap_or("loading...".to_string())
+        // // };
+        // let user_username = RwSignal::new("loading...".to_string());
+        //
+        // Effect::new(move || {
+        //     let Some(username) = param_username() else {
+        //         return;
+        //     };
+        //     api_user.dispatch(artbounty_api::auth::api::user::Input { username });
+        // });
+        //
+        // Effect::new(move || {
+        //     let result = api_user.value();
+        //     trace!("user received1 {result:?}");
+        //     let Some(result) = result else {
+        //         trace!("user received2 {result:?}");
+        //         return;
+        //     };
+        //     trace!("user received?");
+        //
+        //     match result {
+        //         Ok(v) => {
+        //             user_username.set(v.username);
+        //         }
+        //         Err(ResErr::ServerErr(artbounty_api::auth::api::user::ServerErr::NotFound)) => {
+        //             user_username.set("User Not Found".to_string());
+        //         }
+        //         Err(err) => {
+        //             user_username.set(err.to_string());
+        //         }
+        //     }
+        // });
+
+        view! {
+            <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen">
+                <Nav/>
+                <div>
+                    <div class=move||format!("mx-auto text-[1.5rem] {}", if api_post.is_pending() {""} else {"hidden"})>
+                        <h1>"LOADING..."</h1>
+                    </div>
+                    <form method="POST" action="" on:submit=on_upload class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if !api_post.is_pending() {""} else {"hidden"})>
+                        <h1 class="text-[1.5rem]  text-center my-[4rem]">"UPLOAD"</h1>
+                        <div class=move||format!("text-red-600 text-center {}", if upload_general_err.with(|v| v.is_empty()) {"hidden"} else {""})>{move || { upload_general_err.get() }}</div>
+                        <div class="flex flex-col gap-4">
+                            <div class="flex flex-col gap-0">
+                                <label for="title" class="text-[1.2rem] ">"Title"</label>
+                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if upload_title_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
+                                    <ul class="list-disc ml-[1rem]">
+                                        {move || upload_title_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                    </ul>
+                                </div>
+                                <input placeholder="Funny looking cat" id="title" name="name" node_ref=upload_title type="text" class="border-b-2 border-white w-full mt-1 " />
+                            </div>
+                            <div class="flex flex-col gap-0">
+                                <label for="image" class="text-[1.2rem] ">"Images"</label>
+                                // <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if upload_title_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
+                                //     <ul class="list-disc ml-[1rem]">
+                                //         {move || upload_title_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                //     </ul>
+                                // </div>
+                                <input type="file" id="image" name="image" node_ref=upload_image multiple />
+                            </div>
+                            <div class="flex flex-col gap-0">
+                                <label for="description" class="text-[1.2rem] ">"Description"</label>
+                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if upload_description_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
+                                    <ul class="list-disc ml-[1rem]">
+                                        {move || upload_description_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                    </ul>
+                                </div>
+                                <textarea class="border-l-2 border-white pl-2 bg-main-light" node_ref=upload_description id="description" name="description" rows="4" cols="50">""</textarea>
+                            </div>
+                            <div class="flex flex-col gap-0">
+                                <label for="tags" class="text-[1.2rem] ">"Tags"</label>
+                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if upload_tags_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
+                                    <ul class="list-disc ml-[1rem]">
+                                        {move || upload_tags_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                    </ul>
+                                </div>
+                                <textarea class="border-l-2 border-white pl-2 bg-main-light" node_ref=upload_tags id="tags" name="tags" rows="1" cols="50">""</textarea>
+                            </div>
+                        </div>
+                        <div class="flex flex-col gap-[1.3rem] mx-auto my-[4rem] text-center">
+                            <input type="submit" value="Post" class="border-2 border-white text-[1.3rem] font-bold px-4 py-1 hover:bg-white hover:text-gray-950"/>
+                        </div>
+                    </form>
+                </div>
+            </main>
+        }
+    }
+}
 pub mod profile {
     use std::rc::Rc;
 
@@ -96,7 +305,7 @@ pub mod home {
         let main_ref = NodeRef::new();
         let fake_imgs = RwSignal::new(Vec::<Img>::new());
 
-        main_ref.on_file_drop(async |_event, data| {
+        main_ref.use_file_drop(async |_event, data| {
             for file in data.get_files() {
                 let stream = file.get_file_stream()?;
                 let mut data = Vec::<u8>::new();
@@ -298,7 +507,7 @@ pub mod register {
         let on_invite = move |e: SubmitEvent| {
             e.prevent_default();
 
-            let Some(email) = invite_email.get() else {
+            let Some(email) = invite_email.get_untracked() else {
                 return;
             };
 
@@ -316,10 +525,10 @@ pub mod register {
         let on_register = move |e: SubmitEvent| {
             e.prevent_default();
             let (Some(username), Some(password), Some(password_confirmation)) = (
-                register_username.get(),
+                register_username.get_untracked(),
                 // register_email.get(),
-                register_password.get(),
-                register_password_confirmation.get(),
+                register_password.get_untracked(),
+                register_password_confirmation.get_untracked(),
             ) else {
                 return;
             };

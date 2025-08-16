@@ -1,5 +1,6 @@
 [site]
 address = "http://localhost:3000"
+files_path = "./files"
 
 [auth]
 secret = "wowza"

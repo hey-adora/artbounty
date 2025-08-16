@@ -24,7 +24,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <link rel="shortcut icon" type="image/ico" href="/favicon.ico" />
                 <link rel="stylesheet" id="leptos" href="/pkg/artbounty_1.css" />
             </head>
-            <body class="bg-gray-950">
+            <body class="bg-main-dark">
                 <App />
             </body>
         </html>

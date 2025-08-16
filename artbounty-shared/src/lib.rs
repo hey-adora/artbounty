@@ -66,6 +66,56 @@ pub mod auth {
         }
     }
 
+    pub fn proccess_post_title<S: AsRef<str>>(title: S) -> Result<String, String> {
+        let mut errors = String::new();
+        let input = title.as_ref().trim().to_string();
+        // if !username.is_first_char_alphabetic() {
+        //     errors += "title must start with alphabetic character\n";
+        // }
+        // if !username.is_alphanumerc() {
+        //     errors += "title must be alphanumeric\n";
+        // }
+        if input.is_smaller_than(1) {
+            errors += "title must be at least 1 characters length\n";
+        }
+        if input.is_bigger_than(120) {
+            errors += "title must be shorter than 121 characters length\n";
+        }
+
+        if errors.is_empty() {
+            Ok(input)
+        } else {
+            let _ = errors.pop();
+            trace!("errors {errors}");
+            Err(errors)
+        }
+    }
+
+    pub fn proccess_post_description<S: AsRef<str>>(description: S) -> Result<String, String> {
+        let mut errors = String::new();
+        let input = description.as_ref().trim().to_string();
+        // if !username.is_first_char_alphabetic() {
+        //     errors += "description must start with alphabetic character\n";
+        // }
+        // if !username.is_alphanumerc() {
+        //     errors += "description must be alphanumeric\n";
+        // }
+        // if username.is_smaller_than(1) {
+        //     errors += "description must be at least 1 characters length\n";
+        // }
+        if input.is_bigger_than(10240) {
+            errors += "description must be shorter than 10241 characters length\n";
+        }
+
+        if errors.is_empty() {
+            Ok(input)
+        } else {
+            let _ = errors.pop();
+            trace!("errors {errors}");
+            Err(errors)
+        }
+    }
+
     pub fn proccess_password<S: Into<String>>(
         password: S,
         password_confirmation: Option<S>,

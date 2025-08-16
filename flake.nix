@@ -1,6 +1,6 @@
 {
   inputs = {
-    naersk.url = "github:nix-community/naersk/master";
+    # naersk.url = "github:nix-community/naersk/master";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     utils.url = "github:numtide/flake-utils";
     rust-overlay.url = "github:oxalica/rust-overlay";
@@ -11,7 +11,7 @@
       self,
       nixpkgs,
       utils,
-      naersk,
+      # naersk,
       rust-overlay,
     }:
     utils.lib.eachDefaultSystem (
@@ -19,47 +19,47 @@
       let
         overlays = [
           (import rust-overlay)
-          (final: prev: {
-            dioxus-cli-0_7 = final.rustPlatform.buildRustPackage {
-              pname = "dioxus-cli";
-              version = "0.7.0-alpha.1";
-              nativeCheckInputs = [ final.rustfmt ];
-              OPENSSL_NO_VENDOR = 1;
-              useFetchCargoVendor = true;
-              cargoHash = "sha256-r42Z6paBVC2YTlUr4590dSA5RJJEjt5gfKWUl91N/ac=";
-              buildFeatures = [
-                "no-downloads"
-                "optimizations"
-              ];
-
-              nativeBuildInputs = [
-                final.pkg-config
-                final.cacert
-              ];
-
-              buildInputs = [ final.openssl ];
-              src = final.fetchCrate {
-                pname = "dioxus-cli";
-                version = "0.7.0-alpha.1";
-                hash = "sha256-3b82XlxffgbtYbEYultQMzJRRwY/I36E1wgzrKoS8BU=";
-              };
-
-              checkFlags = [
-                # requires network access
-                "--skip=serve::proxy::test"
-                "--skip=wasm_bindgen::test"
-              ];
-            };
-          })
+          # (final: prev: {
+          #   dioxus-cli-0_7 = final.rustPlatform.buildRustPackage {
+          #     pname = "dioxus-cli";
+          #     version = "0.7.0-alpha.1";
+          #     nativeCheckInputs = [ final.rustfmt ];
+          #     OPENSSL_NO_VENDOR = 1;
+          #     useFetchCargoVendor = true;
+          #     cargoHash = "sha256-r42Z6paBVC2YTlUr4590dSA5RJJEjt5gfKWUl91N/ac=";
+          #     buildFeatures = [
+          #       "no-downloads"
+          #       "optimizations"
+          #     ];
+          #
+          #     nativeBuildInputs = [
+          #       final.pkg-config
+          #       final.cacert
+          #     ];
+          #
+          #     buildInputs = [ final.openssl ];
+          #     src = final.fetchCrate {
+          #       pname = "dioxus-cli";
+          #       version = "0.7.0-alpha.1";
+          #       hash = "sha256-3b82XlxffgbtYbEYultQMzJRRwY/I36E1wgzrKoS8BU=";
+          #     };
+          #
+          #     checkFlags = [
+          #       # requires network access
+          #       "--skip=serve::proxy::test"
+          #       "--skip=wasm_bindgen::test"
+          #     ];
+          #   };
+          # })
 
         ];
 
         pkgs = import nixpkgs { inherit system overlays; };
-        naersk-lib = pkgs.callPackage naersk { };
+        # naersk-lib = pkgs.callPackage naersk { };
         rust_toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
       in
       {
-        defaultPackage = naersk-lib.buildPackage ./.;
+        # defaultPackage = naersk-lib.buildPackage ./.;
         devShell =
           with pkgs;
           mkShell {
