@@ -56,6 +56,7 @@ itertools = { workspace = true }
 colored = { workspace = true }
 log = { workspace = true }
 server_fn = { workspace = true }
+chrono = { workspace = true }
 
 [dev-dependencies]
 wasm-bindgen-test = { workspace = true }

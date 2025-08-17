@@ -32,7 +32,7 @@ pub mod post {
         let upload_tags = NodeRef::new();
         let upload_tags_err = RwSignal::new(String::new());
         let upload_general_err = RwSignal::new(String::new());
-        let api_post = artbounty_api::post::api::create::client.ground();
+        let api_post = artbounty_api::post::api::add::client.ground();
         let on_upload = move |e: SubmitEvent| {
             e.prevent_default();
             trace!("uploading...");
@@ -85,11 +85,10 @@ pub mod post {
                     files_data.push(data);
                 }
                 trace!("files data read");
-                api_post.dispatch(artbounty_api::post::api::create::Input {
+                api_post.dispatch(artbounty_api::post::api::add::Input {
                     title,
                     description,
                     files: files_data,
-
                 });
             });
         };
@@ -264,29 +263,32 @@ pub mod home {
             }
         });
 
-        let fetch_bottom = move |count: usize, last_img: Img| -> Vec<Img> {
-            trace!("gogbtm");
-
-            fake_imgs
-                .with_untracked(|imgs| {
-                    imgs.iter()
-                        .position(|img| img.id == last_img.id)
-                        .and_then(|pos_start| {
-                            let len = imgs.len();
-                            if len == pos_start + 1 {
-                                return None;
-                            }
-                            let pos_end = pos_start + count;
-                            let pos_end = if pos_start + count > len {
-                                len
-                            } else {
-                                pos_end
-                            };
-                            Some(imgs[pos_start..pos_end].to_vec())
-                        })
-                })
-                .unwrap_or_default()
-        };
+        // let fetch_bottom = async move |count: usize, last_img: Img|  {
+        //      {
+        //         trace!("gogbtm");
+        //
+        //         // fake_imgs
+        //         //     .with_untracked(|imgs| {
+        //         //         imgs.iter()
+        //         //             .position(|img| img.id == last_img.id)
+        //         //             .and_then(|pos_start| {
+        //         //                 let len = imgs.len();
+        //         //                 if len == pos_start + 1 {
+        //         //                     return None;
+        //         //                 }
+        //         //                 let pos_end = pos_start + count;
+        //         //                 let pos_end = if pos_start + count > len {
+        //         //                     len
+        //         //                 } else {
+        //         //                     pos_end
+        //         //                 };
+        //         //                 Some(imgs[pos_start..pos_end].to_vec())
+        //         //             })
+        //         //     })
+        //         //     .unwrap_or_default()
+        //         Vec::new()
+        //     }
+        // };
         let fetch_top = move |count: usize, last_img: Img| -> Vec<Img> {
             trace!("gogtop");
 
@@ -306,10 +308,13 @@ pub mod home {
                 .unwrap_or_default()
         };
 
+
+        // <AwaitProps<>
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen">
                 <Nav/>
-                <Gallery fetch_init fetch_bottom fetch_top />
+                <Gallery />
+                // <Gallery fetch_init fetch_bottom=|c, img| async {Vec::new()} fetch_top />
             </main>
         }
     }
@@ -319,8 +324,8 @@ pub mod register {
 
     use crate::app::{Acc, GlobalState};
     use crate::toolbox::prelude::*;
+    use artbounty_api::auth;
     use artbounty_api::utils::ResErr;
-    use artbounty_api::{auth};
     use artbounty_shared::auth::{proccess_email, proccess_password, proccess_username};
     use artbounty_shared::fe_router::registration::{self, RegKind};
     use leptos::Params;

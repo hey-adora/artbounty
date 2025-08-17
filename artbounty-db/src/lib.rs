@@ -139,7 +139,7 @@ pub mod db {
         use serde::{Deserialize, Serialize};
         use surrealdb::{Datetime, RecordId};
 
-        #[derive(Debug, Serialize, Deserialize, Clone)]
+        #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
         pub struct Post {
             pub id: RecordId,
             pub user_id: RecordId,
@@ -150,7 +150,7 @@ pub mod db {
             pub created_at: Datetime,
         }
 
-        #[derive(Debug, Serialize, Deserialize, Clone)]
+        #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
         pub struct PostFile {
             pub extension: String,
             pub hash: String,
@@ -158,7 +158,7 @@ pub mod db {
             pub height: u32,
         }
 
-        pub mod add_post {
+        pub mod get_after {
             use std::time::Duration;
 
             use serde::{Deserialize, Serialize};
@@ -166,7 +166,124 @@ pub mod db {
             use thiserror::Error;
             use tracing::{error, trace};
 
-            use crate::db::{post::PostFile, Db};
+            use crate::db::{Db, post::PostFile};
+
+            use super::Post;
+
+            impl<C: Connection> Db<C> {
+                pub async fn get_post(&self, time: Duration) -> Result<Vec<Post>, GetPostErr> {
+                    let db = &self.db;
+                    // let username = username.into();
+                    // let title = title.into();
+                    // let description = description.into();
+                    let time = Datetime::from(chrono::DateTime::from_timestamp_nanos(
+                        time.as_nanos() as i64,
+                    ));
+
+                    let result = db
+                        .query(
+                            r#"
+                            -- LET $user = SELECT id FROM ONLY user WHERE username = $username;
+                            -- SELECT * FROM post WHERE created_at = $created_at AND user_id = $user.id
+                            SELECT * FROM post WHERE created_at <= $created_at
+                        "#,
+                        )
+                        // .bind(("files", files))
+                        // .bind(("username", username))
+                        // .bind(("title", title))
+                        // .bind(("description", description))
+                        // .bind(("modified_at", time.clone()))
+                        .bind(("created_at", time))
+                        .await
+                        .inspect_err(|err| error!("get_post query {:#?}", err))?;
+
+                    trace!("{:#?}", result);
+                    let mut result = result.check().map_err(|err| match err {
+                        err => {
+                            error!("get_post res {:#?}", err);
+                            GetPostErr::from(err)
+                        }
+                    })?;
+                    let result = result
+                        .take::<Vec<Post>>(0)
+                        .inspect_err(|err| error!("get_post serialize error {:#?}", err))?;
+
+                    trace!("record created: {result:#?}");
+
+                    Ok(result)
+                }
+            }
+
+            #[derive(Debug, Error)]
+            pub enum GetPostErr {
+                #[error("DB error {0}")]
+                DB(#[from] surrealdb::Error),
+                // #[error("account with \"{0}\" email already exists")]
+                // EmailIsTaken(String),
+            }
+
+            #[cfg(test)]
+            mod db {
+                use std::time::Duration;
+
+                use surrealdb::engine::local::Mem;
+                use test_log::test;
+                use tracing::trace;
+                use pretty_assertions::assert_eq;
+
+                use crate::db::{
+                    Db, invite::add_invite::AddInviteErr, post::PostFile,
+                    user::add_user::AddUserErr,
+                };
+
+                #[test(tokio::test)]
+                async fn get_post() {
+                    let db = Db::new::<Mem>(()).await.unwrap();
+                    let time = Duration::from_nanos(0);
+                    db.migrate().await.unwrap();
+                    db.add_user("hey", "hey@hey.com", "123").await.unwrap();
+                    let posts = db
+                        .add_post(
+                            time.clone(),
+                            "hey",
+                            "title",
+                            "description",
+                            vec![
+                                PostFile {
+                                    extension: ".png".to_string(),
+                                    hash: "A".to_string(),
+                                    width: 1,
+                                    height: 1,
+                                },
+                                PostFile {
+                                    extension: ".png".to_string(),
+                                    hash: "B".to_string(),
+                                    width: 1,
+                                    height: 1,
+                                },
+                            ],
+                        )
+                        .await
+                        .unwrap();
+                    trace!("{posts:#?}");
+                    assert!(posts.len() == 1);
+                    let posts2 = db.get_post(Duration::from_nanos(0)).await.unwrap();
+                    assert_eq!(posts, posts2);
+                    let posts3 = db.get_post(Duration::from_nanos(1)).await.unwrap();
+                    assert_eq!(posts, posts3);
+                }
+            }
+        }
+
+        pub mod add {
+            use std::time::Duration;
+
+            use serde::{Deserialize, Serialize};
+            use surrealdb::{Connection, Datetime, RecordId};
+            use thiserror::Error;
+            use tracing::{error, trace};
+
+            use crate::db::{Db, post::PostFile};
 
             use super::Post;
 
@@ -253,7 +370,8 @@ pub mod db {
                 use tracing::trace;
 
                 use crate::db::{
-                    invite::add_invite::AddInviteErr, post::PostFile, user::add_user::AddUserErr, Db
+                    Db, invite::add_invite::AddInviteErr, post::PostFile,
+                    user::add_user::AddUserErr,
                 };
 
                 #[test(tokio::test)]
@@ -1320,4 +1438,3 @@ pub mod db {
         }
     }
 }
-
