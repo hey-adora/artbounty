@@ -40,7 +40,7 @@ pub mod nav {
             match result {
                 Ok(_) => {
                     global_state.logout();
-                },
+                }
                 Err(err) => {
                     error!("error logging out {err}");
                 }
@@ -72,6 +72,7 @@ pub mod nav {
     }
 }
 pub mod gallery {
+    use chrono::Utc;
     use leptos::{html::Div, prelude::*};
     use std::default::Default;
     use std::{
@@ -93,19 +94,21 @@ pub mod gallery {
     }
 
     #[component]
-    pub fn Gallery<FetchBtmFn, FetchTopFn>(
-        fetch_top: FetchTopFn,
-        fetch_bottom: FetchBtmFn,
-        #[prop(optional)] fetch_init: Option<Rc<dyn Fn(usize) -> Vec<Img> + Send + Sync + 'static>>,
+    pub fn Gallery(
+        // fetch_top: FetchTopFn,
+        // fetch_bottom: FetchBtmFn,
+        // #[prop(optional)] fetch_init: Option<Rc<dyn Fn(usize) -> Vec<Img> + Send + Sync + 'static>>,
         #[prop(default = 250)] row_height: u32,
     ) -> impl IntoView
-    where
-        FetchBtmFn: Fn(usize, Img) -> Vec<Img> + Send + Sync + 'static + Clone,
-        FetchTopFn: Fn(usize, Img) -> Vec<Img> + Send + Sync + 'static + Clone,
+// where
+    //     FetchBtmFn: (Fn(usize, Img) -> FetchBtmFnFut) + Send + Sync + Clone + 'static,
+    //     FetchBtmFnFut: Future<Output = Vec<Img>>  + Send + Sync + 'static,
+    //     FetchTopFn: Fn(usize, Img) -> Vec<Img> + Send + Sync + 'static + Clone,
     {
         let gallery = RwSignal::<Vec<Img>>::new(Vec::new());
         let gallery_ref = NodeRef::<Div>::new();
         // let scroll_offset: StoredValue<f32> = StoredValue::new(0.0_f32);
+        let api_post_get_after = artbounty_api::post::api::get_after::client.ground();
 
         gallery_ref.add_resize_observer(move |entry, _observer| {
             trace!("RESIZINGGGGGG");
@@ -132,18 +135,21 @@ pub mod gallery {
                 return;
             }
             let prev_imgs = gallery.get_untracked();
-            let new_imgs = fetch_top(count, prev_imgs.first().cloned().unwrap());
-            if new_imgs.is_empty() {
-                return;
-            }
-            let (resized_imgs, scroll_by) =
-                add_imgs_to_top(prev_imgs, new_imgs, width, heigth * 3.0, row_height);
-            trace!("scroll master: {scroll_by}");
-            gallery.set(resized_imgs);
-            gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
+            // let new_imgs = fetch_top(count, prev_imgs.first().cloned().unwrap());
+            // if new_imgs.is_empty() {
+            //     return;
+            // }
+            // let (resized_imgs, scroll_by) =
+            //     add_imgs_to_top(prev_imgs, new_imgs, width, heigth * 3.0, row_height);
+            // trace!("scroll master: {scroll_by}");
+            // gallery.set(resized_imgs);
+            // gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
         };
 
         let run_fetch_bottom = move || {
+            if api_post_get_after.is_pending() {
+                return;
+            }
             let Some(gallery_elm) = gallery_ref.get_untracked() else {
                 trace!("gallery NOT found");
                 return;
@@ -157,15 +163,15 @@ pub mod gallery {
                 return;
             }
             let prev_imgs = gallery.get_untracked();
-            let new_imgs = fetch_bottom(count, prev_imgs.last().cloned().unwrap());
-            if new_imgs.is_empty() {
-                return;
-            }
-            let (resized_imgs, scroll_by) =
-                add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth * 3.0, row_height);
-            trace!("scroll master: {scroll_by}");
-            gallery.set(resized_imgs);
-            gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
+            // let new_imgs = fetch_bottom(count, prev_imgs.last().cloned().unwrap());
+            // if new_imgs.is_empty() {
+            //     return;
+            // }
+            // let (resized_imgs, scroll_by) =
+            //     add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth * 3.0, row_height);
+            // trace!("scroll master: {scroll_by}");
+            // gallery.set(resized_imgs);
+            // gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
         };
 
         let get_imgs = move || {
@@ -183,7 +189,16 @@ pub mod gallery {
         };
 
         Effect::new(move || {
+            api_post_get_after.dispatch(artbounty_api::post::api::get_after::Input {
+                time: std::time::Duration::from_nanos(Utc::now().timestamp_nanos_opt().unwrap() as u64),
+            });
+        });
+
+        Effect::new(move || {
             trace!("ON LOAD");
+            if api_post_get_after.is_pending() {
+                return;
+            }
             let Some(gallery_elm) = gallery_ref.get() else {
                 trace!("gallery NOT found");
                 return;
@@ -194,19 +209,19 @@ pub mod gallery {
 
             let prev_imgs = gallery.get_untracked();
             let count = calc_fit_count(width, heigth, row_height);
-            let new_imgs = match fetch_init.clone() {
-                Some(fetch_init) => {
-                    let imgs = fetch_init(count);
-                    if imgs.is_empty() {
-                        return;
-                    }
-                    imgs
-                }
-                None => Img::rand_vec(count),
-            };
-            let (resized_imgs, _scroll_by) =
-                add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth, row_height);
-            gallery.set(resized_imgs);
+            // let new_imgs = match fetch_init.clone() {
+            //     Some(fetch_init) => {
+            //         let imgs = fetch_init(count);
+            //         if imgs.is_empty() {
+            //             return;
+            //         }
+            //         imgs
+            //     }
+            //     None => Img::rand_vec(count),
+            // };
+            // let (resized_imgs, _scroll_by) =
+            //     add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth, row_height);
+            // gallery.set(resized_imgs);
         });
 
         let a = view! {

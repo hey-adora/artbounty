@@ -1,4 +1,4 @@
-use artbounty_api::{app_state::AppState};
+use artbounty_api::app_state::AppState;
 use artbounty_db::db::DbEngine;
 use artbounty_frontend::{app::App, shell};
 use axum::{
@@ -12,6 +12,7 @@ use leptos_axum::{LeptosRoutes, generate_route_list};
 use tower_http::{
     compression::{CompressionLayer, DefaultPredicate, predicate},
     cors::{self, CorsLayer},
+    services::ServeDir,
 };
 use tracing::trace;
 
@@ -57,9 +58,10 @@ async fn main() {
         .fallback(leptos_axum::file_and_error_handler(shell))
         .with_state(leptos_options);
 
-    let api_router = artbounty_api::router::new().with_state(app_state);
+    let api_router = artbounty_api::router::new().with_state(app_state.clone());
 
     let app = Router::new()
+        .nest_service("/file", ServeDir::new(&app_state.settings.site.files_path))
         .merge(leptos_router)
         .merge(api_router)
         .layer(cors)

@@ -34,8 +34,12 @@ pub mod router {
                 post(crate::auth::api::logout::server),
             )
             .route(
-                crate::post::api::create::PATH,
-                post(crate::post::api::create::server),
+                crate::post::api::add::PATH,
+                post(crate::post::api::add::server),
+            )
+            .route(
+                crate::post::api::get_after::PATH,
+                post(crate::post::api::get_after::server),
             );
         Router::new().nest(API_PATH, routes)
     }
@@ -129,6 +133,16 @@ pub mod utils {
             Err(ResErr::ServerErr(err)) => err.into_response(),
             Err(ResErr::ClientErr(_)) => {
                 unreachable!("client error shouldnt be send by the server")
+            }
+            Err(ResErr::Unauthorized(ResErrUnauthorized::NoCookie)) => {
+                use http::header::{AUTHORIZATION, SET_COOKIE};
+
+                let body: Result<ServerOutput, ResErr<ServerErr>> =
+                    Err(ResErr::Unauthorized(ResErrUnauthorized::NoCookie));
+                trace!("encoding server output: {body:#?}");
+                let body = encode_result::<ServerOutput, ServerErr>(&body);
+                trace!("sending body: {body:?}");
+                (axum::http::StatusCode::OK, body).into_response()
             }
             Err(ResErr::Unauthorized(ResErrUnauthorized::BadToken)) => {
                 use http::header::{AUTHORIZATION, SET_COOKIE};
@@ -558,11 +572,256 @@ pub mod clock {
 }
 
 pub mod post {
+    #[derive(
+        Debug,
+        Clone,
+        serde::Serialize,
+        serde::Deserialize,
+        rkyv::Archive,
+        rkyv::Serialize,
+        rkyv::Deserialize,
+        PartialEq,
+    )]
+    pub struct Post {
+        pub hash: String,
+        pub extension: String,
+    }
+
     pub mod api {
         pub mod get_after {
+            use thiserror::Error;
+
+            use crate::utils::{ResErr, send};
+
             pub const PATH: &'static str = "/post/get/after";
+
+            #[derive(
+                Debug,
+                Clone,
+                serde::Serialize,
+                serde::Deserialize,
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+                PartialEq,
+            )]
+            pub struct Input {
+                pub time: std::time::Duration,
+            }
+
+            #[derive(
+                Debug,
+                Clone,
+                serde::Serialize,
+                serde::Deserialize,
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+                PartialEq,
+            )]
+            pub struct ServerOutput {
+                pub posts: Vec<crate::post::Post>,
+            }
+
+            #[cfg(feature = "ssr")]
+            impl axum::response::IntoResponse for ServerOutput {
+                fn into_response(self) -> axum::response::Response {
+                    use crate::utils::encode_result;
+
+                    let bytes = encode_result::<ServerOutput, ServerErr>(&Ok(self));
+                    (axum::http::StatusCode::OK, bytes).into_response()
+                }
+            }
+
+            pub async fn client(input: Input) -> Result<ServerOutput, ResErr<ServerErr>> {
+                send::<ServerOutput, ServerErr>(PATH, &input).await
+            }
+
+            #[derive(
+                Debug,
+                Error,
+                Clone,
+                serde::Serialize,
+                serde::Deserialize,
+                rkyv::Archive,
+                rkyv::Serialize,
+                rkyv::Deserialize,
+                PartialEq,
+            )]
+            pub enum ServerErr {
+                #[error("internal server error")]
+                ServerErr,
+            }
+
+            #[cfg(feature = "ssr")]
+            impl axum::response::IntoResponse for ServerErr {
+                fn into_response(self) -> axum::response::Response {
+                    use crate::utils::{ResErr, encode_result};
+
+                    let status = match &self {
+                        // ServerErr::NoCookie => axum::http::StatusCode::OK,
+                        _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    };
+                    let bytes =
+                        encode_result::<ServerOutput, ServerErr>(&Err(ResErr::ServerErr(self)));
+                    (status, bytes).into_response()
+                }
+            }
+
+            #[cfg(feature = "ssr")]
+            pub async fn server(
+                axum::extract::State(app_state): axum::extract::State<crate::app_state::AppState>,
+                jar: axum_extra::extract::cookie::CookieJar,
+                // username: Extension<String>,
+                multipart: axum::extract::Multipart,
+            ) -> impl axum::response::IntoResponse {
+                use crate::utils::{ResErr, decode_multipart, encode_server_output};
+
+                encode_server_output(
+                    (async || -> Result<ServerOutput, ResErr<ServerErr>> {
+                        use tracing::trace;
+
+                        let input = decode_multipart::<Input, ServerErr>(multipart).await?;
+                        trace!("{input:?}");
+                        // let time = app_state.clock.now().await;
+                        // trace!("time");
+                        let posts = app_state
+                            .db
+                            .get_post(input.time)
+                            .await
+                            .map_err(|_| ServerErr::ServerErr)?
+                            .into_iter()
+                            .map(|post| {
+                                post.file
+                                    .first()
+                                    .cloned()
+                                    .map(|post| crate::post::Post {
+                                        hash: post.hash,
+                                        extension: post.extension,
+                                    })
+                                    .unwrap_or(crate::post::Post {
+                                        hash: "404".to_string(),
+                                        extension: "webp".to_string(),
+                                    })
+                            }).collect::<Vec<crate::post::Post>>();
+
+                        Ok(ServerOutput { posts })
+                    })()
+                    .await,
+                )
+            }
+
+            #[cfg(test)]
+            pub async fn test_send(
+                server: &axum_test::TestServer,
+                time: impl Into<std::time::Duration>,
+            ) -> (http::HeaderMap, Result<ServerOutput, ResErr<ServerErr>>) {
+                use tracing::trace;
+
+                use crate::{router::API_PATH, utils::send_from_builder};
+                let time = time.into();
+                let input = Input { time };
+                let path = format!("{}{}", API_PATH, PATH);
+                let builder = server.reqwest_post(&path);
+                let res = send_from_builder::<ServerOutput, ServerErr>(builder, &input).await;
+                trace!("RESPONSE: {res:#?}");
+                res
+            }
+
+            #[cfg(test)]
+            mod api {
+                use std::path::Path;
+                use std::sync::Arc;
+                use std::time::Duration;
+                use tokio::fs;
+
+                use crate::app_state::AppState;
+                use crate::auth::{get_timestamp, test_extract_cookie};
+                use crate::router;
+
+                use axum_test::TestServer;
+                use gxhash::gxhash128;
+                use pretty_assertions::assert_eq;
+                use test_log::test;
+                use tokio::sync::Mutex;
+                use tracing::trace;
+
+                #[test(tokio::test)]
+                async fn post_get_after() {
+                    let current_time = get_timestamp();
+                    let time = Arc::new(Mutex::new(current_time));
+                    let app_state = AppState::new_testng(time).await;
+                    let my_app = router::new().with_state(app_state.clone());
+
+                    let server = TestServer::builder()
+                        .http_transport()
+                        .build(my_app)
+                        .unwrap();
+
+                    {
+                        let time = app_state.clock.now().await;
+                        // let exp = time + Duration::from_secs(60 * 30);
+
+                        crate::auth::api::invite::test_send(&server, "hey1@hey.com")
+                            .await
+                            .1
+                            .unwrap();
+                        let invite = app_state
+                            .db
+                            .get_invite("hey1@hey.com", current_time)
+                            .await
+                            .unwrap();
+                        let (cookies, res) = crate::auth::api::register::test_send(
+                            &server,
+                            "hey",
+                            &invite.token_raw,
+                            "wowowowow123@",
+                        )
+                        .await;
+                        let token = test_extract_cookie(&cookies).unwrap();
+                        let dir = std::env::current_dir()
+                            .unwrap()
+                            .to_str()
+                            .unwrap()
+                            .to_string();
+                        trace!("current working dir: {dir}");
+                        // crate::auth::api::post::test_send(&server, [ format!("{}../assets/favicon.ico", dir) ], token)
+                        let res = crate::post::api::add::test_send(
+                            &server,
+                            "hello",
+                            "stuff",
+                            ["/mnt/hdd2/pictures/me/EX6P5GmWsAE3uij.jpg"],
+                            token,
+                        )
+                        .await
+                        .1
+                        .unwrap();
+                        trace!("post api server ouput: {res:#?}");
+
+                        let res2 = crate::post::api::get_after::test_send(&server, time.clone())
+                            .await
+                            .1
+                            .unwrap();
+
+                        // res2.posts;
+                        assert_eq!(res.posts, res2.posts);
+
+                        // for img in res.posts {
+                        //     let file_path = format!(
+                        //         "{}/{}.{}",
+                        //         &app_state.settings.site.files_path, img.hash, img.extension
+                        //     );
+                        //     let file_path = Path::new(&file_path);
+                        //     let data = fs::read(file_path).await.unwrap();
+                        //     let new_hash = format!("{:X}", gxhash128(&data, 0));
+                        //     assert_eq!(img.hash, new_hash);
+                        //     fs::remove_file(&file_path).await.unwrap();
+                        // }
+                    }
+                }
+            }
         }
-        pub mod create {
+        pub mod add {
             use crate::utils::{ResErr, ServerDecodeErr, encode_result, send, send_from_builder};
             use thiserror::Error;
             use tracing::{error, trace};
@@ -577,6 +836,7 @@ pub mod post {
                 rkyv::Archive,
                 rkyv::Serialize,
                 rkyv::Deserialize,
+                PartialEq,
             )]
             pub struct Input {
                 pub title: String,
@@ -592,24 +852,26 @@ pub mod post {
                 rkyv::Archive,
                 rkyv::Serialize,
                 rkyv::Deserialize,
+                PartialEq,
             )]
             pub struct ServerOutput {
-                pub imgs: Vec<ServerOutputImg>,
+                pub posts: Vec<crate::post::Post>,
             }
 
-            #[derive(
-                Debug,
-                Clone,
-                serde::Serialize,
-                serde::Deserialize,
-                rkyv::Archive,
-                rkyv::Serialize,
-                rkyv::Deserialize,
-            )]
-            pub struct ServerOutputImg {
-                pub hash: String,
-                pub extension: String,
-            }
+            // #[derive(
+            //     Debug,
+            //     Clone,
+            //     serde::Serialize,
+            //     serde::Deserialize,
+            //     rkyv::Archive,
+            //     rkyv::Serialize,
+            //     rkyv::Deserialize,
+            //     PartialEq,
+            // )]
+            // pub struct ServerOutputImg {
+            //     pub hash: String,
+            //     pub extension: String,
+            // }
 
             #[cfg(feature = "ssr")]
             impl axum::response::IntoResponse for ServerOutput {
@@ -628,6 +890,7 @@ pub mod post {
                 rkyv::Archive,
                 rkyv::Serialize,
                 rkyv::Deserialize,
+                PartialEq,
             )]
             pub enum ServerErr {
                 #[error("internal server error")]
@@ -658,6 +921,7 @@ pub mod post {
                 rkyv::Archive,
                 rkyv::Serialize,
                 rkyv::Deserialize,
+                PartialEq,
             )]
             pub enum ServerErrImg {
                 #[error("unsupported format {0}")]
@@ -837,7 +1101,7 @@ pub mod post {
 
                     let files = files.0;
                     let root_path = Path::new(&app_state.settings.site.files_path);
-                    let mut output_imgs = Vec::<ServerOutputImg>::new();
+                    let mut output_imgs = Vec::<crate::post::Post>::new();
                     for file in &files {
                         let file_path =
                             root_path.join(format!("{}.{}", &file.0.hash, &file.0.extension));
@@ -846,6 +1110,10 @@ pub mod post {
                                 "file already exists {}",
                                 file_path.to_str().unwrap_or("err")
                             );
+                            output_imgs.push(crate::post::Post {
+                                hash: file.0.hash.clone(),
+                                extension: file.0.extension.clone(),
+                            });
                             continue;
                         }
 
@@ -871,7 +1139,7 @@ pub mod post {
                         })
                         .inspect_err(|err| error!("failed to save img to disk {err:?}"))
                         .map_err(|err| ServerErr::ImgFailedToSaveImgToDisk(err.to_string()))?;
-                        output_imgs.push(ServerOutputImg {
+                        output_imgs.push(crate::post::Post {
                             hash: file.0.hash.clone(),
                             extension: file.0.extension.clone(),
                         });
@@ -893,7 +1161,7 @@ pub mod post {
                         .map_err(|_| ServerErr::ImgFailedToSaveImgMeta)?;
 
                     Result::<ServerOutput, ResErr<ServerErr>>::Ok(ServerOutput {
-                        imgs: output_imgs,
+                        posts: output_imgs,
                     })
                 })()
                 .await;
@@ -953,10 +1221,8 @@ pub mod post {
                 use tokio::fs;
 
                 use crate::app_state::AppState;
-                use crate::auth::{
-                    get_timestamp, test_extract_cookie,
-                };
-                use crate::{router};
+                use crate::auth::{get_timestamp, test_extract_cookie};
+                use crate::router;
 
                 use axum_test::TestServer;
                 use gxhash::gxhash128;
@@ -965,12 +1231,11 @@ pub mod post {
                 use tracing::trace;
 
                 #[test(tokio::test)]
-                async fn post() {
+                async fn post_add() {
                     let current_time = get_timestamp();
                     let time = Arc::new(Mutex::new(current_time));
                     let app_state = AppState::new_testng(time).await;
-                    let my_app = router::new()
-                        .with_state(app_state.clone());
+                    let my_app = router::new().with_state(app_state.clone());
 
                     let server = TestServer::builder()
                         .http_transport()
@@ -1005,7 +1270,7 @@ pub mod post {
                             .to_string();
                         trace!("current working dir: {dir}");
                         // crate::auth::api::post::test_send(&server, [ format!("{}../assets/favicon.ico", dir) ], token)
-                        let res = crate::post::api::create::test_send(
+                        let res = crate::post::api::add::test_send(
                             &server,
                             "hello",
                             "stuff",
@@ -1017,7 +1282,7 @@ pub mod post {
                         .unwrap();
                         trace!("post api server ouput: {res:#?}");
 
-                        for img in res.imgs {
+                        for img in res.posts {
                             let file_path = format!(
                                 "{}/{}.{}",
                                 &app_state.settings.site.files_path, img.hash, img.extension
@@ -1325,12 +1590,7 @@ pub mod auth {
                 use axum_extra::extract::cookie::Cookie;
                 use http::header::AUTHORIZATION;
 
-                use crate::{
-                    auth::{
-                         cut_cookie_value_decoded, 
-                    },
-                    utils::encode_server_output,
-                };
+                use crate::{auth::cut_cookie_value_decoded, utils::encode_server_output};
 
                 let token = match jar
                     .get(AUTHORIZATION.as_str())
@@ -1400,9 +1660,8 @@ pub mod auth {
 
                 use crate::app_state::AppState;
                 use crate::auth::{
-                    cut_cookie_full_with_expiration_encoded, decode_token,
-                     get_timestamp, test_extract_cookie,
-                    
+                    cut_cookie_full_with_expiration_encoded, decode_token, get_timestamp,
+                    test_extract_cookie,
                 };
                 use crate::{router, settings};
 
@@ -1595,9 +1854,7 @@ pub mod auth {
                 use std::time::Duration;
 
                 use crate::app_state::AppState;
-                use crate::auth::{
-                 get_timestamp,
-                };
+                use crate::auth::get_timestamp;
                 use crate::utils::{ResErr, send_from_builder};
                 use crate::{router, settings};
 
@@ -1714,9 +1971,7 @@ pub mod auth {
             ) -> impl axum::response::IntoResponse {
                 trace!("executing profile api");
 
-                use crate::{
-                    utils::encode_server_output,
-                };
+                use crate::utils::encode_server_output;
 
                 let result = (async || -> Result<ServerOutput, ResErr<ServerErr>> {
                     use crate::auth::check_auth;
@@ -1960,9 +2215,7 @@ pub mod auth {
                 trace!("executing invite api");
 
                 use crate::{
-                    auth::{
-                         decode_token
-                    },
+                    auth::decode_token,
                     utils::{self, decode_multipart, encode_server_output},
                 };
                 let wrap = async || {
@@ -2624,7 +2877,6 @@ pub mod auth {
                             test_extract_cookie_and_decode(&app_state.settings.auth.secret, &res.0)
                                 .unwrap();
                         assert_eq!(token.claims.username, "hey");
-
                     }
                 }
             }
@@ -2721,7 +2973,6 @@ pub mod auth {
                 jar: axum_extra::extract::cookie::CookieJar,
                 multipart: axum::extract::Multipart,
             ) -> impl axum::response::IntoResponse {
-
                 use axum_extra::extract::cookie::Cookie;
 
                 use crate::{
@@ -2769,7 +3020,6 @@ pub mod auth {
                 (jar, encode_server_output(output))
             }
 
-
             #[cfg(feature = "ssr")]
             pub fn verify_password<T: AsRef<[u8]>, S2: AsRef<str>>(
                 password: T,
@@ -2815,9 +3065,7 @@ pub mod auth {
                 use crate::router;
                 use crate::utils::{ResErr, send_from_builder};
 
-                use axum::{
-                    extract::{FromRequest, Multipart, State},
-                };
+                use axum::extract::{FromRequest, Multipart, State};
                 use axum_test::TestServer;
                 use test_log::test;
                 use tokio::sync::Mutex;
@@ -2881,6 +3129,4 @@ pub mod auth {
             }
         }
     }
-
 }
-
