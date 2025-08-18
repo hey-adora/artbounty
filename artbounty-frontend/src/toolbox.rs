@@ -17,7 +17,7 @@ pub mod api {
         task::spawn_local,
     };
     use log::trace;
-    use tracing::warn;
+    use tracing::{debug, warn};
 
     pub trait Grounder<Func, FuncFuture, DTO, ApiValue, ApiErr>
     where
@@ -130,15 +130,45 @@ pub mod api {
         ApiErr: Clone + 'static + Sync + Send,
         DTO: Sync + Send + 'static,
     {
-        pub fn dispatch(&self, dto: DTO) {
+        pub fn dispatch_and_run<RUN_FN, RUN_FN_FUT>(&self, dto: DTO, run_fn: RUN_FN)
+        where
+            RUN_FN: FnOnce(&Result<ApiValue, ApiErr>) -> RUN_FN_FUT + Clone + Sync + Send + 'static,
+            RUN_FN_FUT: Future<Output = ()> + 'static,
+        {
             self.inner.update(|v| {
                 v.value = None;
                 v.pending = true;
             });
             let fut = (self.inner.with_untracked(|v| v.fut.clone()))(dto);
-            // self.is_pending.set(true);
             let inner = self.inner.clone();
-            // let is_pending = self.is_pending.clone();
+            spawn_local(async move {
+                trace!("fut starting");
+                let result = fut.await;
+                trace!("fut finished");
+                run_fn(&result).await;
+                // if let Err(err) = run_fn(&result).await {
+                //     debug!("fut return: {err}");
+                // }
+                let r = inner.try_update(|v| {
+                    v.value = Some(result);
+                    v.pending = false;
+                    trace!("value set");
+                });
+
+                if r.is_none() {
+                    warn!("trying to set disposed value");
+                    return;
+                }
+            });
+        }
+        pub fn dispatch(&self, dto: DTO)
+        {
+            self.inner.update(|v| {
+                v.value = None;
+                v.pending = true;
+            });
+            let fut = (self.inner.with_untracked(|v| v.fut.clone()))(dto);
+            let inner = self.inner.clone();
             spawn_local(async move {
                 trace!("fut starting");
                 let result = fut.await;
@@ -153,11 +183,6 @@ pub mod api {
                     warn!("trying to set disposed value");
                     return;
                 }
-                // let r = is_pending.try_set(false);
-                // if r.is_some() {
-                //     warn!("trying to set disposed is_pending");
-                //     return;
-                // }
             });
         }
 
@@ -1002,7 +1027,8 @@ pub mod file {
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
     use web_sys::{
-        js_sys::{Object, Reflect, Uint8Array}, DragEvent, File, FileList, ReadableStreamDefaultReader
+        DragEvent, File, FileList, ReadableStreamDefaultReader,
+        js_sys::{Object, Reflect, Uint8Array},
     };
 
     #[derive(Error, Debug, Clone)]

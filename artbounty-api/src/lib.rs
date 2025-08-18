@@ -585,6 +585,8 @@ pub mod post {
     pub struct Post {
         pub hash: String,
         pub extension: String,
+        pub width: u32,
+        pub height: u32,
     }
 
     pub mod api {
@@ -698,12 +700,17 @@ pub mod post {
                                     .map(|post| crate::post::Post {
                                         hash: post.hash,
                                         extension: post.extension,
+                                        width: post.width,
+                                        height: post.height,
                                     })
                                     .unwrap_or(crate::post::Post {
                                         hash: "404".to_string(),
                                         extension: "webp".to_string(),
+                                        width: 300,
+                                        height: 200,
                                     })
-                            }).collect::<Vec<crate::post::Post>>();
+                            })
+                            .collect::<Vec<crate::post::Post>>();
 
                         Ok(ServerOutput { posts })
                     })()
@@ -1113,6 +1120,8 @@ pub mod post {
                             output_imgs.push(crate::post::Post {
                                 hash: file.0.hash.clone(),
                                 extension: file.0.extension.clone(),
+                                width: file.0.width,
+                                height: file.0.height,
                             });
                             continue;
                         }
@@ -1142,6 +1151,8 @@ pub mod post {
                         output_imgs.push(crate::post::Post {
                             hash: file.0.hash.clone(),
                             extension: file.0.extension.clone(),
+                            width: file.0.width,
+                            height: file.0.height,
                         });
                     }
 

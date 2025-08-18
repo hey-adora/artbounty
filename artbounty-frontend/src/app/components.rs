@@ -73,6 +73,7 @@ pub mod nav {
 }
 pub mod gallery {
     use chrono::Utc;
+    use leptos::html;
     use leptos::{html::Div, prelude::*};
     use std::default::Default;
     use std::{
@@ -147,9 +148,9 @@ pub mod gallery {
         };
 
         let run_fetch_bottom = move || {
-            if api_post_get_after.is_pending() {
-                return;
-            }
+            // if api_post_get_after.is_pending() {
+            //     return;
+            // }
             let Some(gallery_elm) = gallery_ref.get_untracked() else {
                 trace!("gallery NOT found");
                 return;
@@ -189,40 +190,111 @@ pub mod gallery {
         };
 
         Effect::new(move || {
-            api_post_get_after.dispatch(artbounty_api::post::api::get_after::Input {
-                time: std::time::Duration::from_nanos(Utc::now().timestamp_nanos_opt().unwrap() as u64),
-            });
-        });
-
-        Effect::new(move || {
-            trace!("ON LOAD");
-            if api_post_get_after.is_pending() {
-                return;
-            }
             let Some(gallery_elm) = gallery_ref.get() else {
-                trace!("gallery NOT found");
                 return;
             };
-            trace!("gallery elm found");
             let width = gallery_elm.client_width() as u32;
             let heigth = gallery_elm.client_height() as f64;
 
-            let prev_imgs = gallery.get_untracked();
-            let count = calc_fit_count(width, heigth, row_height);
-            // let new_imgs = match fetch_init.clone() {
-            //     Some(fetch_init) => {
-            //         let imgs = fetch_init(count);
-            //         if imgs.is_empty() {
-            //             return;
-            //         }
-            //         imgs
-            //     }
-            //     None => Img::rand_vec(count),
-            // };
-            // let (resized_imgs, _scroll_by) =
-            //     add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth, row_height);
-            // gallery.set(resized_imgs);
+            api_post_get_after.dispatch_and_run(
+                artbounty_api::post::api::get_after::Input {
+                    time: std::time::Duration::from_nanos(
+                        Utc::now().timestamp_nanos_opt().unwrap() as u64,
+                    ),
+                },
+                move |files| {
+                    let files = files.clone();
+                    async move {
+                        // gallery.set(vec![Img {
+                        //     id: 0,
+                        //     hash: "404".to_string(),
+                        //     extension: "webp".to_string(),
+                        //     width: 300,
+                        //     height: 200,
+                        //     view_width: 0.0,
+                        //     view_height: 0.0,
+                        //     view_pos_x: 0.0,
+                        //     view_pos_y: 0.0,
+                        // }]);
+                        match files {
+                            Ok(files) => {
+                                let Some(prev_imgs) = gallery.try_get_untracked() else {
+                                    return;
+                                };
+                                let count = calc_fit_count(width, heigth, row_height);
+
+                                let new_imgs = files
+                                    .posts
+                                    .iter()
+                                    .map(|post| Img {
+                                        id: 0,
+                                        hash: post.hash.clone(),
+                                        extension: post.extension.clone(),
+                                        width: post.width,
+                                        height: post.height,
+                                        view_width: 0.0,
+                                        view_height: 0.0,
+                                        view_pos_x: 0.0,
+                                        view_pos_y: 0.0,
+                                    })
+                                    .collect::<Vec<Img>>();
+
+                                let (resized_imgs, _scroll_by) = add_imgs_to_bottom(
+                                    prev_imgs, new_imgs, width, heigth, row_height,
+                                );
+                                gallery.set(resized_imgs);
+                            }
+                            Err(err) => {
+                                error!("posts api err: {err}");
+                            }
+                        }
+                    }
+                },
+            );
         });
+
+        // Effect::new(move || {
+        //     trace!("ON LOAD");
+        //     if api_post_get_after.is_pending() {
+        //         return;
+        //     }
+        //     let (Some(gallery_elm), Some(files)) = (gallery_ref.get(), api_post_get_after.value())
+        //     else {
+        //         // trace!("gallery NOT found");
+        //         return;
+        //     };
+        //     trace!("gallery elm found");
+        //     match files {
+        //         Ok(files) => {
+        //             let width = gallery_elm.client_width() as u32;
+        //             let heigth = gallery_elm.client_height() as f64;
+        //
+        //             let prev_imgs = gallery.get_untracked();
+        //             let count = calc_fit_count(width, heigth, row_height);
+        //
+        //             let (resized_imgs, _scroll_by) =
+        //                 add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth, row_height);
+        //             gallery.set(resized_imgs);
+        //         }
+        //         Err(err) => {
+        //             error!("posts api err: {err}");
+        //         }
+        //     }
+        //
+        //     // let new_imgs = match fetch_init.clone() {
+        //     //     Some(fetch_init) => {
+        //     //         let imgs = fetch_init(count);
+        //     //         if imgs.is_empty() {
+        //     //             return;
+        //     //         }
+        //     //         imgs
+        //     //     }
+        //     //     None => Img::rand_vec(count),
+        //     // };
+        //     // let (resized_imgs, _scroll_by) =
+        //     //     add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth, row_height);
+        //     // gallery.set(resized_imgs);
+        // });
 
         let a = view! {
             <div
@@ -251,7 +323,7 @@ pub mod gallery {
         FetchBtmFn: Fn() + Send + Sync + 'static + Clone,
         FetchTopFn: Fn() + Send + Sync + 'static + Clone,
     {
-        let img_ref = NodeRef::<Div>::new();
+        let img_ref = NodeRef::<html::Img>::new();
 
         img_ref.add_intersection_observer_with_options(
             move |entry, _observer| {
@@ -274,6 +346,8 @@ pub mod gallery {
         let img_width = img.width;
         let img_height = img.height;
         let img_id = img.id;
+        let link = img.get_link();
+        // let link = "/file/404.webp".to_string();
 
         let fn_background = move || format!("rgb({}, {}, {})", 50, 50, 50);
         let fn_left = move || format!("{view_left}px");
@@ -283,31 +357,44 @@ pub mod gallery {
         let fn_text = move || format!("{img_width}x{img_height}");
         let fn_text2 = move || format!("{view_left}x{view_top}");
         let fn_text3 = move || format!("{img_id}");
+        // let link = move || link;
 
         view! {
-            <div
-                class="text-white grid place-items-center bg-blue-950 absolute border border-red-600 overflow-hidden"
 
+            <img
+                class="absolute"
                 node_ref=img_ref
-                style:background-color=fn_background
                 style:left=fn_left
                 style:top=fn_top
                 style:width=fn_width
                 style:height=fn_height
-            >
-                <div>
-                    <div>{fn_text3}</div>
-                    <div>{fn_text}</div>
-                    <div>{fn_text2}</div>
-                </div>
-            </div>
+                src=link
+            />
+            // <div
+            //     class="text-white grid place-items-center bg-blue-950 absolute border border-red-600 overflow-hidden"
+            //
+            //     node_ref=img_ref
+            //     style:background-color=fn_background
+            //     style:left=fn_left
+            //     style:top=fn_top
+            //     style:width=fn_width
+            //     style:height=fn_height
+            // >
+            //     // <div>
+            //     //     <div>{fn_text3}</div>
+            //     //     <div>{fn_text}</div>
+            //     //     <div>{fn_text2}</div>
+            //     // </div>
+            // </div>
         }
     }
 
     #[derive(Debug, Clone)]
     pub struct Img {
         pub id: u64,
-        pub row_id: usize,
+        pub hash: String,
+        pub extension: String,
+        // pub row_id: usize,
         pub width: u32,
         pub height: u32,
         pub view_width: f64,
@@ -335,6 +422,9 @@ pub mod gallery {
     impl ResizableImage for Img {
         fn get_id(&self) -> u64 {
             self.id
+        }
+        fn get_link(&self) -> String {
+            format!("/file/{}.{}", self.hash, self.extension)
         }
         fn get_width(&self) -> u32 {
             self.width
@@ -378,7 +468,9 @@ pub mod gallery {
 
             Self {
                 id,
-                row_id: 0,
+                // row_id: 0,
+                hash: "404".to_string(),
+                extension: "webp".to_string(),
                 width,
                 height,
                 view_width: 0.0,
@@ -394,7 +486,9 @@ pub mod gallery {
 
             Self {
                 id: id as u64,
-                row_id: 0,
+                // row_id: 0,
+                hash: "404".to_string(),
+                extension: "webp".to_string(),
                 width,
                 height,
                 view_width: 0.0,
@@ -415,6 +509,7 @@ pub mod gallery {
 
     pub trait ResizableImage {
         fn get_id(&self) -> u64;
+        fn get_link(&self) -> String;
         fn get_width(&self) -> u32;
         fn get_height(&self) -> u32;
         fn get_size(&self) -> (u32, u32);
@@ -956,6 +1051,9 @@ pub mod gallery {
         impl ResizableImage for Img {
             fn get_id(&self) -> u64 {
                 self.id as u64
+            }
+            fn get_link(&self) -> String {
+                "test".to_string()
             }
             fn get_width(&self) -> u32 {
                 self.width
