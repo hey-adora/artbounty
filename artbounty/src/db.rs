@@ -102,10 +102,10 @@ impl<C: Connection> Db<C> {
                             DEFINE TABLE invite SCHEMAFULL;
                             DEFINE FIELD token_raw ON TABLE invite TYPE string;
                             DEFINE FIELD email ON TABLE invite TYPE string;
-                            DEFINE FIELD expires ON TABLE invite TYPE datetime;
+                            DEFINE FIELD expires ON TABLE invite TYPE number;
                             DEFINE FIELD used ON TABLE invite TYPE bool DEFAULT false;
-                            DEFINE FIELD modified_at ON TABLE invite TYPE datetime DEFAULT time::now();
-                            DEFINE FIELD created_at ON TABLE invite TYPE datetime DEFAULT time::now();
+                            DEFINE FIELD modified_at ON TABLE invite TYPE number;
+                            DEFINE FIELD created_at ON TABLE invite TYPE number;
                             -- post 
                             DEFINE TABLE post SCHEMAFULL;
                             DEFINE FIELD user_id ON TABLE post TYPE record<user>;
@@ -117,8 +117,8 @@ impl<C: Connection> Db<C> {
                             DEFINE FIELD file.*.hash ON TABLE post TYPE string;
                             DEFINE FIELD file.*.width ON TABLE post TYPE int;
                             DEFINE FIELD file.*.height ON TABLE post TYPE int;
-                            DEFINE FIELD modified_at ON TABLE post TYPE datetime;
-                            DEFINE FIELD created_at ON TABLE post TYPE datetime;
+                            DEFINE FIELD modified_at ON TABLE post TYPE number;
+                            DEFINE FIELD created_at ON TABLE post TYPE number;
                             -- DEFINE INDEX idx_post_hash ON TABLE post COLUMNS hash UNIQUE;
 
                             CREATE migration SET version = 0;
@@ -145,8 +145,8 @@ pub mod post {
         pub show: bool,
         pub title: String,
         pub file: Vec<PostFile>,
-        pub modified_at: Datetime,
-        pub created_at: Datetime,
+        pub modified_at: u128,
+        pub created_at: u128,
     }
 
     #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -170,28 +170,29 @@ pub mod post {
         use super::Post;
 
         impl<C: Connection> Db<C> {
-            pub async fn get_post(&self, time: Duration) -> Result<Vec<Post>, GetPostErr> {
+            pub async fn get_post_after(
+                &self,
+                time: u128,
+                limit: u32,
+            ) -> Result<Vec<Post>, GetPostErr> {
                 let db = &self.db;
                 // let username = username.into();
                 // let title = title.into();
                 // let description = description.into();
-                let time = Datetime::from(chrono::DateTime::from_timestamp_nanos(
-                    time.as_nanos() as i64
-                ));
 
                 let result = db
                         .query(
                             r#"
                             -- LET $user = SELECT id FROM ONLY user WHERE username = $username;
                             -- SELECT * FROM post WHERE created_at = $created_at AND user_id = $user.id
-                            SELECT * FROM post WHERE created_at <= $created_at ORDER BY created_at DESC
+                            SELECT * FROM post WHERE created_at <= $created_at ORDER BY created_at DESC LIMIT $post_limit
                         "#,
                         )
                         // .bind(("files", files))
                         // .bind(("username", username))
                         // .bind(("title", title))
                         // .bind(("description", description))
-                        // .bind(("modified_at", time.clone()))
+                        .bind(("post_limit", limit))
                         .bind(("created_at", time))
                         .await
                         .inspect_err(|err| error!("get_post query {:#?}", err))?;
@@ -242,7 +243,7 @@ pub mod post {
                 db.add_user("hey", "hey@hey.com", "123").await.unwrap();
                 let posts = db
                     .add_post(
-                        time.clone(),
+                        time.as_nanos(),
                         "hey",
                         "title",
                         "description",
@@ -265,9 +266,9 @@ pub mod post {
                     .unwrap();
                 trace!("{posts:#?}");
                 assert!(posts.len() == 1);
-                let posts2 = db.get_post(Duration::from_nanos(0)).await.unwrap();
+                let posts2 = db.get_post_after(0, 25).await.unwrap();
                 assert_eq!(posts, posts2);
-                let posts3 = db.get_post(Duration::from_nanos(1)).await.unwrap();
+                let posts3 = db.get_post_after(1, 25).await.unwrap();
                 assert_eq!(posts, posts3);
             }
         }
@@ -288,7 +289,7 @@ pub mod post {
         impl<C: Connection> Db<C> {
             pub async fn add_post(
                 &self,
-                time: Duration,
+                time: u128,
                 username: impl Into<String>,
                 title: impl Into<String>,
                 description: impl Into<String>,
@@ -298,9 +299,6 @@ pub mod post {
                 let username = username.into();
                 let title = title.into();
                 let description = description.into();
-                let time = Datetime::from(chrono::DateTime::from_timestamp_nanos(
-                    time.as_nanos() as i64
-                ));
 
                 let result = db
                         .query(
@@ -329,7 +327,7 @@ pub mod post {
                         .bind(("username", username))
                         .bind(("title", title))
                         .bind(("description", description))
-                        .bind(("modified_at", time.clone()))
+                        .bind(("modified_at", time))
                         .bind(("created_at", time))
                         .await
                         .inspect_err(|err| error!("add_post query {:#?}", err))?;
@@ -379,7 +377,7 @@ pub mod post {
                 db.add_user("hey", "hey@hey.com", "123").await.unwrap();
                 let posts = db
                     .add_post(
-                        time.clone(),
+                        time.as_nanos(),
                         "hey",
                         "title",
                         "description",
@@ -415,10 +413,10 @@ pub mod invite {
         pub id: RecordId,
         pub token_raw: String,
         pub email: String,
-        pub expires: Datetime,
+        pub expires: u128,
         pub used: bool,
-        pub modified_at: Datetime,
-        pub created_at: Datetime,
+        pub modified_at: u128,
+        pub created_at: u128,
     }
 
     pub mod add_invite {
@@ -436,39 +434,38 @@ pub mod invite {
         impl<C: Connection> Db<C> {
             pub async fn add_invite(
                 &self,
-                time: Duration,
+                time: u128,
                 token_raw: impl Into<String>,
                 email: impl Into<String>,
-                expiration: Duration,
+                expires: u128,
             ) -> Result<Invite, AddInviteErr> {
                 let db = &self.db;
                 let token_raw = token_raw.into();
                 let email: String = email.into();
-                let time = Datetime::from(chrono::DateTime::from_timestamp_nanos(
-                    time.as_nanos() as i64
-                ));
-                let expires = Datetime::from(chrono::DateTime::from_timestamp_nanos(
-                    expiration.as_nanos() as i64,
-                ));
 
                 let result = db
                     .query(
                         r#"
-                             LET $user_email = SELECT email FROM ONLY user WHERE email = $email;
-                             CREATE invite SET
-                                token_raw = $token_raw,
-                                email = if $user_email { null } else { $email },
-                                expires = $expires,
-                                used = false,
-                                modified_at = $modified_at,
-                                created_at = $created_at;
+                             LET $prev_token = SELECT * FROM ONLY invite WHERE email = $email AND used = false AND expires >= $time ORDER BY created_at DESC;
+                             IF $prev_token {
+                                return $prev_token;
+                             } ELSE {
+                                LET $user_email = SELECT email FROM ONLY user WHERE email = $email;
+                                LET $result = CREATE invite SET
+                                   token_raw = $token_raw,
+                                   email = if $user_email { null } else { $email },
+                                   expires = $expires,
+                                   used = false,
+                                   modified_at = $time,
+                                   created_at = $time;
+                                return $result;
+                             }
                         "#,
                     )
                     .bind(("token_raw", token_raw))
                     .bind(("email", email.clone()))
                     .bind(("expires", expires))
-                    .bind(("modified_at", time.clone()))
-                    .bind(("created_at", time))
+                    .bind(("time", time))
                     .await
                     .inspect_err(|err| error!("add_invite query {:#?}", err))?;
 
@@ -531,25 +528,25 @@ pub mod invite {
             async fn add_invite() {
                 let db = Db::new::<Mem>(()).await.unwrap();
                 let time = Duration::from_nanos(0);
+                let time = time.as_nanos();
                 db.migrate().await.unwrap();
                 let invite = db
-                    .add_invite(
-                        time.clone(),
-                        "wowza",
-                        "hey@hey.com",
-                        Duration::from_nanos(0),
-                    )
+                    .add_invite(time, "wowza", "hey@hey.com", 0)
                     .await
                     .unwrap();
+                let invites = db.get_invites("hey@hey.com", time).await.unwrap();
+                assert_eq!(invites.len(), 1);
+                let invite = db
+                    .add_invite(time.clone(), "wowza", "hey@hey.com", 0)
+                    .await
+                    .unwrap();
+                let invites = db.get_invites("hey@hey.com", time).await.unwrap();
+                assert_eq!(invites.len(), 1);
+                // let a = db.get_invite(email, time)
                 trace!("{invite:#?}");
                 let user = db.add_user("hey1", "hey1@hey.com", "123").await.unwrap();
                 let invite2 = db
-                    .add_invite(
-                        time.clone(),
-                        "wowza",
-                        "hey1@hey.com",
-                        Duration::from_nanos(0),
-                    )
+                    .add_invite(time.clone(), "wowza", "hey1@hey.com", 0)
                     .await;
                 trace!("{invite2:#?}");
                 assert!(matches!(invite2, Err(AddInviteErr::EmailIsTaken(_))));
@@ -570,16 +567,56 @@ pub mod invite {
         use super::Invite;
 
         impl<C: Connection> Db<C> {
+            pub async fn get_invite_by_token(
+                &self,
+                time: u128,
+                token: impl Into<String>,
+            ) -> Result<Invite, GetInviteErr> {
+                let db = &self.db;
+                let token: String = token.into();
+
+                let result = db
+                        .query(
+                            r#"
+                             SELECT * FROM ONLY invite WHERE token_raw = $invite_token AND used = false AND expires >= $time;
+                        "#,
+                        )
+                        .bind(("invite_token", token.clone()))
+                        .bind(("time", time))
+                        .await
+                        .inspect_err(|err| trace!("get_invites query {:#?}", err))?;
+
+                trace!("{:#?}", result);
+                let mut result = result.check().map_err(|err| match err {
+                    err => {
+                        error!("add_invite res {:#?}", err);
+                        GetInviteErr::from(err)
+                    }
+                })?;
+                let invite = result.take::<Option<Invite>>(0)?.ok_or(GetInviteErr::NotFound)?;
+
+                trace!("record created: {invite:#?}");
+
+                Ok(invite)
+            }
+
             pub async fn get_invite<Email: Into<String>>(
                 &self,
                 email: Email,
-                time: Duration,
+                time: u128,
             ) -> Result<Invite, GetInviteErr> {
+                self.get_invites(email, time)
+                    .await
+                    .and_then(|v| v.first().cloned().ok_or(GetInviteErr::NotFound))
+            }
+
+            pub async fn get_invites<Email: Into<String>>(
+                &self,
+                email: Email,
+                time: u128,
+            ) -> Result<Vec<Invite>, GetInviteErr> {
                 let db = &self.db;
                 let email = email.into();
-                let time = Datetime::from(chrono::DateTime::from_timestamp_nanos(
-                    time.as_nanos() as i64
-                ));
 
                 let result = db
                         .query(
@@ -590,7 +627,7 @@ pub mod invite {
                         .bind(("email", email.clone()))
                         .bind(("time", time))
                         .await
-                        .inspect_err(|err| trace!("add_invite query {:#?}", err))?;
+                        .inspect_err(|err| trace!("get_invites query {:#?}", err))?;
 
                 trace!("{:#?}", result);
                 let mut result = result.check().map_err(|err| match err {
@@ -599,11 +636,7 @@ pub mod invite {
                         GetInviteErr::from(err)
                     }
                 })?;
-                let invite = result
-                    .take::<Vec<Invite>>(0)?
-                    .first()
-                    .cloned()
-                    .ok_or(GetInviteErr::NotFound)?;
+                let invite = result.take::<Vec<Invite>>(0)?;
 
                 trace!("record created: {invite:#?}");
 
@@ -635,27 +668,20 @@ pub mod invite {
             #[test(tokio::test)]
             async fn get_invite() {
                 let db = Db::new::<Mem>(()).await.unwrap();
-                let time = Duration::from_nanos(0);
                 db.migrate().await.unwrap();
-                let invite = db
-                    .add_invite(time, "wowza", "hey@hey.com", Duration::from_nanos(0))
-                    .await
-                    .unwrap();
+                let invite = db.add_invite(0, "wowza", "hey@hey.com", 0).await.unwrap();
                 trace!("{invite:#?}");
-                let invite = db
-                    .add_invite(time, "wowza1", "hey@hey.com", Duration::from_nanos(2))
-                    .await
-                    .unwrap();
+                let invite = db.add_invite(1, "wowza1", "hey@hey.com", 2).await.unwrap();
                 trace!("{invite:#?}");
-                let invite = db
-                    .add_invite(time, "wowza2", "hey@hey.com", Duration::from_nanos(0))
-                    .await
-                    .unwrap();
+                let invite = db.add_invite(1, "wowza2", "hey@hey.com", 0).await.unwrap();
                 trace!("{invite:#?}");
-                let invite = db.get_invite("hey@hey.com", Duration::from_nanos(1)).await;
+                let invite = db.get_invite("hey@hey.com", 1).await;
                 trace!("{invite:#?}");
                 assert_eq!(invite.unwrap().token_raw, "wowza1");
-                let invite = db.get_invite("hey1@hey.com", Duration::from_nanos(0)).await;
+                let invite = db.get_invite_by_token(1, "wowza1").await;
+                trace!("{invite:#?}");
+                assert_eq!(invite.unwrap().token_raw, "wowza1");
+                let invite = db.get_invite("hey1@hey.com", 0).await;
                 trace!("{invite:#?}");
                 assert!(matches!(invite, Err(GetInviteErr::NotFound)));
             }
@@ -679,14 +705,14 @@ pub mod invite {
             pub async fn use_invite<TokenRaw: Into<String>>(
                 &self,
                 token_raw: TokenRaw,
-                time: Duration,
+                time: u128,
                 // time: DateTime<Utc>,
             ) -> Result<Invite, UseInviteErr> {
                 let db = &self.db;
                 let token_raw = token_raw.into();
-                let time = Datetime::from(chrono::DateTime::from_timestamp_nanos(
-                    time.as_nanos() as i64
-                ));
+                // let time = Datetime::from(chrono::DateTime::from_timestamp_nanos(
+                //     time.as_nanos() as i64
+                // ));
 
                 let result = db
                         .query(
@@ -745,19 +771,17 @@ pub mod invite {
             async fn use_invite() {
                 // let time = DateTime::<Utc>::default();
                 let db = Db::new::<Mem>(()).await.unwrap();
-                let time = Duration::from_nanos(0);
+                let time = 0;
                 db.migrate().await.unwrap();
                 let invite = db
-                    .add_invite(time, "wowza", "hey@hey.com", Duration::from_nanos(0))
+                    .add_invite(time, "wowza", "hey@hey.com", 0)
                     .await
                     .unwrap();
                 // trace!("{invite:#?}");
-                let invite = db.get_invite("hey@hey.com", Duration::from_nanos(0)).await;
+                let invite = db.get_invite("hey@hey.com", 0).await;
                 assert!(matches!(invite, Ok(_)));
-                db.use_invite("wowza", Duration::from_nanos(0))
-                    .await
-                    .unwrap();
-                let invite = db.get_invite("hey@hey.com", Duration::from_nanos(0)).await;
+                db.use_invite("wowza", 0).await.unwrap();
+                let invite = db.get_invite("hey@hey.com", 0).await;
                 assert!(matches!(invite, Err(GetInviteErr::NotFound)));
             }
         }

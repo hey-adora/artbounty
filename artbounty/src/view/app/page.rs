@@ -1,6 +1,7 @@
 pub mod post {
     use std::rc::Rc;
 
+    use crate::api::ApiWeb;
     use crate::controller;
     use crate::controller::encode::ResErr;
     use crate::controller::valid::auth::{proccess_post_description, proccess_post_title};
@@ -31,6 +32,7 @@ pub mod post {
         let upload_tags = NodeRef::new();
         let upload_tags_err = RwSignal::new(String::new());
         let upload_general_err = RwSignal::new(String::new());
+        // let api = ApiWeb::new();
         let api_post = controller::post::route::add::client.ground();
         let on_upload = move |e: SubmitEvent| {
             e.prevent_default();
@@ -126,10 +128,10 @@ pub mod post {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen">
                 <Nav/>
                 <div>
-                    <div class=move||format!("mx-auto text-[1.5rem] {}", if api_post.is_pending() {""} else {"hidden"})>
+                    <div class=move||format!("mx-auto text-[1.5rem] {}", if api_post.is_pending_tracked() {""} else {"hidden"})>
                         <h1>"LOADING..."</h1>
                     </div>
-                    <form method="POST" action="" on:submit=on_upload class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if !api_post.is_pending() {""} else {"hidden"})>
+                    <form method="POST" action="" on:submit=on_upload class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if !api_post.is_pending_tracked() {""} else {"hidden"})>
                         <h1 class="text-[1.5rem]  text-center my-[4rem]">"UPLOAD"</h1>
                         <div class=move||format!("text-red-600 text-center {}", if upload_general_err.with(|v| v.is_empty()) {"hidden"} else {""})>{move || { upload_general_err.get() }}</div>
                         <div class="flex flex-col gap-4">
@@ -213,7 +215,7 @@ pub mod profile {
         });
 
         Effect::new(move || {
-            let result = api_user.value();
+            let result = api_user.value_tracked();
             trace!("user received1 {result:?}");
             let Some(result) = result else {
                 trace!("user received2 {result:?}");
@@ -410,7 +412,7 @@ pub mod register {
         };
         let get_query_email_or_err = move || get_query_email().unwrap_or(String::from("error"));
         let is_loading = move || {
-            api_register.is_pending() || api_invite.is_pending() || api_invite_decode.is_pending()
+            api_register.is_pending_tracked() || api_invite.is_pending_tracked() || api_invite_decode.is_pending_tracked()
         };
 
         let on_invite = move |e: SubmitEvent| {
@@ -470,7 +472,7 @@ pub mod register {
             let navigate = navigate.clone();
             move || {
                 let (Some(result), Some(email)) =
-                    (api_invite.value(), invite_email.get().map(|v| v.value()))
+                    (api_invite.value_tracked(), invite_email.get().map(|v| v.value()))
                 else {
                     return;
                 };
@@ -497,7 +499,7 @@ pub mod register {
 
         //
         Effect::new(move || {
-            let Some(result) = api_register.value() else {
+            let Some(result) = api_register.value_tracked() else {
                 trace!("does anything work?");
                 return;
             };
@@ -592,7 +594,7 @@ pub mod register {
                                         {move || register_email_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
-                                <input value=move|| api_invite_decode.value().and_then(|v|v.ok()).map(|v|v.email).unwrap_or_default() readonly placeholder="loading..." id="email" node_ref=register_email type="text" class="border-b-2 border-white w-full mt-1 " />
+                                <input value=move|| api_invite_decode.value_tracked().and_then(|v|v.ok()).map(|v|v.email).unwrap_or_default() readonly placeholder="loading..." id="email" node_ref=register_email type="text" class="border-b-2 border-white w-full mt-1 " />
                             </div>
                             <div class="flex flex-col gap-0">
                                 <label for="password" class="text-[1.2rem] ">"Password"</label>
@@ -690,7 +692,7 @@ pub mod login {
         // let login_pending = {let login = login.clone(); move || login.is_pending()};
 
         Effect::new(move || {
-            let Some(result) = api_login.value() else {
+            let Some(result) = api_login.value_tracked() else {
                 trace!("does anything work?");
                 return;
             };
@@ -723,11 +725,11 @@ pub mod login {
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] min-h-[100dvh]">
                 <Nav/>
-                <div class=move || format!("grid  text-white {}", if api_login.is_pending() {"items-center"} else {"justify-stretch"})>
-                    <div class=move||format!("mx-auto text-[1.5rem] {}", if api_login.is_pending() {""} else {"hidden"})>
+                <div class=move || format!("grid  text-white {}", if api_login.is_pending_tracked() {"items-center"} else {"justify-stretch"})>
+                    <div class=move||format!("mx-auto text-[1.5rem] {}", if api_login.is_pending_tracked() {""} else {"hidden"})>
                         <h1>"LOADING..."</h1>
                     </div>
-                    <form method="POST" action="" on:submit=on_login class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if api_login.is_pending() || api_login.is_succ() {"hidden"} else {""})>
+                    <form method="POST" action="" on:submit=on_login class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if api_login.is_pending_tracked() || api_login.is_succ_tracked() {"hidden"} else {""})>
                         <h1 class="text-[1.5rem]  text-center my-[4rem]">"LOGIN"</h1>
                         <div class=move||format!("text-red-600 {}", if general_err.with(|v| v.is_empty()) {"hidden"} else {""})>{move || { general_err.get() }}</div>
                         <div class="flex flex-col justify-center gap-[3rem]">

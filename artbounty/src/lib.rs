@@ -1,5 +1,6 @@
 pub mod server;
 pub mod controller;
+pub mod api;
 pub mod view;
 #[cfg(feature = "ssr")]
 pub mod db;

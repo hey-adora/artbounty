@@ -132,7 +132,7 @@ pub mod api {
     {
         pub fn dispatch_and_run<RUN_FN, RUN_FN_FUT>(&self, dto: DTO, run_fn: RUN_FN)
         where
-            RUN_FN: FnOnce(&Result<ApiValue, ApiErr>) -> RUN_FN_FUT + Clone + Sync + Send + 'static,
+            RUN_FN: FnOnce(&Result<ApiValue, ApiErr>) -> RUN_FN_FUT + Clone + 'static,
             RUN_FN_FUT: Future<Output = ()> + 'static,
         {
             self.inner.update(|v| {
@@ -186,26 +186,30 @@ pub mod api {
             });
         }
 
-        pub fn value(&self) -> Option<Result<ApiValue, ApiErr>> {
+        pub fn value_tracked(&self) -> Option<Result<ApiValue, ApiErr>> {
             self.inner.with(|v| v.value.clone())
         }
 
-        pub fn is_complete(&self) -> bool {
+        pub fn is_complete_tracked(&self) -> bool {
             // self.inner.with(|v| v.value.as_ref().map(|v| v.is_ok()).unwrap_or_default() )
             self.inner.with(|v| v.value.as_ref().is_some())
         }
 
-        pub fn is_pending(&self) -> bool {
+        pub fn is_pending_tracked(&self) -> bool {
             // self.inner.with(|v| v.value.as_ref().map(|v| v.is_ok()).unwrap_or_default() )
             self.inner.with(|v| v.pending)
         }
+        pub fn is_pending_untracked(&self) -> bool {
+            // self.inner.with(|v| v.value.as_ref().map(|v| v.is_ok()).unwrap_or_default() )
+            self.inner.with_untracked(|v| v.pending)
+        }
 
-        pub fn is_succ(&self) -> bool {
+        pub fn is_succ_tracked(&self) -> bool {
             self.inner
                 .with(|v| v.value.as_ref().map(|v| v.is_ok()).unwrap_or_default())
         }
 
-        pub fn is_err(&self) -> bool {
+        pub fn is_err_tracked(&self) -> bool {
             self.inner
                 .with(|v| v.value.as_ref().map(|v| v.is_err()).unwrap_or_default())
         }

@@ -15,9 +15,9 @@ pub async fn server() {
     use axum::{
         Router,
         extract::{Multipart, Query, Request, State},
-        response::IntoResponse,
         http::Method,
         middleware::{self, Next},
+        response::IntoResponse,
         routing::post,
     };
     use leptos_axum::{LeptosRoutes, generate_route_list};
@@ -96,6 +96,8 @@ pub fn create_api_router() -> axum::Router<crate::server::controller::app_state:
         middleware::{self, Next},
         routing::post,
     };
+
+    use crate::api;
     let api_router = Router::new()
         .route(PATH_API_LOGIN, post(controller::auth::route::login::server))
         .route(
@@ -106,15 +108,24 @@ pub fn create_api_router() -> axum::Router<crate::server::controller::app_state:
             PATH_API_INVITE_DECODE,
             post(controller::auth::route::invite_decode::server),
         )
-        .route(PATH_API_INVITE, post(controller::auth::route::invite::server))
-        .route(PATH_API_PROFILE, post(controller::auth::route::profile::server))
-        .route(PATH_API_USER, post(controller::auth::route::user::server))
-        .route(PATH_API_LOGOUT, post(controller::auth::route::logout::server))
-        .route(PATH_API_POST_ADD, post(controller::post::route::add::server))
         .route(
-            PATH_API_POST_GET_AFTER,
-            post(controller::post::route::get_after::server),
-        );
+            PATH_API_INVITE,
+            post(controller::auth::route::invite::server),
+        )
+        .route(
+            PATH_API_PROFILE,
+            post(controller::auth::route::profile::server),
+        )
+        .route(PATH_API_USER, post(controller::auth::route::user::server))
+        .route(
+            PATH_API_LOGOUT,
+            post(controller::auth::route::logout::server),
+        )
+        .route(
+            PATH_API_POST_ADD,
+            post(controller::post::route::add::server),
+        )
+        .route(PATH_API_POST_GET_AFTER, post(api::get_posts_after));
     Router::new().nest(PATH_API, api_router)
 }
 
