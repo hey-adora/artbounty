@@ -28,17 +28,18 @@ strip = "none"
 opt-level = 0
 
 [workspace.dependencies]
+clap = "4.5.45"
 pin-project-lite = "0.2.16"
 strum = { version = "0.27.1", features = ["strum_macros", "derive"] }
-artbounty-frontend = { path = "artbounty-frontend" }
-artbounty-api = { path = "artbounty-api" }
-artbounty-db = { path = "artbounty-db" }
-artbounty-shared = { path = "artbounty-shared" }
+# artbounty-frontend = { path = "artbounty-frontend" }
+# artbounty-api = { path = "artbounty-api" }
+# artbounty-db = { path = "artbounty-db" }
+# artbounty-shared = { path = "artbounty-shared" }
 little_exif = "0.6.14"
 image = "0.25.6"
 webp = "0.3.0"
 resend-rs = "0.15.0"
-chrono = "0.4.41"
+chrono = { version = "0.4.41", features = ["rkyv", "rkyv-validation"] }
 config = "0.15.14"
 bytes = "1"
 biscotti = "0.4.0"
@@ -83,7 +84,7 @@ leptos_meta = "0.8.2"
 ordered-float = { version = "5.0.0", features = [] }
 # ordered-float = { version = "5.0.0", features = ["rkyv"] }
 reactive_stores = "0.2.2"
-rkyv = "0.8.10"
+rkyv = { version = "0.8.10", features = [ "unaligned" ] }
 server_fn = { version = "0.8.2", features = [] }
 # server_fn = { version = "0.8.2", features = ["rkyv"] }
 tracing = "0.1.41"

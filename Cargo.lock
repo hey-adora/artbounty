@@ -327,6 +327,7 @@ dependencies = [
  "bytecheck 0.8.1",
  "bytes",
  "chrono",
+ "clap",
  "colored 3.0.0",
  "config",
  "console_error_panic_hook",
@@ -1181,6 +1182,7 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-traits",
+ "rkyv 0.7.45",
  "serde",
  "wasm-bindgen",
  "windows-link",
@@ -1222,6 +1224,33 @@ dependencies = [
  "crypto-common",
  "inout",
 ]
+
+[[package]]
+name = "clap"
+version = "4.5.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fc0e74a703892159f5ae7d3aac52c8e6c392f5ae5f359c70b5881d60aaac318"
+dependencies = [
+ "clap_builder",
+]
+
+[[package]]
+name = "clap_builder"
+version = "4.5.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3e7f4214277f3c7aa526a59dd3fbe306a370daee1f8b7b8c987069cd8e888a8"
+dependencies = [
+ "anstream",
+ "anstyle",
+ "clap_lex",
+ "strsim",
+]
+
+[[package]]
+name = "clap_lex"
+version = "0.7.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
 
 [[package]]
 name = "codee"

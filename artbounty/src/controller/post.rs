@@ -1,3 +1,8 @@
+use std::time::Duration;
+
+use chrono::{DateTime, Utc};
+
+
 #[derive(
     Debug,
     Clone,
@@ -13,6 +18,7 @@ pub struct Post {
     pub extension: String,
     pub width: u32,
     pub height: u32,
+    pub created_at: u128,
 }
 
 pub mod route {
@@ -38,7 +44,8 @@ pub mod route {
             PartialEq,
         )]
         pub struct Input {
-            pub time: std::time::Duration,
+            pub time: u128,
+            pub limit: u32,
         }
 
         #[derive(
@@ -88,6 +95,8 @@ pub mod route {
 
             encode_server_output(
                 (async || -> Result<ServerOutput, ResErr<ServerErr>> {
+                    use std::time::Duration;
+
                     use tracing::trace;
 
                     use crate::controller::encode::decode_multipart;
@@ -96,27 +105,37 @@ pub mod route {
                     trace!("{input:?}");
                     // let time = app_state.clock.now().await;
                     // trace!("time");
+                    // tokio::time::sleep(Duration::from_secs(2)).await;
                     let posts = app_state
                         .db
-                        .get_post(input.time)
+                        .get_post_after(input.time, input.limit)
                         .await
                         .map_err(|_| ServerErr::ServerErr)?
                         .into_iter()
                         .map(|post| {
+                            use std::time::Duration;
+                            use chrono::{Utc, DateTime};
+
+                            // let a = Duration::from_nanos(0);
+                            // let b = a.as_nanos();
+                            // let created_at: DateTime<Utc> = post.created_at.to_string();
+
                             post.file
                                 .first()
                                 .cloned()
-                                .map(|post| Post {
-                                    hash: post.hash,
-                                    extension: post.extension,
-                                    width: post.width,
-                                    height: post.height,
+                                .map(|post_file| Post {
+                                    hash: post_file.hash,
+                                    extension: post_file.extension,
+                                    width: post_file.width,
+                                    height: post_file.height,
+                                    created_at: post.created_at,
                                 })
                                 .unwrap_or(Post {
                                     hash: "404".to_string(),
                                     extension: "webp".to_string(),
                                     width: 300,
                                     height: 200,
+                                    created_at: 0,
                                 })
                         })
                         .collect::<Vec<Post>>();
@@ -130,14 +149,13 @@ pub mod route {
         #[cfg(test)]
         pub async fn test_send(
             server: &axum_test::TestServer,
-            time: impl Into<std::time::Duration>,
+            time: u128,
         ) -> (http::HeaderMap, Result<ServerOutput, ResErr<ServerErr>>) {
             use tracing::trace;
 
             use crate::controller::encode::send_builder;
 
-            let time = time.into();
-            let input = Input { time };
+            let input = Input { time, limit: 100 };
             let path = format!("{}{}", PATH_API, PATH_API_POST_GET_AFTER);
             let builder = server.reqwest_post(&path);
             let res = send_builder::<ServerOutput, ServerErr>(builder, &input).await;
@@ -167,7 +185,7 @@ pub mod route {
 
             #[test(tokio::test)]
             async fn post_get_after() {
-                let current_time = get_timestamp();
+                let current_time = Duration::from_nanos(1);
                 let time = Arc::new(Mutex::new(current_time));
                 let app_state = AppState::new_testng(time).await;
                 let my_app = create_api_router().with_state(app_state.clone());
@@ -187,7 +205,7 @@ pub mod route {
                         .unwrap();
                     let invite = app_state
                         .db
-                        .get_invite("hey1@hey.com", current_time)
+                        .get_invite("hey1@hey.com", current_time.as_nanos())
                         .await
                         .unwrap();
                     let (cookies, res) = controller::auth::route::register::test_send(
@@ -217,13 +235,23 @@ pub mod route {
                     .unwrap();
                     trace!("post api server ouput: {res:#?}");
 
-                    let res2 = controller::post::route::get_after::test_send(&server, time.clone())
+                    let res2 = controller::post::route::get_after::test_send(&server, time.as_nanos())
                         .await
                         .1
                         .unwrap();
 
                     // res2.posts;
                     assert_eq!(res.posts, res2.posts);
+
+                    let res2 = controller::post::route::get_after::test_send(&server, 0)
+                        .await
+                        .1
+                        .unwrap();
+
+                    let res2 = controller::post::route::get_after::test_send(&server, 2)
+                        .await
+                        .1
+                        .unwrap();
 
                     // for img in res.posts {
                     //     let file_path = format!(
@@ -408,6 +436,7 @@ pub mod route {
                 let auth_token = check_auth(&app_state, &jar).await?;
 
                 let input = decode_multipart::<Input, ServerErr>(multipart).await?;
+                let time = app_state.clock.now().await;
                 // trace!("{input:?}");
                 let files = input
                     .files
@@ -519,6 +548,7 @@ pub mod route {
                             extension: file.0.extension.clone(),
                             width: file.0.width,
                             height: file.0.height,
+                            created_at: time.as_nanos(),
                         });
                         continue;
                     }
@@ -548,15 +578,15 @@ pub mod route {
                         extension: file.0.extension.clone(),
                         width: file.0.width,
                         height: file.0.height,
+                        created_at: time.as_nanos(),
                     });
                 }
 
-                let time = app_state.clock.now().await;
                 let post_files = files.into_iter().map(|v| v.0).collect::<Vec<PostFile>>();
                 app_state
                     .db
                     .add_post(
-                        time,
+                        time.as_nanos(),
                         &auth_token.username,
                         &input.title,
                         &input.description,
@@ -659,7 +689,7 @@ pub mod route {
                         .unwrap();
                     let invite = app_state
                         .db
-                        .get_invite("hey1@hey.com", current_time)
+                        .get_invite("hey1@hey.com", current_time.as_nanos())
                         .await
                         .unwrap();
                     let (cookies, res) = controller::auth::route::register::test_send(

@@ -52,7 +52,7 @@ pub fn App() -> impl IntoView {
     });
 
     Effect::new(move || {
-        let Some(result) = api_profile.value() else {
+        let Some(result) = api_profile.value_tracked() else {
             return;
         };
         match result {

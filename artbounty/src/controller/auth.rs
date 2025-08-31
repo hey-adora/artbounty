@@ -160,7 +160,7 @@ where
         .db
         .get_session(&token)
         .await
-        .map_err(|err| ResErr::<ServerErr>::Unauthorized(ResErrUnauthorized::NoCookie))?;
+        .map_err(|err| ResErr::<ServerErr>::Unauthorized(ResErrUnauthorized::Unauthorized))?;
 
     let token = match decode_token::<AuthToken>(&app_state.settings.auth.secret, &token, false) {
         Ok(v) => v,
@@ -411,7 +411,7 @@ pub mod route {
                         .unwrap();
                     let invite = app_state
                         .db
-                        .get_invite("hey1@hey.com", current_time)
+                        .get_invite("hey1@hey.com", current_time.as_nanos())
                         .await
                         .unwrap();
 
@@ -788,8 +788,9 @@ pub mod route {
                     trace!("RESPONSE: {res:#?}");
                     assert!(matches!(
                         res.1,
-                        Err(ResErr::Unauthorized(ResErrUnauthorized::NoCookie))
+                        Err(ResErr::Unauthorized(ResErrUnauthorized::Unauthorized))
                     ));
+
 
                     controller::auth::route::invite::test_send(&server, "hey1@hey.com")
                         .await
@@ -797,7 +798,7 @@ pub mod route {
                         .unwrap();
                     let invite = app_state
                         .db
-                        .get_invite("hey1@hey.com", current_time)
+                        .get_invite("hey1@hey.com", current_time.as_nanos())
                         .await
                         .unwrap();
 
@@ -1174,7 +1175,7 @@ pub mod route {
 
                 let invite = app_state
                     .db
-                    .add_invite(time.clone(), invite_token, input.email, exp)
+                    .add_invite(time.clone().as_nanos(), invite_token, input.email, exp.as_nanos())
                     .await;
                 trace!("result {invite:?}");
 
@@ -1275,7 +1276,7 @@ pub mod route {
                     ));
                     let invite = app_state
                         .db
-                        .get_invite("hey1@hey.com", current_time)
+                        .get_invite("hey1@hey.com", current_time.as_nanos())
                         .await
                         .unwrap();
                     let res = crate::controller::auth::route::register::test_send(
@@ -1292,9 +1293,9 @@ pub mod route {
                         res.1,
                         Ok(crate::controller::auth::route::invite::ServerOutput {})
                     ));
-                    let invite = app_state.db.get_invite("hey1@hey.com", current_time).await;
+                    let invite = app_state.db.get_invite("hey1@hey.com", current_time.as_nanos()).await;
                     assert!(matches!(invite, Err(GetInviteErr::NotFound)));
-                    let invite = app_state.db.get_invite("hey2@hey.com", current_time).await;
+                    let invite = app_state.db.get_invite("hey2@hey.com", current_time.as_nanos()).await;
                     assert!(matches!(invite, Err(GetInviteErr::NotFound)));
                     let res =
                         crate::controller::auth::route::invite::test_send(&server, "hey2@hey.com")
@@ -1303,7 +1304,7 @@ pub mod route {
                         res.1,
                         Ok(crate::controller::auth::route::invite::ServerOutput {})
                     ));
-                    let invite = app_state.db.get_invite("hey2@hey.com", current_time).await;
+                    let invite = app_state.db.get_invite("hey2@hey.com", current_time.as_nanos()).await;
                     assert!(matches!(invite, Ok(_)));
                 }
             }
@@ -1393,6 +1394,9 @@ pub mod route {
             #[error("create cookie err")]
             CreateCookieErr,
 
+            #[error("invite token not found")]
+            TokenNotFound,
+
             #[error("internal server error")]
             ServerErr,
         }
@@ -1443,8 +1447,17 @@ pub mod route {
                 trace!("input!!!!!! {input:#?}");
                 let token_raw = input.email_token;
                 let time = app_state.clock.now().await;
+                let _invite = app_state
+                    .db
+                    .get_invite_by_token(time.as_nanos(), &token_raw )
+                    .await
+                    .map_err(|err| {
+                        error!("failed to run use_invite {err}");
+                        ServerErr::TokenNotFound
+                    })?;
+
                 let email_token =
-                    decode_token::<InviteToken>(&app_state.settings.auth.secret, &token_raw, true)
+                    decode_token::<InviteToken>(&app_state.settings.auth.secret, &token_raw, false)
                         .map_err(|err| match err.kind() {
                             jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
                                 ServerErr::JWTExpired
@@ -1472,7 +1485,7 @@ pub mod route {
 
                 let result = app_state
                     .db
-                    .use_invite(token_raw, time)
+                    .use_invite(token_raw, time.as_nanos())
                     .await
                     .map_err(|err| {
                         error!("failed to run use_invite {err}");
@@ -1582,7 +1595,7 @@ pub mod route {
                             .await;
                     res.1.unwrap();
 
-                    let invite = db.get_invite("hey1@hey.com", current_time).await.unwrap();
+                    let invite = db.get_invite("hey1@hey.com", current_time.as_nanos()).await.unwrap();
 
                     let res = crate::controller::auth::route::register::test_send(
                         &server,
@@ -1594,13 +1607,14 @@ pub mod route {
                     assert!(matches!(
                         res.1,
                         Err(ResErr::ServerErr(
-                            crate::controller::auth::route::register::ServerErr::JWT
+                            crate::controller::auth::route::register::ServerErr::TokenNotFound
                         ))
                     ));
 
                     let token =
                         test_extract_cookie_and_decode(&app_state.settings.auth.secret, &res.0);
                     assert!(token.is_none());
+
 
                     let res = crate::controller::auth::route::register::test_send(
                         &server,
@@ -1830,7 +1844,7 @@ pub mod route {
 
                 let res = controller::auth::route::invite::test_send(&server, "hey@hey.com").await;
                 res.1.unwrap();
-                let invite = db.get_invite("hey@hey.com", current_time).await.unwrap();
+                let invite = db.get_invite("hey@hey.com", current_time.as_nanos()).await.unwrap();
 
                 let res = crate::controller::auth::route::register::test_send(
                     &server,
@@ -1862,7 +1876,7 @@ pub mod route {
                     crate::controller::auth::route::invite::test_send(&server, "hey2@hey.com")
                         .await;
                 res.1.unwrap();
-                let invite = db.get_invite("hey2@hey.com", current_time).await.unwrap();
+                let invite = db.get_invite("hey2@hey.com", current_time.as_nanos()).await.unwrap();
                 let res = crate::controller::auth::route::register::test_send(
                     &server,
                     "hey",

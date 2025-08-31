@@ -1,6 +1,14 @@
 pub mod auth;
 pub mod post;
 
+// struct ServerResult {
+//
+// }
+
+// enum ServerRes {
+//     Ser
+// }
+
 pub mod valid {
     use tracing::trace;
 
@@ -309,6 +317,8 @@ pub mod valid {
     }
 }
 pub mod encode {
+    use std::any::TypeId;
+
     use bytecheck::CheckBytes;
     use http::{HeaderMap, StatusCode};
     use leptos::prelude::location;
@@ -373,7 +383,7 @@ pub mod encode {
                     rkyv::ser::Serializer<AlignedVec, ArenaHandle<'a>, Share>,
                     bytecheck::rancor::Error,
                 >,
-            > + std::fmt::Debug,
+            > + std::fmt::Debug + 'static,
         ServerErr: for<'a> rkyv::Serialize<
                 Strategy<
                     rkyv::ser::Serializer<AlignedVec, ArenaHandle<'a>, Share>,
@@ -387,23 +397,35 @@ pub mod encode {
             + Deserialize<ServerErr, HighDeserializer<rkyv::rancor::Error>>,
     {
         use axum::response::IntoResponse;
+        use bytes::Bytes;
 
         trace!("ENCODING SERVER INPUT: {:?}", response);
+        let id = TypeId::of::<Result<ServerOutput, ResErr<ServerErr>>>();
+        debug!("deserializing to type: {id:?}");
 
         let result = match response {
             Ok(server_output) => {
-                let body = Ok(server_output);
+                let body: Result<ServerOutput, ResErr<ServerErr>> = Ok(server_output);
                 trace!("encoding server output: {body:#?}");
-                let body = encode_result::<ServerOutput, ServerErr>(&body);
-                trace!("sending body: {body:?}");
-                (axum::http::StatusCode::OK, body).into_response()
+                // let body = encode_result::<ServerOutput, ServerErr>(&body);
+                let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&body).unwrap();
+                let bytes = &*bytes;
+                let bytes = Bytes::copy_from_slice(bytes);
+                trace!("sending body: {:X}", &bytes);
+
+                (axum::http::StatusCode::OK, bytes).into_response()
             }
             Err(ResErr::ServerErr(err)) => {
-                let body = Err(ResErr::ServerErr(err));
+                let body: Result<ServerOutput, ResErr<ServerErr>> = Err(ResErr::ServerErr(err));
                 trace!("encoding server output: {body:#?}");
-                let body = encode_result::<ServerOutput, ServerErr>(&body);
-                trace!("sending body: {body:?}");
-                (axum::http::StatusCode::INTERNAL_SERVER_ERROR, body).into_response()
+                // let body = encode_result::<ServerOutput, ServerErr>(&body);
+                // trace!("sending body: {body:X}");
+                let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&body).unwrap();
+                let bytes = &*bytes;
+                let bytes = Bytes::copy_from_slice(bytes);
+                trace!("sending body: {:X}", &bytes);
+
+                (axum::http::StatusCode::INTERNAL_SERVER_ERROR, bytes).into_response()
             }
             etc => match_output(etc),
         };
@@ -422,7 +444,7 @@ pub mod encode {
                     bytecheck::rancor::Error,
                 >,
             > + std::fmt::Debug
-            + axum::response::IntoResponse,
+            + axum::response::IntoResponse + 'static,
         ServerErr: for<'a> rkyv::Serialize<
                 Strategy<
                     rkyv::ser::Serializer<AlignedVec, ArenaHandle<'a>, Share>,
@@ -439,6 +461,8 @@ pub mod encode {
         use axum::response::IntoResponse;
 
         trace!("ENCODING SERVER INPUT: {:?}", response);
+        let id = TypeId::of::<Result<ServerOutput, ResErr<ServerErr>>>();
+        debug!("deserializing to type: {id:?}");
 
         let result = match response {
             Ok(server_output) => server_output.into_response(),
@@ -476,6 +500,7 @@ pub mod encode {
             + Deserialize<ServerErr, HighDeserializer<rkyv::rancor::Error>>,
     {
         use axum::response::IntoResponse;
+        use bytes::Bytes;
 
         trace!("ENCODING SERVER INPUT: {:?}", response);
 
@@ -490,14 +515,24 @@ pub mod encode {
                 unreachable!("client error shouldnt be send by the server");
             }
             Err(ResErr::Unauthorized(ResErrUnauthorized::NoCookie)) => {
+                use std::io::Read;
+
+                use bytes::Bytes;
                 use http::header::{AUTHORIZATION, SET_COOKIE};
 
                 let body: Result<ServerOutput, ResErr<ServerErr>> =
                     Err(ResErr::Unauthorized(ResErrUnauthorized::NoCookie));
                 trace!("encoding server output: {body:#?}");
-                let body = encode_result::<ServerOutput, ServerErr>(&body);
-                trace!("sending body: {body:?}");
-                (axum::http::StatusCode::OK, body).into_response()
+                // let body = encode_result::<ServerOutput, ServerErr>(&body);
+                let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&body).unwrap();
+                let bytes = &*bytes;
+                let bytes = Bytes::copy_from_slice(bytes);
+                trace!("sending body: {:X}", &bytes);
+                // let b = ;
+                // let wtf = b"ggg";
+                // let data = b"hello";
+                // println!("{:X}", wtf);
+                (axum::http::StatusCode::OK, bytes).into_response()
             }
             Err(ResErr::Unauthorized(ResErrUnauthorized::BadToken)) => {
                 use http::header::{AUTHORIZATION, SET_COOKIE};
@@ -505,8 +540,12 @@ pub mod encode {
                 let body: Result<ServerOutput, ResErr<ServerErr>> =
                     Err(ResErr::Unauthorized(ResErrUnauthorized::BadToken));
                 trace!("encoding server output: {body:#?}");
-                let body = encode_result::<ServerOutput, ServerErr>(&body);
-                trace!("sending body: {body:?}");
+                let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&body).unwrap();
+                let bytes = &*bytes;
+                let bytes = Bytes::copy_from_slice(bytes);
+                trace!("sending body: {:X}", &bytes);
+                // let body = encode_result::<ServerOutput, ServerErr>(&body);
+                // trace!("sending body: {body:X}");
                 // let jar = jar.add(Cookie::new(
                 //     AUTHORIZATION.as_str(),
                 //     "Bearer=DELETED; Secure; HttpOnly; expires=Thu, 01 Jan 1970 00:00:00 GMT",
@@ -515,14 +554,30 @@ pub mod encode {
                     SET_COOKIE,
                     "authorization=Bearer%3DDELETED%3B%20Secure%3B%20HttpOnly%3B%20expires%3DThu%2C%2001%20Jan%201970%2000%3A00%3A00%20GMT",
                 )]);
-                (axum::http::StatusCode::UNAUTHORIZED, headers, body).into_response()
+                (axum::http::StatusCode::UNAUTHORIZED, headers, bytes).into_response()
+            }
+            Err(ResErr::Unauthorized(err)) => {
+                let body: Result<ServerOutput, ResErr<ServerErr>> = Err(ResErr::Unauthorized(err));
+                trace!("encoding server output: {body:#?}");
+                // let body = encode_result::<ServerOutput, ServerErr>(&body);
+                // trace!("sending body: {body:X}");
+                let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&body).unwrap();
+                let bytes = &*bytes;
+                let bytes = Bytes::copy_from_slice(bytes);
+                trace!("sending body: {:X}", &bytes);
+                (axum::http::StatusCode::UNAUTHORIZED, bytes).into_response()
             }
             Err(err) => {
                 let body: Result<ServerOutput, ResErr<ServerErr>> = Err(err);
                 trace!("encoding server output: {body:#?}");
-                let body = encode_result::<ServerOutput, ServerErr>(&body);
-                trace!("sending body: {body:?}");
-                (axum::http::StatusCode::BAD_REQUEST, body).into_response()
+                // let body = encode_result::<ServerOutput, ServerErr>(&body);
+                // trace!("sending body: {body:X}");
+                let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&body).unwrap();
+                let bytes = &*bytes;
+                let bytes = Bytes::copy_from_slice(bytes);
+                trace!("sending body: {:X}", &bytes);
+
+                (axum::http::StatusCode::BAD_REQUEST, bytes).into_response()
             }
         };
 
@@ -557,15 +612,17 @@ pub mod encode {
 
     pub async fn send_web<ServerOutput, ServerErr>(
         path: impl AsRef<str>,
-        input: &impl for<'a> rkyv::Serialize<
+        input: &(
+             impl for<'a> rkyv::Serialize<
             Strategy<
                 rkyv::ser::Serializer<AlignedVec, ArenaHandle<'a>, Share>,
                 bytecheck::rancor::Error,
             >,
-        >,
+        > + std::fmt::Debug
+         ),
     ) -> Result<ServerOutput, ResErr<ServerErr>>
     where
-        ServerOutput: Archive + std::fmt::Debug,
+        ServerOutput: Archive + std::fmt::Debug + 'static,
         ServerOutput::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
             + Deserialize<ServerOutput, HighDeserializer<rkyv::rancor::Error>>,
         ServerErr: Archive + std::error::Error + std::fmt::Debug + 'static,
@@ -579,28 +636,38 @@ pub mod encode {
         origin: impl AsRef<str>,
         path: impl AsRef<str>,
         token: Option<impl AsRef<str>>,
-        input: &impl for<'a> rkyv::Serialize<
+        input: &(
+             impl for<'a> rkyv::Serialize<
             Strategy<
                 rkyv::ser::Serializer<AlignedVec, ArenaHandle<'a>, Share>,
                 bytecheck::rancor::Error,
             >,
-        >,
+        > + std::fmt::Debug
+         ),
     ) -> Result<ServerOutput, ResErr<ServerErr>>
     where
-        ServerOutput: Archive + std::fmt::Debug,
+        ServerOutput: Archive + std::fmt::Debug + 'static,
         ServerOutput::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
             + Deserialize<ServerOutput, HighDeserializer<rkyv::rancor::Error>>,
         ServerErr: Archive + std::error::Error + std::fmt::Debug + 'static,
         ServerErr::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
             + Deserialize<ServerErr, HighDeserializer<rkyv::rancor::Error>>,
     {
+        use http::header::AUTHORIZATION;
         let origin = origin.as_ref();
         let path = path.as_ref();
-        let mut builder = reqwest::Client::new().post(format!("{origin}{PATH_API}{path}"));
+        let url = format!("{origin}{PATH_API}{path}");
+        debug!("sending req to: {url} with value: {input:#?}");
+        let mut builder = reqwest::Client::new().post(url);
         if let Some(token) = token {
+            trace!("cookie set");
             builder = builder.header(
                 http::header::COOKIE,
-                format!("authorization=Bearer%3D{}%3B%20Secure%3B%20HttpOnly", token.as_ref()),
+                format!(
+                    "{}=Bearer%3D{}%3B%20Secure%3B%20HttpOnly",
+                    AUTHORIZATION,
+                    token.as_ref()
+                ),
             );
         }
         send_builder::<ServerOutput, ServerErr>(builder, input)
@@ -618,7 +685,7 @@ pub mod encode {
         >,
     ) -> (HeaderMap, Result<ServerOutput, ResErr<ServerErr>>)
     where
-        ServerOutput: Archive + std::fmt::Debug,
+        ServerOutput: Archive + std::fmt::Debug + 'static,
         ServerOutput::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
             + Deserialize<ServerOutput, HighDeserializer<rkyv::rancor::Error>>,
         ServerErr: Archive + std::error::Error + std::fmt::Debug + 'static,
@@ -661,7 +728,7 @@ pub mod encode {
 
         let r = match
             bytes
-            .inspect(|bytes| debug!("CLIENT RECV:\nstatus: {status}\nclient received: {bytes:?}\nclient received headers: {headers:#?}"))
+            .inspect(|bytes| debug!("CLIENT RECV:\nstatus: {status}\nclient received: {bytes:X}\nclient received headers: {headers:#?}"))
             .inspect_err(|err| error!("client byte stream err: {err}"))
             .map_err(|_| ResErr::ClientErr(ClientErr::ByteStreamFail))
             .map(|res| res.to_vec())
@@ -671,6 +738,8 @@ pub mod encode {
                     rkyv::rancor::Error,
                 >(&body)
                 .map_err(|_| ResErr::ClientErr(ClientErr::from(ClientDecodeErr::RkyvAccessErr)))?;
+                let id = TypeId::of::<Result<ServerOutput, ResErr<ServerErr>>>();
+                debug!("deserializing to type: {id:?}");
                 rkyv::deserialize::<Result<ServerOutput, ResErr<ServerErr>>, rkyv::rancor::Error>(
                     archive,
                 )
