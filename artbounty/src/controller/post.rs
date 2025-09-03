@@ -108,7 +108,7 @@ pub mod route {
                     // tokio::time::sleep(Duration::from_secs(2)).await;
                     let posts = app_state
                         .db
-                        .get_post_after(input.time, input.limit)
+                        .get_post_older(input.time, input.limit)
                         .await
                         .map_err(|_| ServerErr::ServerErr)?
                         .into_iter()
@@ -188,7 +188,7 @@ pub mod route {
                 let current_time = Duration::from_nanos(1);
                 let time = Arc::new(Mutex::new(current_time));
                 let app_state = AppState::new_testng(time).await;
-                let my_app = create_api_router().with_state(app_state.clone());
+                let my_app = create_api_router(app_state.clone()).with_state(app_state.clone());
 
                 let server = TestServer::builder()
                     .http_transport()
@@ -672,7 +672,7 @@ pub mod route {
                 let current_time = get_timestamp();
                 let time = Arc::new(Mutex::new(current_time));
                 let app_state = AppState::new_testng(time).await;
-                let my_app = create_api_router().with_state(app_state.clone());
+                let my_app = create_api_router(app_state.clone()).with_state(app_state.clone());
 
                 let server = TestServer::builder()
                     .http_transport()

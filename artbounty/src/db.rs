@@ -2,6 +2,8 @@ use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
 pub use surrealdb::Connection;
+use surrealdb::method::Query;
+use surrealdb::opt::IntoQuery;
 // pub use surrealdb::engine::local;
 use surrealdb::RecordId;
 use surrealdb::engine::local::SurrealKv;
@@ -56,6 +58,26 @@ impl<C: Connection> Db<C> {
         db.use_ns("artbounty").use_db("web").await?;
         Ok(Self { db })
     }
+
+    // pub async fn run_query<'a, F>(&self, query: F)
+    // where
+    //     F: FnOnce(Surreal<C>) -> Query<'a, C>,
+    // {
+    //     let mut db = self.db;
+    //     let query = (query)(db);
+    //
+    //     query
+    //         .await
+    //         .inspect_err(|err| error!("get user by username error: {err}"))
+    //         .inspect(|e| trace!("result {e:#?}"))?
+    //         .check()
+    //         .inspect_err(|err| error!("get user by username check error: {err}"))?;
+    //     result
+    //         .take::<Option<User>>(0)
+    //         .inspect_err(|err| error!("unexpected err {err}"))?
+    //         .ok_or(GetUserByUsernameErr::UserNotFound)
+    // }
+
     pub async fn migrate(&self) -> Result<(), surrealdb::Error> {
         let db = &self.db;
         let result = db
@@ -134,6 +156,7 @@ impl<C: Connection> Db<C> {
         Ok(())
     }
 }
+
 pub mod post {
     use serde::{Deserialize, Serialize};
     use surrealdb::{Datetime, RecordId};
@@ -170,7 +193,7 @@ pub mod post {
         use super::Post;
 
         impl<C: Connection> Db<C> {
-            pub async fn get_post_after(
+            pub async fn get_post_older(
                 &self,
                 time: u128,
                 limit: u32,
@@ -185,7 +208,7 @@ pub mod post {
                             r#"
                             -- LET $user = SELECT id FROM ONLY user WHERE username = $username;
                             -- SELECT * FROM post WHERE created_at = $created_at AND user_id = $user.id
-                            SELECT * FROM post WHERE created_at <= $created_at ORDER BY created_at DESC LIMIT $post_limit
+                            SELECT * FROM post WHERE created_at < $created_at ORDER BY created_at DESC LIMIT $post_limit
                         "#,
                         )
                         // .bind(("files", files))
@@ -266,9 +289,9 @@ pub mod post {
                     .unwrap();
                 trace!("{posts:#?}");
                 assert!(posts.len() == 1);
-                let posts2 = db.get_post_after(0, 25).await.unwrap();
+                let posts2 = db.get_post_older(0, 25).await.unwrap();
                 assert_eq!(posts, posts2);
-                let posts3 = db.get_post_after(1, 25).await.unwrap();
+                let posts3 = db.get_post_older(1, 25).await.unwrap();
                 assert_eq!(posts, posts3);
             }
         }
@@ -567,37 +590,77 @@ pub mod invite {
         use super::Invite;
 
         impl<C: Connection> Db<C> {
+            pub async fn get_all_invites(&self) -> Result<Vec<Invite>, GetInviteErr> {
+                self.db
+                    .query(
+                        r#"
+                        SELECT * FROM invite;
+                    "#,
+                    )
+                    .await
+                    .inspect_err(|err| error!("get all invite tokens error: {err}"))
+                    .inspect(|e| trace!("result {e:#?}"))?
+                    .check()
+                    .inspect_err(|err| error!("get all invite tokens check error: {err}"))
+                    .map_err(|err| GetInviteErr::from(err))
+                    .and_then(|mut result| {
+                        result
+                            .take::<Vec<Invite>>(0)
+                            .inspect_err(|err| error!("unexpected err {err}"))
+                            .map_err(|err| GetInviteErr::from(err))
+                    })
+            }
             pub async fn get_invite_by_token(
                 &self,
-                time: u128,
                 token: impl Into<String>,
             ) -> Result<Invite, GetInviteErr> {
-                let db = &self.db;
-                let token: String = token.into();
+                // let db = &self.db;
+                // let token: String = token.into();
+                self.db
+                    .query(
+                        r#"
+                        SELECT * FROM ONLY invite WHERE token_raw = $invite_token;
+                    "#,
+                    )
+                    .bind(("invite_token", token.into()))
+                    .await
+                    .inspect_err(|err| error!("get invite by token error: {err}"))
+                    .inspect(|e| trace!("result {e:#?}"))?
+                    .check()
+                    .inspect_err(|err| error!("get invite by token check error: {err}"))
+                    .map_err(|err| GetInviteErr::from(err))
+                    .and_then(|mut result| {
+                        result
+                            .take::<Option<Invite>>(0)
+                            .inspect_err(|err| error!("unexpected err {err}"))?
+                            .ok_or(GetInviteErr::NotFound)
+                    })
 
-                let result = db
-                        .query(
-                            r#"
-                             SELECT * FROM ONLY invite WHERE token_raw = $invite_token AND used = false AND expires >= $time;
-                        "#,
-                        )
-                        .bind(("invite_token", token.clone()))
-                        .bind(("time", time))
-                        .await
-                        .inspect_err(|err| trace!("get_invites query {:#?}", err))?;
-
-                trace!("{:#?}", result);
-                let mut result = result.check().map_err(|err| match err {
-                    err => {
-                        error!("add_invite res {:#?}", err);
-                        GetInviteErr::from(err)
-                    }
-                })?;
-                let invite = result.take::<Option<Invite>>(0)?.ok_or(GetInviteErr::NotFound)?;
-
-                trace!("record created: {invite:#?}");
-
-                Ok(invite)
+                // let result = db
+                //         .query(
+                //             r#"
+                //              SELECT * FROM ONLY invite WHERE token_raw = $invite_token AND used = false AND expires >= $time;
+                //         "#,
+                //         )
+                //         .bind(("invite_token", token.clone()))
+                //         .bind(("time", time))
+                //         .await
+                //         .inspect_err(|err| trace!("get_invites query {:#?}", err))?;
+                //
+                // trace!("{:#?}", result);
+                // let mut result = result.check().map_err(|err| match err {
+                //     err => {
+                //         error!("add_invite res {:#?}", err);
+                //         GetInviteErr::from(err)
+                //     }
+                // })?;
+                // let invite = result
+                //     .take::<Option<Invite>>(0)?
+                //     .ok_or(GetInviteErr::NotFound)?;
+                //
+                // trace!("record created: {invite:#?}");
+                //
+                // Ok(invite)
             }
 
             pub async fn get_invite<Email: Into<String>>(
@@ -678,7 +741,7 @@ pub mod invite {
                 let invite = db.get_invite("hey@hey.com", 1).await;
                 trace!("{invite:#?}");
                 assert_eq!(invite.unwrap().token_raw, "wowza1");
-                let invite = db.get_invite_by_token(1, "wowza1").await;
+                let invite = db.get_invite_by_token("wowza1").await;
                 trace!("{invite:#?}");
                 assert_eq!(invite.unwrap().token_raw, "wowza1");
                 let invite = db.get_invite("hey1@hey.com", 0).await;
@@ -1031,29 +1094,75 @@ pub mod user {
 
         use super::super::Db;
         use thiserror::Error;
+        use tracing::{debug, error, trace};
 
         use super::User;
 
         impl<C: Connection> Db<C> {
-            pub async fn get_user_by_email<S: Into<String>>(
+            pub async fn get_all_user(&self) -> Result<Vec<User>, GetAllUsers> {
+                let db = &self.db;
+
+                db.query(
+                    r#"
+                        SELECT * FROM user;
+                    "#,
+                )
+                .await
+                .inspect_err(|err| error!("get all users error: {err}"))
+                .inspect(|e| trace!("result {e:#?}"))?
+                .check()
+                .inspect_err(|err| error!("get all users check error: {err}"))
+                .map_err(|err| GetAllUsers::from(err))
+                .and_then(|mut result| {
+                    result
+                        .take::<Vec<User>>(0)
+                        .inspect_err(|err| error!("unexpected err {err}"))
+                        .map_err(|err| GetAllUsers::from(err))
+                })
+            }
+            pub async fn get_user_by_email(
                 &self,
-                email: S,
+                email: impl Into<String>,
             ) -> Result<User, GetUserByEmailErr> {
                 let db = &self.db;
                 let email = email.into();
 
-                let mut result = db
-                    .query(
-                        r#"
-                            SELECT * FROM user WHERE email = $email;
-                        "#,
-                    )
-                    .bind(("email", email))
-                    .await?;
-                result
-                    .take::<Option<User>>(0)?
-                    .ok_or(GetUserByEmailErr::UserNotFound)
+                // let mut result = db
+                //     .query(
+                //         r#"
+                //             SELECT * FROM user WHERE email = $email;
+                //         "#,
+                //     )
+                //     .bind(("email", email))
+                //     .await?;
+                // result
+                //     .take::<Option<User>>(0)?
+                //     .ok_or(GetUserByEmailErr::UserNotFound)
+                db.query(
+                    r#"
+                        SELECT * FROM user WHERE email = $email;
+                    "#,
+                )
+                .bind(("email", email))
+                .await
+                .inspect_err(|err| error!("get user by email error: {err}"))
+                .inspect(|e| trace!("result {e:#?}"))?
+                .check()
+                .inspect_err(|err| error!("get user by email check error: {err}"))
+                .map_err(|err| GetUserByEmailErr::from(err))
+                .and_then(|mut result| {
+                    result
+                        .take::<Option<User>>(0)?
+                        // .inspect_err(|err| error!("unexpected err {err}"))?
+                        .ok_or(GetUserByEmailErr::UserNotFound)
+                })
             }
+        }
+
+        #[derive(Debug, Error)]
+        pub enum GetAllUsers {
+            #[error("DB error {0}")]
+            DB(#[from] surrealdb::Error),
         }
 
         #[derive(Debug, Error)]

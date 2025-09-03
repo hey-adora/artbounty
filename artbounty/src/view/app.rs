@@ -4,7 +4,6 @@ use leptos_router::path;
 use log::trace;
 use page::{home, login, profile, register, post};
 
-use crate::controller;
 use crate::view::toolbox::prelude::*;
 
 pub mod components;
@@ -45,28 +44,28 @@ pub fn App() -> impl IntoView {
     let global_state = expect_context::<GlobalState>();
     // let a = 77;
 
-    let api_profile = controller::auth::route::profile::client.ground();
-    // let profile = ServerAction::<api::profile::Profile>::new();
-    Effect::new(move || {
-        api_profile.dispatch(controller::auth::route::profile::Input {});
-    });
+    // let api_profile = controller::auth::route::profile::client.ground();
+    // // let profile = ServerAction::<api::profile::Profile>::new();
+    // Effect::new(move || {
+    //     api_profile.dispatch(controller::auth::route::profile::Input {});
+    // });
 
-    Effect::new(move || {
-        let Some(result) = api_profile.value_tracked() else {
-            return;
-        };
-        match result {
-            Ok(res) => {
-                global_state.acc.set(Some(Acc {
-                    username: res.username,
-                }));
-            }
-            Err(err) => {
-                trace!("profile err: {err}");
-            }
-        }
-        global_state.acc_pending.set(false);
-    });
+    // Effect::new(move || {
+    //     let Some(result) = api_profile.value_tracked() else {
+    //         return;
+    //     };
+    //     match result {
+    //         Ok(res) => {
+    //             global_state.acc.set(Some(Acc {
+    //                 username: res.username,
+    //             }));
+    //         }
+    //         Err(err) => {
+    //             trace!("profile err: {err}");
+    //         }
+    //     }
+    //     global_state.acc_pending.set(false);
+    // });
 
     view! {
         <Router>

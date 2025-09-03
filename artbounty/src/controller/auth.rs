@@ -19,7 +19,16 @@ impl AuthToken {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    PartialEq,
+)]
 pub struct InviteToken {
     pub email: String,
     pub created_at: u128,
@@ -29,13 +38,14 @@ pub struct InviteToken {
 impl InviteToken {
     pub fn new<S: Into<String>>(
         email: S,
-        created_at: std::time::Duration,
-        exp: std::time::Duration,
+        created_at: u128,
+        // exp: std::time::Duration,
     ) -> Self {
         Self {
             email: email.into(),
-            created_at: created_at.as_nanos(),
-            exp: exp.as_secs(),
+            created_at,
+            exp: 0,
+            // exp: exp.as_secs(),
         }
     }
 }
@@ -394,7 +404,7 @@ pub mod route {
                 let current_time = get_timestamp();
                 let time = Arc::new(Mutex::new(current_time));
                 let app_state = AppState::new_testng(time).await;
-                let my_app = create_api_router().with_state(app_state.clone());
+                let my_app = create_api_router(app_state.clone()).with_state(app_state.clone());
 
                 let server = TestServer::builder()
                     .http_transport()
@@ -422,6 +432,7 @@ pub mod route {
                         "wowowowow123@",
                     )
                     .await;
+
                     let res =
                         controller::auth::route::logout::test_send(&server, &invite.token_raw)
                             .await;
@@ -592,7 +603,7 @@ pub mod route {
                 let current_time = get_timestamp();
                 let time = Arc::new(Mutex::new(current_time));
                 let app_state = AppState::new_testng(time).await;
-                let my_app = create_api_router().with_state(app_state.clone());
+                let my_app = create_api_router(app_state.clone()).with_state(app_state.clone());
 
                 let server = TestServer::builder()
                     .http_transport()
@@ -769,7 +780,7 @@ pub mod route {
                 let current_time = get_timestamp();
                 let time = Arc::new(Mutex::new(current_time));
                 let app_state = AppState::new_testng(time).await;
-                let my_app = create_api_router().with_state(app_state.clone());
+                let my_app = create_api_router(app_state.clone()).with_state(app_state.clone());
 
                 let server = TestServer::builder()
                     .http_transport()
@@ -779,7 +790,7 @@ pub mod route {
                 {
                     let time = app_state.clock.now().await;
                     let exp = time + Duration::from_secs(60 * 30);
-                    let invite = InviteToken::new("hey@hey.com", time, exp);
+                    let invite = InviteToken::new("hey@hey.com", time.as_nanos());
                     let (token, _cookie) =
                         create_cookie(&app_state.settings.auth.secret, "hey", time).unwrap();
                     // let invite_token =
@@ -1021,7 +1032,7 @@ pub mod route {
                 // let time = get_nanos();
                 let time = get_timestamp();
                 let exp = time + Duration::from_secs(2);
-                let invite_token = InviteToken::new("hey@hey.com", time, exp);
+                let invite_token = InviteToken::new("hey@hey.com", time.as_nanos());
                 let invite_token = encode_token("secret", invite_token).unwrap();
                 sleep(Duration::from_secs(1)).await;
                 let invite_claims =
@@ -1039,7 +1050,7 @@ pub mod route {
                 let current_time = get_timestamp();
                 let time = Arc::new(Mutex::new(current_time));
                 let app_state = AppState::new_testng(time).await;
-                let my_app = create_api_router().with_state(app_state.clone());
+                let my_app = create_api_router(app_state.clone()).with_state(app_state.clone());
 
                 let server = TestServer::builder()
                     .http_transport()
@@ -1049,7 +1060,7 @@ pub mod route {
                 {
                     let time = app_state.clock.now().await;
                     let exp = time + Duration::from_secs(60 * 30);
-                    let invite = InviteToken::new("hey@hey.com", time, exp);
+                    let invite = InviteToken::new("hey@hey.com", time.as_nanos());
                     let invite_token =
                         encode_token(&app_state.settings.auth.secret, invite).unwrap();
                     let res =
@@ -1167,7 +1178,7 @@ pub mod route {
                 trace!("input!!!!!! {input:#?}");
                 let time = app_state.clock.now().await;
                 let exp = time + Duration::from_secs(60 * 30);
-                let invite = InviteToken::new(input.email.clone(), time, exp);
+                let invite = InviteToken::new(input.email.clone(), time.as_nanos());
                 let invite_token = encode_token(&app_state.settings.auth.secret, invite)
                     .map_err(|_| ServerErr::JWT)?;
 
@@ -1241,7 +1252,7 @@ pub mod route {
             async fn token() {
                 let time = get_timestamp();
                 let exp = time + Duration::from_secs(2);
-                let invite_token = InviteToken::new("hey@hey.com", time, exp);
+                let invite_token = InviteToken::new("hey@hey.com", time.as_nanos());
                 let invite_token = encode_token("secret", invite_token).unwrap();
                 sleep(Duration::from_secs(1)).await;
                 let invite_claims =
@@ -1259,7 +1270,7 @@ pub mod route {
                 let current_time = get_timestamp();
                 let time = Arc::new(Mutex::new(current_time));
                 let app_state = AppState::new_testng(time).await;
-                let my_app = create_api_router().with_state(app_state.clone());
+                let my_app = create_api_router(app_state.clone()).with_state(app_state.clone());
 
                 let server = TestServer::builder()
                     .http_transport()
@@ -1449,7 +1460,7 @@ pub mod route {
                 let time = app_state.clock.now().await;
                 let _invite = app_state
                     .db
-                    .get_invite_by_token(time.as_nanos(), &token_raw )
+                    .get_invite_by_token(&token_raw )
                     .await
                     .map_err(|err| {
                         error!("failed to run use_invite {err}");
@@ -1583,7 +1594,7 @@ pub mod route {
                 let app_state = AppState::new_testng(time).await;
                 let secret = app_state.settings.auth.secret.clone();
                 let db = app_state.db.clone();
-                let my_app = create_api_router().with_state(app_state.clone());
+                let my_app = create_api_router(app_state.clone()).with_state(app_state.clone());
                 let server = TestServer::builder()
                     .http_transport()
                     .build(my_app)
@@ -1836,7 +1847,7 @@ pub mod route {
                 let time = Arc::new(Mutex::new(current_time));
                 let app_state = AppState::new_testng(time.clone()).await;
                 let db = app_state.db.clone();
-                let my_app = create_api_router().with_state(app_state.clone());
+                let my_app = create_api_router(app_state.clone()).with_state(app_state.clone());
                 let server = TestServer::builder()
                     .http_transport()
                     .build(my_app)
