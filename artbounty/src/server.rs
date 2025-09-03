@@ -1,13 +1,9 @@
 use leptos::{logging, prelude::*};
 use tracing::trace;
 
-use crate::{
-    controller,
-    path::{
-        PATH_API, PATH_API_INVITE, PATH_API_INVITE_DECODE, PATH_API_LOGIN, PATH_API_LOGOUT,
-        PATH_API_POST_ADD, PATH_API_POST_GET_AFTER, PATH_API_PROFILE, PATH_API_REGISTER,
-        PATH_API_USER,
-    },
+use crate::path::{
+    PATH_API, PATH_API_INVITE, PATH_API_INVITE_DECODE, PATH_API_LOGIN, PATH_API_LOGOUT,
+    PATH_API_POST_ADD, PATH_API_POST_GET_AFTER, PATH_API_PROFILE, PATH_API_REGISTER, PATH_API_USER,
 };
 
 #[cfg(feature = "ssr")]
@@ -28,8 +24,7 @@ pub async fn server() {
     };
 
     use crate::{
-        controller::app_state::AppState,
-        view::{app::App, shell},
+        api::app_state::AppState, view::{app::App, shell}
     };
 
     tracing_subscriber::fmt()
@@ -71,7 +66,7 @@ pub async fn server() {
         .fallback(leptos_axum::file_and_error_handler(shell))
         .with_state(leptos_options);
 
-    let api_router = create_api_router().with_state(app_state.clone());
+    let api_router = create_api_router(app_state.clone()).with_state(app_state.clone());
 
     let app = Router::new()
         .nest_service("/file", ServeDir::new(&app_state.settings.site.files_path))
@@ -88,7 +83,9 @@ pub async fn server() {
 }
 
 #[cfg(feature = "ssr")]
-pub fn create_api_router() -> axum::Router<crate::server::controller::app_state::AppState> {
+pub fn create_api_router(
+    app_state: crate::api::app_state::AppState,
+) -> axum::Router<crate::api::app_state::AppState> {
     use axum::{
         Router,
         extract::{Multipart, Query, Request, State},
@@ -97,35 +94,22 @@ pub fn create_api_router() -> axum::Router<crate::server::controller::app_state:
         routing::post,
     };
 
-    use crate::api;
+    use crate::api::{self, auth_middleware};
+    let api_router_public = Router::new()
+        .route(PATH_API_LOGIN, post(api::login))
+        .route(PATH_API_REGISTER, post(api::register))
+        .route(PATH_API_INVITE_DECODE, post(api::decode_invite))
+        .route(PATH_API_INVITE, post(api::get_invite))
+        .route(PATH_API_USER, post(api::get_user))
+        .route(PATH_API_LOGOUT, post(api::logout))
+        .route(PATH_API_POST_GET_AFTER, post(api::get_posts_older));
+    let api_router_auth = Router::new()
+        .route(PATH_API_PROFILE, post(api::profile))
+        .route(PATH_API_POST_ADD, post(api::add_post))
+        .route_layer(middleware::from_fn_with_state(app_state, auth_middleware));
     let api_router = Router::new()
-        .route(PATH_API_LOGIN, post(controller::auth::route::login::server))
-        .route(
-            PATH_API_REGISTER,
-            post(controller::auth::route::register::server),
-        )
-        .route(
-            PATH_API_INVITE_DECODE,
-            post(controller::auth::route::invite_decode::server),
-        )
-        .route(
-            PATH_API_INVITE,
-            post(controller::auth::route::invite::server),
-        )
-        .route(
-            PATH_API_PROFILE,
-            post(controller::auth::route::profile::server),
-        )
-        .route(PATH_API_USER, post(controller::auth::route::user::server))
-        .route(
-            PATH_API_LOGOUT,
-            post(controller::auth::route::logout::server),
-        )
-        .route(
-            PATH_API_POST_ADD,
-            post(controller::post::route::add::server),
-        )
-        .route(PATH_API_POST_GET_AFTER, post(api::get_posts_after));
+        .merge(api_router_public)
+        .merge(api_router_auth);
     Router::new().nest(PATH_API, api_router)
 }
 

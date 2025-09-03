@@ -1,6 +1,5 @@
 pub mod nav {
     use crate::{
-        controller,
         path::PATH_LOGIN,
         view::{app::GlobalState, toolbox::prelude::*},
     };
@@ -11,10 +10,11 @@ pub mod nav {
     #[component]
     pub fn Nav() -> impl IntoView {
         let global_state = expect_context::<GlobalState>();
-        let api_logout = controller::auth::route::logout::client.ground();
+        // let api_logout = controller::auth::route::logout::client.ground();
         // let is_logged_in = move || global_state.acc.with(|v| v.is_some());
         let logout_or_loading = move || {
-            if api_logout.is_pending_tracked() {
+            // if api_logout.is_pending_tracked() {
+            if true {
                 "loading..."
             } else {
                 "Logout"
@@ -29,22 +29,22 @@ pub mod nav {
         let on_logout = move |e: SubmitEvent| {
             e.prevent_default();
 
-            api_logout.dispatch(controller::auth::route::logout::Input {});
+            // api_logout.dispatch(controller::auth::route::logout::Input {});
         };
 
         Effect::new(move || {
-            let Some(result) = api_logout.value_tracked() else {
-                return;
-            };
-
-            match result {
-                Ok(_) => {
-                    global_state.logout();
-                }
-                Err(err) => {
-                    error!("error logging out {err}");
-                }
-            }
+            // let Some(result) = api_logout.value_tracked() else {
+            //     return;
+            // };
+            //
+            // match result {
+            //     Ok(_) => {
+            //         global_state.logout();
+            //     }
+            //     Err(err) => {
+            //         error!("error logging out {err}");
+            //     }
+            // }
         });
         // hey69@hey.com
 
@@ -85,7 +85,6 @@ pub mod gallery {
     };
     use tracing::{debug, error, trace};
 
-    use crate::controller;
 
     pub fn vec_img_to_string<IMG: ResizableImage + Display>(imgs: &[IMG]) -> String {
         let mut output = String::new();
@@ -118,7 +117,7 @@ pub mod gallery {
         let set_gallery = move |bottom: bool, width: u32, height: f64, time: u128, count: u32| {
             // let gallery = gallery.clone();
             // let gallery_ref = gallery_ref.clone();
-            api.get_posts_after(time, count)
+            api.get_posts_older(time, count)
                 .send_web(move |result| async move {
                     match result {
                         Ok(crate::api::ServerRes::Posts(files)) => {
