@@ -4,6 +4,7 @@ files_path = "./files"
 
 [auth]
 secret = "wowza"
+invite_exp_s = 3600
 
 [db]
 path = "db"

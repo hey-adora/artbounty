@@ -1,5 +1,6 @@
 pub mod nav {
     use crate::{
+        api::{Api, ApiWeb},
         path::PATH_LOGIN,
         view::{app::GlobalState, toolbox::prelude::*},
     };
@@ -10,11 +11,11 @@ pub mod nav {
     #[component]
     pub fn Nav() -> impl IntoView {
         let global_state = expect_context::<GlobalState>();
+        let api = ApiWeb::new();
         // let api_logout = controller::auth::route::logout::client.ground();
         // let is_logged_in = move || global_state.acc.with(|v| v.is_some());
         let logout_or_loading = move || {
-            // if api_logout.is_pending_tracked() {
-            if true {
+            if api.is_pending_tracked() {
                 "loading..."
             } else {
                 "Logout"
@@ -29,24 +30,8 @@ pub mod nav {
         let on_logout = move |e: SubmitEvent| {
             e.prevent_default();
 
-            // api_logout.dispatch(controller::auth::route::logout::Input {});
+            global_state.logout();
         };
-
-        Effect::new(move || {
-            // let Some(result) = api_logout.value_tracked() else {
-            //     return;
-            // };
-            //
-            // match result {
-            //     Ok(_) => {
-            //         global_state.logout();
-            //     }
-            //     Err(err) => {
-            //         error!("error logging out {err}");
-            //     }
-            // }
-        });
-        // hey69@hey.com
 
         view! {
             <nav class="text-gray-200 pb-1 flex gap-2 px-2 py-1 items-center justify-between">
@@ -84,7 +69,6 @@ pub mod gallery {
         rc::Rc,
     };
     use tracing::{debug, error, trace};
-
 
     pub fn vec_img_to_string<IMG: ResizableImage + Display>(imgs: &[IMG]) -> String {
         let mut output = String::new();
