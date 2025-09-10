@@ -94,18 +94,20 @@ pub fn create_api_router(
         routing::post,
     };
 
-    use crate::api::{self, auth_middleware};
+    use crate::api::{self, backend::auth_middleware};
+
+    // use crate::api::{self, auth_middleware};
     let api_router_public = Router::new()
-        .route(PATH_API_LOGIN, post(api::login))
-        .route(PATH_API_REGISTER, post(api::register))
-        .route(PATH_API_INVITE_DECODE, post(api::decode_invite))
-        .route(PATH_API_INVITE, post(api::get_invite))
-        .route(PATH_API_USER, post(api::get_user))
-        .route(PATH_API_LOGOUT, post(api::logout))
-        .route(PATH_API_POST_GET_AFTER, post(api::get_posts_older));
+        .route(PATH_API_LOGIN, post(api::backend::login))
+        .route(PATH_API_REGISTER, post(api::backend::register))
+        .route(PATH_API_INVITE_DECODE, post(api::backend::decode_invite))
+        .route(PATH_API_INVITE, post(api::backend::get_invite))
+        .route(PATH_API_USER, post(api::backend::get_user))
+        .route(PATH_API_LOGOUT, post(api::backend::logout))
+        .route(PATH_API_POST_GET_AFTER, post(api::backend::get_posts_older));
     let api_router_auth = Router::new()
-        .route(PATH_API_PROFILE, post(api::profile))
-        .route(PATH_API_POST_ADD, post(api::add_post))
+        .route(PATH_API_PROFILE, post(api::backend::profile))
+        .route(PATH_API_POST_ADD, post(api::backend::add_post))
         .route_layer(middleware::from_fn_with_state(app_state, auth_middleware));
     let api_router = Router::new()
         .merge(api_router_public)

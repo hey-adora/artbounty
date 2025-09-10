@@ -1,7 +1,7 @@
 pub mod post {
     use std::rc::Rc;
 
-    use crate::api::ApiWeb;
+    use crate::api::{Api, ApiWeb, ServerAddPostErr, ServerErr, ServerReqImg};
     use crate::valid::auth::{proccess_post_description, proccess_post_title};
     use crate::view::app::components::nav::Nav;
     use crate::view::toolbox::prelude::*;
@@ -36,8 +36,7 @@ pub mod post {
             e.prevent_default();
             trace!("uploading...");
             let (Some(files), Some(title), Some(description), Some(tags)) = (
-                upload_image
-                    .get_untracked()
+                (upload_image.get_untracked() as Option<HtmlInputElement>)
                     .and_then(|f: HtmlInputElement| f.files())
                     .map(|f| f.get_files()),
                 upload_title.get_untracked() as Option<HtmlInputElement>,
@@ -59,7 +58,7 @@ pub mod post {
                 return;
             };
             spawn_local(async move {
-                let mut files_data = Vec::<Vec<u8>>::new();
+                let mut files_data = Vec::<ServerReqImg>::new();
                 'for_file: for file in files {
                     // let a = file.;
                     let stream = match file.get_file_stream() {
@@ -81,10 +80,39 @@ pub mod post {
                         chunk.push_to_vec(&mut data);
                     }
                     // let data_str = String::from_utf8_lossy(&data);
-                    trace!("file: {:02X?}", data);
-                    files_data.push(data);
+                    let path = file.name();
+                    // trace!("file: {:02X?}", data);
+                    trace!("file: {}", path);
+                    files_data.push(ServerReqImg { data, path });
                 }
                 trace!("files data read");
+                api.add_post(title, description, files_data)
+                    .send_web(move |res| async move {
+                        match res {
+                            Ok(_) => {
+                                //
+                            }
+                            Err(ServerErr::ServerAddPostErr(ServerAddPostErr::ServerImgErr(
+                                errs,
+                            ))) => {
+                                let msg = errs
+                                    .clone()
+                                    .into_iter()
+                                    .map(|err| err.err.to_string())
+                                    .collect::<Vec<String>>()
+                                    .join("\n");
+                                let _ = upload_image_err.try_set(msg);
+                            }
+                            Err(ServerErr::ServerAddPostErr(
+                                ServerAddPostErr::ServerDirCreationFailed(err),
+                            )) => {
+                                let _ = upload_general_err.try_set(err.to_string());
+                            }
+                            Err(_) => {
+                                //
+                            }
+                        };
+                    });
                 // api_post.dispatch_and_run(
                 //     controller::post::route::add::Input {
                 //         title,
@@ -180,12 +208,18 @@ pub mod post {
     }
 }
 pub mod profile {
+    use crate::api::Api;
+    use crate::api::ApiWeb;
+    use crate::api::ServerErr;
+    use crate::api::ServerGetUserErr;
+    use crate::api::ServerRes;
     use crate::view::app::components::nav::Nav;
     use crate::view::toolbox::prelude::*;
     use leptos::Params;
     use leptos::prelude::*;
     use leptos_router::{hooks::use_params, params::Params};
     use std::rc::Rc;
+    use tracing::error;
 
     use leptos_router::hooks::use_query;
     use tracing::trace;
@@ -199,6 +233,7 @@ pub mod profile {
     pub fn Page() -> impl IntoView {
         let main_ref = NodeRef::new();
         // let api_user = controller::auth::route::user::client.ground();
+        let api = ApiWeb::new();
         let param = use_params::<UserParams>();
         let param_username = move || param.read().as_ref().ok().and_then(|v| v.username.clone());
         let user_username = RwSignal::new("loading...".to_string());
@@ -207,6 +242,24 @@ pub mod profile {
             let Some(username) = param_username() else {
                 return;
             };
+            api.get_user(username).send_web(move |result| async move {
+                match result {
+                    Ok(ServerRes::User { username }) => {
+                        user_username.set(username);
+                    }
+                    Ok(res) => {
+                        user_username.set(format!("expected Uesr, received {res:?}"));
+                        error!("expected Uesr, received {res:?}");
+                    }
+                    Err(ServerErr::ServerGetUserErr(ServerGetUserErr::NotFound)) => {
+                        user_username.set("Not Found".to_string());
+                    }
+                    Err(err) => {
+                        user_username.set(err.to_string());
+                        error!("get user err: {err}");
+                    }
+                }
+            });
             // api_user.dispatch(controller::auth::route::user::Input { username });
         });
         //
@@ -350,18 +403,19 @@ pub mod register {
     use leptos::Params;
     use leptos::tachys::reactive_graph::bind::GetValue;
     use leptos::{html::Input, prelude::*};
+    use leptos_router::NavigateOptions;
     use leptos_router::hooks::use_query;
     use leptos_router::params::Params;
-    use tracing::trace;
     use web_sys::SubmitEvent;
 
-    use crate::api::ApiWeb;
-    use crate::valid::auth::{proccess_email, proccess_password, proccess_username};
+    use crate::api::{Api, ApiWeb, ServerErr, ServerRegistrationErr, ServerRes};
     use crate::path::RegKind;
+    use crate::path::{self, link_user};
+    use crate::valid::auth::{proccess_email, proccess_password, proccess_username};
     use crate::view::app::components::nav::Nav;
     use crate::view::app::{Acc, GlobalState};
     use crate::view::toolbox::prelude::*;
-    use crate::{ path};
+    use tracing::{error, trace};
 
     #[derive(Params, PartialEq, Clone)]
     pub struct RegParams {
@@ -387,11 +441,13 @@ pub mod register {
         let register_general_err = RwSignal::new(String::new());
         let invite_general_err = RwSignal::new(String::new());
         let invite_email_err = RwSignal::new(String::new());
+        let invite_completed = RwSignal::new(String::new());
         let invite_email: NodeRef<Input> = NodeRef::new();
         // let api_invite = controller::auth::route::invite::client.ground();
         // let api_invite_decode = controller::auth::route::invite_decode::client.ground();
         // let api_register = controller::auth::route::register::client.ground();
         let api = ApiWeb::new();
+        let api_invite_decode = ApiWeb::new();
         let query = use_query::<RegParams>();
         let navigate = leptos_router::hooks::use_navigate();
 
@@ -418,26 +474,71 @@ pub mod register {
         //     api_register.is_pending_tracked() || api_invite.is_pending_tracked() || api_invite_decode.is_pending_tracked()
         // };
 
-        let on_invite = move |e: SubmitEvent| {
-            e.prevent_default();
+        let on_invite = {
+            let navigate = navigate.clone();
+            move |e: SubmitEvent| {
+                e.prevent_default();
+                let navigate = navigate.clone();
 
-            let Some(email) = invite_email.get_untracked() else {
-                return;
-            };
+                let Some(email) = invite_email.get_untracked() else {
+                    return;
+                };
 
-            let email = proccess_email(email.value());
+                let email = proccess_email(email.value());
 
-            invite_email_err.set(email.clone().err().unwrap_or_default());
-            invite_general_err.set(String::new());
+                invite_email_err.set(email.clone().err().unwrap_or_default());
+                invite_general_err.set(String::new());
 
-            let Ok(email) = email else {
-                return;
-            };
+                let Ok(email) = email else {
+                    return;
+                };
+                let email_clone = email.clone();
 
-            // api_invite.dispatch(controller::auth::route::invite::Input { email });
+                api.get_invite(email_clone).send_web(move |result| {
+                    let email = email.clone();
+                    let navigate = navigate.clone();
+
+                    async move {
+                        match result {
+                            Ok(ServerRes::Ok) => {
+                                // let result = api.profile().send_native().await;
+                                invite_completed.set(email.clone());
+                                navigate(
+                                    &path::link_check_email(email),
+                                    NavigateOptions {
+                                        ..Default::default()
+                                    },
+                                );
+                                // global_state.set_auth_from_res(result);
+                            }
+                            Ok(res) => {
+                                error!("expected Ok, received {res:?}");
+                            }
+
+                            Err(err) => {
+                                invite_general_err.set(err.to_string());
+                                error!("get invite err: {err}");
+                            }
+                        }
+                    }
+                });
+
+                // api_invite.dispatch(controller::auth::route::invite::Input { email });
+            }
         };
         let on_register = move |e: SubmitEvent| {
             e.prevent_default();
+            // let link = link_user("hey5");
+            // trace!("navigating to {link}");
+            // navigate(
+            //     &link,
+            //     NavigateOptions {
+            //         // replace: true,
+            //         ..Default::default()
+            //     },
+            // );
+            // return;
+            // let navigate = navigate.clone();
             let (Some(username), Some(password), Some(password_confirmation)) = (
                 register_username.get_untracked(),
                 // register_email.get(),
@@ -461,10 +562,67 @@ pub mod register {
                 String::from("token is missing from; invalid link")
             });
 
-            let (Ok(username), Ok(password), Some(token)) = (username, password, token) else {
+            let (Ok(username), Ok(password), Some(invite_token)) = (username, password, token)
+            else {
                 return;
             };
 
+            api.register(username, invite_token, password)
+                .send_web(move |result| {
+                    // let navigate = navigate.clone();
+                    async move {
+                        match result {
+                            Ok(ServerRes::Ok) => {
+                                let res = global_state.update_auth_now().await;
+                                match res {
+                                    Ok(ServerRes::User { username }) => {
+                                        let _ = global_state.update_auth_now().await;
+                                        // let link = link_user(username);
+                                        // trace!("navigating to {link}");
+                                        // navigate(
+                                        //     &link,
+                                        //     NavigateOptions {
+                                        //         replace: true,
+                                        //         ..Default::default()
+                                        //     },
+                                        // );
+                                        //
+                                        // navigate(&link, Default::default());
+                                    }
+                                    res => {
+                                        error!("expected User, received {res:?}");
+                                        // navigate("/", Default::default());
+                                    }
+                                }
+                            }
+                            Ok(res) => {
+                                register_email_decoded
+                                    .set(format!("error, expected OK, received: {res:?}"));
+                            }
+                            Err(ServerErr::ServerRegistrationErr(
+                                ServerRegistrationErr::TokenExpired,
+                            )) => {
+                                register_general_err
+                                    .set("This invite link is already expired.".to_string());
+                            }
+                            Err(ServerErr::ServerRegistrationErr(
+                                ServerRegistrationErr::TokenUsed,
+                            )) => {
+                                register_general_err
+                                    .set("This invite link was already used.".to_string());
+                            }
+                            Err(ServerErr::ServerRegistrationErr(
+                                ServerRegistrationErr::TokenNotFound,
+                            )) => {
+                                register_general_err
+                                    .set("This invite link is invalid.".to_string());
+                            }
+                            Err(err) => {
+                                register_general_err.set(err.to_string());
+                            }
+                        }
+                    }
+                });
             // api_register.dispatch(controller::auth::route::register::Input {
             //     email_token: token,
             //     password,
@@ -496,6 +654,23 @@ pub mod register {
             let Some(token) = get_query_token() else {
                 return;
             };
+
+            api_invite_decode
+                .decode_invite(token)
+                .send_web(move |result| async move {
+                    match result {
+                        Ok(ServerRes::InviteToken(token)) => {
+                            register_email_decoded.set(token.email);
+                        }
+                        Ok(res) => {
+                            register_email_decoded
+                                .set(format!("error, expected OK, received: {res:?}"));
+                        }
+                        Err(err) => {
+                            register_email_decoded.set(err.to_string());
+                        }
+                    }
+                });
 
             // api_invite_decode.dispatch(controller::auth::route::invite_decode::Input { token });
         });
@@ -647,11 +822,11 @@ pub mod login {
     use leptos::html;
     use leptos::{html::Input, prelude::*};
 
-    use crate::api::ApiWeb;
-    use crate::view::app::{Acc, GlobalState};
+    use crate::api::{Api, ApiWeb, ServerLoginErr, ServerRes};
     use crate::view::app::components::nav::Nav;
+    use crate::view::app::{Acc, GlobalState};
     use crate::view::toolbox::prelude::*;
-    use tracing::trace;
+    use tracing::{error, trace};
     use web_sys::SubmitEvent;
 
     // use crate::{
@@ -691,6 +866,29 @@ pub mod login {
             // };
 
             trace!("lohin dispatched");
+            api.login(email, password)
+                .send_web(move |result| async move {
+                    match result {
+                        Ok(ServerRes::Ok) => {
+                            global_state.update_auth();
+                        }
+                        Ok(res) => {
+                            error!("expected Ok, received {res:?}");
+                        }
+                        // Err(ServerLoginErr::) => {
+                        //     let r = general_err.try_set(err.to_string());
+                        //     if r.is_some() {
+                        //         error!("global state acc was disposed somehow");
+                        //     }
+                        // }
+                        Err(err) => {
+                            let r = general_err.try_set(err.to_string());
+                            if r.is_some() {
+                                error!("global state acc was disposed somehow");
+                            }
+                        }
+                    }
+                });
             // api_login.dispatch(controller::auth::route::login::Input { email, password });
         };
         // let login_completed = {let login = login.clone(); move || login.is_complete()};

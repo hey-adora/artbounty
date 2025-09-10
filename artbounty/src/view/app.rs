@@ -1,9 +1,17 @@
 use leptos::prelude::*;
 use leptos_router::components::*;
 use leptos_router::path;
+use log::error;
 use log::trace;
-use page::{home, login, profile, register, post};
+use page::{home, login, post, profile, register};
+use tracing::info;
 
+use crate::api::Api;
+use crate::api::ApiWeb;
+use crate::api::ApiWebpTmp;
+use crate::api::ServerErr;
+use crate::api::ServerRes;
+use crate::path::link_user;
 use crate::view::toolbox::prelude::*;
 
 pub mod components;
@@ -22,6 +30,43 @@ impl GlobalState {
             ..Default::default()
         }
     }
+    pub fn get_username_untracked(&self) -> Option<String> {
+        self.acc.with_untracked(|acc| acc.as_ref().map(|acc| acc.username.clone()))
+    }
+    pub fn update_auth(&self) {
+        let this = self.clone();
+        ApiWebpTmp::new()
+            .profile()
+            .send_web(move |result| async move {
+                this.set_auth_from_res(result);
+            });
+    }
+    pub async fn update_auth_now(&self) -> Result<ServerRes, ServerErr> {
+        let result = ApiWebpTmp::new().profile().send_native().await;
+        self.set_auth_from_res(result.clone());
+        result
+    }
+    pub fn set_auth_from_res(&self, result: Result<ServerRes, ServerErr>) {
+        match result {
+            Ok(ServerRes::User { username }) => {
+                info!("logged in as {username}");
+                let r = self.acc.try_set(Some(Acc { username: username }));
+                if r.is_some() {
+                    error!("global state acc was disposed somehow");
+                }
+            }
+            Ok(res) => {
+                error!("expected User, received {res:?}");
+            }
+            Err(err) => {
+                error!("{err}");
+            }
+        }
+        let r = self.acc_pending.try_set(false);
+        if r.is_some() {
+            error!("global state acc was disposed somehow");
+        }
+    }
     pub fn is_logged_in(&self) -> bool {
         self.acc.with(|v| v.is_some())
     }
@@ -29,7 +74,19 @@ impl GlobalState {
         self.acc_pending.get()
     }
     pub fn logout(&self) {
-        self.acc.set(None);
+        let api = ApiWebpTmp::new();
+        let acc = self.acc;
+        api.logout().send_web(move |result| async move {
+            match result {
+                Ok(_) => {
+                    let r = acc.try_set(None);
+                    if r.is_some() {
+                        error!("global state acc was disposed somehow");
+                    }
+                }
+                Err(err) => error!("logout fail"),
+            }
+        });
     }
 }
 
@@ -44,11 +101,11 @@ pub fn App() -> impl IntoView {
     let global_state = expect_context::<GlobalState>();
     // let a = 77;
 
-    // let api_profile = controller::auth::route::profile::client.ground();
+    let api = ApiWeb::new();
     // // let profile = ServerAction::<api::profile::Profile>::new();
-    // Effect::new(move || {
-    //     api_profile.dispatch(controller::auth::route::profile::Input {});
-    // });
+    Effect::new(move || {
+        global_state.update_auth();
+    });
 
     // Effect::new(move || {
     //     let Some(result) = api_profile.value_tracked() else {
@@ -66,6 +123,7 @@ pub fn App() -> impl IntoView {
     //     }
     //     global_state.acc_pending.set(false);
     // });
+    let redirect_path = move || link_user(global_state.get_username_untracked().unwrap_or(String::from("/")));
 
     view! {
         <Router>
@@ -73,8 +131,8 @@ pub fn App() -> impl IntoView {
                 <Route path=path!("") view=home::Page />
                 <Route path=path!("/post") view=post::Page />
                 <Route path=path!("/u/:username") view=profile::Page />
-                <ProtectedRoute path=path!("/login") condition=move||Some(!global_state.is_logged_in()) redirect_path=|| "/" view=login::Page />
-                <ProtectedRoute path=path!("/register") condition=move||Some(!global_state.is_logged_in()) redirect_path=|| "/" view=register::Page />
+                <ProtectedRoute path=path!("/login") condition=move||Some(!global_state.is_logged_in()) redirect_path view=login::Page />
+                <ProtectedRoute path=path!("/register") condition=move||Some(!global_state.is_logged_in()) redirect_path view=register::Page />
             </Routes>
         </Router>
     }

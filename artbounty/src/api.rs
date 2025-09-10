@@ -1,5 +1,3 @@
-// use crate::controller::auth::{AuthToken, InviteToken};
-use futures::TryFutureExt;
 use http::header::AUTHORIZATION;
 use leptos::prelude::*;
 use reqwest::RequestBuilder;
@@ -78,6 +76,7 @@ pub mod settings {
     #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
     pub struct Auth {
         pub secret: String,
+        pub invite_exp_s: u64,
     }
 
     #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -109,6 +108,7 @@ pub mod settings {
                 },
                 auth: Auth {
                     secret: "secret".to_string(),
+                    invite_exp_s: 1,
                 },
                 db: Db {
                     path: "memory".to_string(),
@@ -212,6 +212,21 @@ pub enum ServerReq {
         files: Vec<ServerReqImg>,
     },
     None,
+}
+
+#[cfg(feature = "ssr")]
+impl<S> axum::extract::FromRequest<S> for ServerReq
+where
+    S: Send + Sync,
+{
+    type Rejection = ServerErr;
+
+    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
+        let multipart = axum::extract::Multipart::from_request(req, state)
+            .await
+            .map_err(|err| ServerDesErr::ServerDesGettingMultipartErr(err.to_string()))?;
+        recv(multipart).await
+    }
 }
 
 #[derive(
@@ -428,6 +443,12 @@ pub enum ServerAddPostErr {
     #[error("file system err {0}")]
     ServerFSErr(String),
 
+    #[error("invalid title {0}")]
+    InvalidTitle(String),
+
+    #[error("invalid description {0}")]
+    InvalidDescription(String),
+
     #[error("img proccesing error {0:#?}")]
     ServerImgErr(Vec<ServerErrImgMeta>),
 }
@@ -608,16 +629,11 @@ pub struct InviteToken {
 }
 
 impl InviteToken {
-    pub fn new<S: Into<String>>(
-        email: S,
-        created_at: u128,
-        // exp: std::time::Duration,
-    ) -> Self {
+    pub fn new<S: Into<String>>(email: S, created_at: u128) -> Self {
         Self {
             email: email.into(),
             created_at,
             exp: 0,
-            // exp: exp.as_secs(),
         }
     }
 }
@@ -628,15 +644,11 @@ pub fn create_cookie<Key: AsRef<[u8]>, S: Into<String>>(
     username: S,
     time: std::time::Duration,
 ) -> Result<(String, String), jsonwebtoken::errors::Error> {
-    use std::time::Duration;
-
     use tracing::trace;
-
     let key = key.as_ref();
     let token = encode_token(key, AuthToken::new(username, time.as_nanos()))
         .inspect_err(|err| error!("jwt exploded {err}"))?;
     trace!("token created: {token:?}");
-    // .map_err(|_| OutputErr::CreateCookieErr)?;
     let cookie = format!("Bearer={token}; Secure; HttpOnly");
     trace!("cookie created: {cookie:?}");
     Ok((token, cookie))
@@ -733,18 +745,6 @@ pub fn decode_token<Claims: serde::de::DeserializeOwned>(
     decode::<Claims>(token, &secret, &validation)
 }
 
-// pub async fn send_web(req_builder: RequestBuilder, req: ServerReq) -> Result<ServerRes, ServerErr> {
-//
-// }
-
-// pub trait ReqBuilderProvider {
-//     fn provide_builder(&self) -> RequestBuilder;
-// }
-
-// pub struct Api<'a> {
-//     pub provider: Box<&'a dyn ReqBuilderProvider>,
-//     // pub clock: Box<&'a dyn ReqBuilderProvider>,
-// }
 pub trait Api {
     fn provide_builder(&self, path: impl AsRef<str>) -> RequestBuilder;
     fn provide_signal_result(&self) -> Option<RwSignal<Option<Result<ServerRes, ServerErr>>>> {
@@ -754,7 +754,6 @@ pub trait Api {
         None
     }
 
-    // async fn send(&self, req_builder: RequestBuilder, req: ServerReq) -> Result<ServerRes, ServerErr>;
     fn login(&self, email: impl Into<String>, password: impl Into<String>) -> ApiReq {
         let email = email.into();
         let password = password.into();
@@ -962,56 +961,19 @@ impl ApiReq {
         use axum_extra::extract::CookieJar;
         use http::header::SET_COOKIE;
 
-        // use crate::controller::auth::cut_cookie_full_encoded;
-        // use crate::controller::auth::decode_token;
-        // use crate::controller::auth::test_extract_cookie_and_decode;
-
         let secret = secret.into();
         let req = self.server_req;
         let builder = self.builder;
         let (headers, result) = send(builder, req, None::<&str>).await;
         let jar = CookieJar::from_headers(&headers);
-        // let token = jar.get(SET_COOKIE.as_ref()).map(|cookie| cookie.value().to_string());
         let token = headers
             .get(SET_COOKIE)
             .map(|v| cut_cookie_full_encoded(v.to_str().unwrap()).to_string());
-        // trace!("extracted cookie {token:?}");
-        // let decoded_token = token.clone().and_then(|cookie| decode_token::<AuthToken>(secret, cookie, false).ok());
         let decoded_token = token
             .clone()
             .and_then(|cookie| decode_token::<AuthToken>(secret, cookie, false).ok());
-        // let cookie = cut_cookie_full_encoded(v.to_str().unwrap()).to_string();
-        // let token = test_extract_cookie_and_decode(&secret, &headers);
         (token, decoded_token, result)
     }
-
-    // pub fn value_tracked(&self) -> Option<Result<ServerRes, ServerErr>> {
-    //     self.result.get()
-    // }
-    //
-    // pub fn is_complete_tracked(&self) -> bool {
-    //     // self.inner.with(|v| v.value.as_ref().map(|v| v.is_ok()).unwrap_or_default() )
-    //     self.busy.with(|v| v.value.as_ref().is_some())
-    // }
-    //
-    // pub fn is_pending_tracked(&self) -> bool {
-    //     // self.inner.with(|v| v.value.as_ref().map(|v| v.is_ok()).unwrap_or_default() )
-    //     self.inner.with(|v| v.pending)
-    // }
-    // pub fn is_pending_untracked(&self) -> bool {
-    //     // self.inner.with(|v| v.value.as_ref().map(|v| v.is_ok()).unwrap_or_default() )
-    //     self.inner.with_untracked(|v| v.pending)
-    // }
-    //
-    // pub fn is_succ_tracked(&self) -> bool {
-    //     self.inner
-    //         .with(|v| v.value.as_ref().map(|v| v.is_ok()).unwrap_or_default())
-    // }
-    //
-    // pub fn is_err_tracked(&self) -> bool {
-    //     self.inner
-    //         .with(|v| v.value.as_ref().map(|v| v.is_err()).unwrap_or_default())
-    // }
 }
 
 #[cfg(test)]
@@ -1033,6 +995,24 @@ impl<'a> Api for ApiTest<'a> {
         let path = path.as_ref();
         let url = format!("{}{path}", crate::path::PATH_API);
         self.server.reqwest_post(&url)
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct ApiWebpTmp {}
+
+impl Api for ApiWebpTmp {
+    fn provide_builder(&self, path: impl AsRef<str>) -> RequestBuilder {
+        let origin = location().origin().unwrap();
+        let path = path.as_ref();
+        let url = format!("{origin}{}{path}", crate::path::PATH_API);
+        reqwest::Client::new().post(url)
+    }
+}
+
+impl ApiWebpTmp {
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -1073,13 +1053,6 @@ impl Api for ApiWeb {
         Some(self.busy)
     }
 }
-
-// impl Api<'_> {
-//     pub async fn get_posts_after(&self) -> Result<ServerRes, ServerErr> {
-//         let req_builder = self.provider.provide_builder();
-//         send(req_builder, ServerReq::GetPostAfter { time: 0, limit: 25 }).await
-//     }
-// }
 
 #[cfg(feature = "ssr")]
 pub async fn recv(mut multipart: axum::extract::Multipart) -> Result<ServerReq, ServerErr> {
@@ -1123,6 +1096,8 @@ impl axum::response::IntoResponse for ServerErr {
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR
             }
             ServerErr::ServerDesErr(_)
+            | ServerErr::ServerAddPostErr(ServerAddPostErr::InvalidTitle(_))
+            | ServerErr::ServerAddPostErr(ServerAddPostErr::InvalidDescription(_))
             | ServerErr::ServerRegistrationErr(ServerRegistrationErr::TokenExpired)
             | ServerErr::ServerRegistrationErr(ServerRegistrationErr::TokenUsed)
             | ServerErr::ServerRegistrationErr(ServerRegistrationErr::TokenNotFound)
@@ -1202,13 +1177,6 @@ impl axum::response::IntoResponse for ServerRes {
                 bytes.into_response()
             }
         }
-
-        // CookieJar::new().add(Cookie::new(
-        //     http::header::AUTHORIZATION.as_str(),
-        //     cookie.clone(),
-        // ));
-        //
-        // bytes.into_response()
     }
 }
 
@@ -1280,221 +1248,133 @@ pub async fn send(
     );
 
     (headers, body)
-    //     let req = match req_builder
-    //         .multipart(form)
-    //         .send()
-    //         .await {
-    //
-    //     Ok(v) => v,
-    //     Err(err) => {
-    //         return (http::HeaderMap::new(), Err(ClientErr::ClientSendErr(err.to_string()).into()));
-    //     }
-    // };
-
-    // let result: Result<ServerRes, ServerErr> = (async {
-    //     let status = req.status();
-    //     let headers = req.headers().clone();
-    //
-    //     let bytes = req
-    //         .bytes()
-    //         .await
-    //         .map_err(|err| ClientErr::ClientDesErr(err.to_string()))
-    //         .inspect_err(|err| {
-    //             error!("client byte stream status {status}\nheaders: {headers:#?}\nerr: {err}")
-    //         })?;
-    //
-    //     let body = rkyv::access::<
-    //         ArchivedResult<ArchivedServerRes, ArchivedServerErr>,
-    //         rkyv::rancor::Error,
-    //     >(bytes.as_ref())
-    //     .and_then(|archive| {
-    //         rkyv::deserialize::<Result<ServerRes, ServerErr>, rkyv::rancor::Error>(archive)
-    //     })
-    //     .map_err(|err| ServerErr::from(ClientErr::ClientDesErr(err.to_string())))
-    //     .flatten();
-    //     // .inspect_err(|err| error!("client byte stream err: {err}"));
-    //
-    //     debug!(
-    //         "CLIENT RECV:\nstatus: {status}\nclient received headers: {headers:#?}\n{body:?} - {bytes:X}"
-    //     );
-    //     body
-    // }).await;
-
-    // let res = match req_builder
-    //     .multipart(form)
-    //     .send()
-    //     .await
-    //     .inspect_err(|err| error!("client err: {err}"))
-    //     .map_err(|_| ResErr::ClientErr(ClientErr::FailedToSend))
-    // {
-    //     Ok(res) => res,
-    //     Err(err) => {
-    //         return (HeaderMap::new(), Err(err));
-    //     }
-    // };
 }
 
 #[cfg(feature = "ssr")]
-pub async fn get_user(
-    axum::extract::State(app_state): axum::extract::State<app_state::AppState>,
-    // jar: axum_extra::extract::cookie::CookieJar,
-    // multipart: axum::extract::Multipart,
-    req: ServerReq,
-) -> Result<ServerRes, ServerErr> {
-    // use crate::controller::encode::encode_server_output_custom;
-
-    let ServerReq::GetUser { username } = req else {
-        return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-            "expected GetUser, received: {req:?}"
-        ))));
+pub mod backend {
+    use crate::api::app_state::AppState;
+    use crate::api::{
+        AuthToken, InviteToken, Post, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr,
+        ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerGetUserErr, ServerInviteErr,
+        ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes, create_cookie,
+        cut_cookie_value_decoded, decode_token, encode_token, hash_password, verify_password,
     };
-
-    trace!("executing profile api");
-
-    // let result = (async || -> Result<ServerOutput, ResErr<ServerErr>> {
-    // })()
-    // .await;
-    use crate::db::user::get_user_by_username::GetUserByUsernameErr;
-
-    // let input = decode_multipart::<Input, ServerErr>(multipart).await?;
-    // trace!("input!!!!!! {input:#?}");
-    let user = app_state
-        .db
-        .get_user_by_username(username)
-        .await
-        .map_err(|err| match err {
-            GetUserByUsernameErr::UserNotFound => ServerGetUserErr::NotFound.into(),
-            _ => ServerErr::ServerDbErr,
-        })?;
-
-    // Ok(ServerOutput {
-    //     username: user.username,
-    // })
-
-    // encode_server_output_custom(result)
-    Ok(ServerRes::User {
-        username: user.username,
-    })
-}
-
-#[cfg(feature = "ssr")]
-pub async fn logout(
-    axum::extract::State(app_state): axum::extract::State<app_state::AppState>,
-    jar: axum_extra::extract::cookie::CookieJar,
-) -> Result<ServerRes, ServerErr> {
-    use http::header::AUTHORIZATION;
-
-    let token = jar
-        .get(AUTHORIZATION.as_str())
-        .ok_or(ServerErr::ServerAuthErr(
-            ServerAuthErr::ServerUnauthorizedNoCookie,
-        ))
-        .map(|v| cut_cookie_value_decoded(v.value()).to_string())?;
-
-    app_state
-        .db
-        .get_session(&token)
-        .await
-        .map_err(|_err| ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie))?;
-
-    app_state
-        .db
-        .delete_session(token)
-        .await
-        .map_err(|_err| ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie))?;
-
-    Ok(ServerRes::Ok)
-}
-
-#[cfg(feature = "ssr")]
-pub async fn decode_invite(
-    axum::extract::State(app_state): axum::extract::State<app_state::AppState>,
-    req: ServerReq,
-) -> Result<ServerRes, ServerErr> {
+    use crate::db::invite::add_invite::AddInviteErr;
     use crate::db::invite::get_invite::GetInviteErr;
-
-    use std::time::Duration;
-
-    let ServerReq::DecodeInvite { token } = req else {
-        return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-            "expected Register, received: {req:?}"
-        ))));
-    };
-
-    // let time = app_state.clock.now().await;
-    // let exp = time + Duration::from_secs(60 * 30);
-    //
-    // let result = app_state
-    //     .db
-    //     .get_invite_by_token(&token)
-    //     .await
-    //     .map_err(|err| match err {
-    //         GetInviteErr::NotFound => ServerDecodeInviteErr::InviteNotFound.into(),
-    //         GetInviteErr::DB(_) => ServerErr::ServerDbErr,
-    //     });
-
-    let token = decode_token::<InviteToken>(&app_state.settings.auth.secret, token, false)
-        .map_err(|err| ServerDecodeInviteErr::JWT(err.to_string()))?;
-
-    Ok(ServerRes::InviteToken(token.claims))
-}
-
-#[cfg(feature = "ssr")]
-pub async fn profile(
-    axum::extract::State(app_state): axum::extract::State<app_state::AppState>,
-    // jar: axum_extra::extract::cookie::CookieJar,
-    // req: ServerReq,
-    auth_token: axum::Extension<AuthToken>,
-) -> Result<ServerRes, ServerErr> {
-    trace!("executing profile api");
-
-    // let auth_token = check_auth(&app_state, &jar).await?;
-
-    // Ok(ServerOutput {
-    //     username: auth_token.username,
-    // })
-
-    // encode_server_output_custom(result)
-    Ok(ServerRes::User {
-        username: auth_token.username.clone(),
-    })
-}
-
-#[cfg(feature = "ssr")]
-pub async fn register(
-    axum::extract::State(app_state): axum::extract::State<app_state::AppState>,
-    jar: axum_extra::extract::cookie::CookieJar,
-    // multipart: axum::extract::Multipart,
-    req: ServerReq,
-) -> impl axum::response::IntoResponse {
+    use crate::db::post::PostFile;
+    use crate::db::session::get_session::GetSessionErr;
     use crate::db::user::add_user::AddUserErr;
-    use axum_extra::extract::{CookieJar, cookie::Cookie};
-
-    let ServerReq::Register {
-        username,
-        invite_token,
-        password,
-    } = req
-    else {
-        return (
-            jar,
-            Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected Register, received: {req:?}"
-            )))),
-        );
+    use crate::db::user::get_user_by_username::GetUserByUsernameErr;
+    use crate::valid::auth::{
+        proccess_password, proccess_post_description, proccess_post_title, proccess_username,
     };
-    let time = app_state.clock.now().await;
-    let time_ns = time.as_nanos();
+    use axum::Extension;
+    use axum::extract::State;
+    use axum::response::IntoResponse;
+    use axum_extra::extract::CookieJar;
+    use axum_extra::extract::cookie::Cookie;
+    use gxhash::{gxhash64, gxhash128};
+    use http::header::AUTHORIZATION;
+    use image::{ImageFormat, ImageReader};
+    use little_exif::{filetype::FileExtension, metadata::Metadata};
+    use std::time::Duration;
+    use std::{io::Cursor, path::Path, str::FromStr};
+    use tokio::fs;
+    use tracing::{debug, error, info, trace};
 
-    let result = (async || -> Result<String, ServerErr> {
-        // let input = decode_multipart::<Input, ServerErr>(multipart).await?;
-        // trace!("input!!!!!! {input:#?}");
-        // let token_raw = input.email_token;
-
-        use crate::{
-            db::invite::get_invite::GetInviteErr,
-            valid::auth::{proccess_password, proccess_username},
+    pub async fn get_user(
+        State(app_state): State<AppState>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::GetUser { username } = req else {
+            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                "expected GetUser, received: {req:?}"
+            ))));
         };
+
+        let user = app_state
+            .db
+            .get_user_by_username(username)
+            .await
+            .map_err(|err| match err {
+                GetUserByUsernameErr::UserNotFound => ServerGetUserErr::NotFound.into(),
+                _ => ServerErr::ServerDbErr,
+            })?;
+
+        Ok(ServerRes::User {
+            username: user.username,
+        })
+    }
+
+    pub async fn logout(
+        State(app_state): State<AppState>,
+        jar: CookieJar,
+    ) -> Result<ServerRes, ServerErr> {
+        let token = jar
+            .get(AUTHORIZATION.as_str())
+            .ok_or(ServerErr::ServerAuthErr(
+                ServerAuthErr::ServerUnauthorizedNoCookie,
+            ))
+            .map(|v| cut_cookie_value_decoded(v.value()).to_string())?;
+
+        app_state
+            .db
+            .get_session(&token)
+            .await
+            .map_err(|_err| ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie))?;
+
+        app_state
+            .db
+            .delete_session(token)
+            .await
+            .map_err(|_err| ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie))?;
+
+        Ok(ServerRes::Ok)
+    }
+
+    pub async fn decode_invite(
+        State(app_state): State<AppState>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::DecodeInvite { token } = req else {
+            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                "expected Register, received: {req:?}"
+            ))));
+        };
+
+        let token = decode_token::<InviteToken>(&app_state.settings.auth.secret, token, false)
+            .map_err(|err| ServerDecodeInviteErr::JWT(err.to_string()))?;
+
+        Ok(ServerRes::InviteToken(token.claims))
+    }
+
+    pub async fn profile(
+        State(app_state): State<AppState>,
+        auth_token: Extension<AuthToken>,
+    ) -> Result<ServerRes, ServerErr> {
+        Ok(ServerRes::User {
+            username: auth_token.username.clone(),
+        })
+    }
+
+    pub async fn register(
+        State(app_state): State<AppState>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::Register {
+            username,
+            invite_token,
+            password,
+        } = req
+        else {
+            return Err(ServerDesErr::ServerWrongInput(format!(
+                "expected Register, received: {req:?}"
+            ))
+            .into());
+        };
+        let time = app_state.clock.now().await;
+        let time_ns = time.as_nanos();
+
         let invite_token_decoded = app_state
             .db
             .get_invite_by_token(&invite_token)
@@ -1515,14 +1395,6 @@ pub async fn register(
                     .map_err(|err| ServerRegistrationErr::ServerJWT(err.to_string()).into())
             })?;
 
-        // let email_token =
-        //     decode_token::<InviteToken>(&app_state.settings.auth.secret, &token_raw, false)
-        //         .map_err(|err| match err.kind() {
-        //             jsonwebtoken::errors::ErrorKind::ExpiredSignature => ServerErr::JWTExpired,
-        //             _ => ServerErr::JWT,
-        //         })?;
-
-        // let email = proccess_email(&invite_token_decoded.claims.email);
         let email = invite_token_decoded.claims.email;
         let username = proccess_username(username);
         let password = proccess_password(password, None)
@@ -1537,18 +1409,6 @@ pub async fn register(
                 },
             ));
         };
-
-        // app_state
-        //     .db
-        //     .add_user(username, email, password)
-        //     .await
-        //     .map_err(|err| match err {
-        //         AddUserErr::EmailIsTaken(_) => ServerErr::EmailTaken,
-        //         AddUserErr::UsernameIsTaken(_) => ServerErr::UsernameTaken,
-        //         _err=> {
-        //             return ServerErr::ServerDbErr;
-        //         },
-        //     });
 
         let user = app_state
             .db
@@ -1590,200 +1450,206 @@ pub async fn register(
             .await
             .map_err(|err| ServerErr::ServerDbErr)?;
 
-        Ok(cookie)
-    })()
-    .await;
-
-    match result {
-        Ok(cookie) => {
-            let cookies = jar.add(Cookie::new(http::header::AUTHORIZATION.as_str(), cookie));
-            (cookies, Ok(ServerRes::Ok))
-        }
-        Err(err) => (jar, Err(err)),
+        Ok(ServerRes::SetAuthCookie { cookie })
     }
-}
 
-#[cfg(feature = "ssr")]
-pub async fn get_posts_older(
-    axum::extract::State(app_state): axum::extract::State<app_state::AppState>,
-    jar: axum_extra::extract::cookie::CookieJar,
-    // username: Extension<String>,
-    req: ServerReq,
-) -> Result<ServerRes, ServerErr> {
-    let ServerReq::GetPostAfter { time, limit } = req else {
-        return Err(ServerDesErr::ServerWrongInput(format!(
-            "expected GetPostAfter, received: {req:?}"
-        ))
-        .into());
-    };
-    let posts = app_state
-        .db
-        .get_post_older(time, limit)
-        .await
-        .map_err(|_| ServerErr::ServerDbErr)?
-        .into_iter()
-        .map(|post| {
-            use chrono::{DateTime, Utc};
-            use std::time::Duration;
+    pub async fn get_posts_older(
+        State(app_state): State<AppState>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::GetPostAfter { time, limit } = req else {
+            return Err(ServerDesErr::ServerWrongInput(format!(
+                "expected GetPostAfter, received: {req:?}"
+            ))
+            .into());
+        };
+        let posts = app_state
+            .db
+            .get_post_older(time, limit)
+            .await
+            .map_err(|_| ServerErr::ServerDbErr)?
+            .into_iter()
+            .map(|post| {
+                post.file
+                    .first()
+                    .cloned()
+                    .map(|post_file| Post {
+                        hash: post_file.hash,
+                        extension: post_file.extension,
+                        width: post_file.width,
+                        height: post_file.height,
+                        created_at: post.created_at,
+                    })
+                    .unwrap_or(Post {
+                        hash: "404".to_string(),
+                        extension: "webp".to_string(),
+                        width: 300,
+                        height: 200,
+                        created_at: 0,
+                    })
+            })
+            .collect::<Vec<Post>>();
 
-            // let a = Duration::from_nanos(0);
-            // let b = a.as_nanos();
-            // let created_at: DateTime<Utc> = post.created_at.to_string();
+        Ok(ServerRes::Posts(posts))
+    }
 
-            post.file
-                .first()
-                .cloned()
-                .map(|post_file| Post {
-                    hash: post_file.hash,
-                    extension: post_file.extension,
-                    width: post_file.width,
-                    height: post_file.height,
-                    created_at: post.created_at,
-                })
-                .unwrap_or(Post {
-                    hash: "404".to_string(),
-                    extension: "webp".to_string(),
-                    width: 300,
-                    height: 200,
-                    created_at: 0,
-                })
-        })
-        .collect::<Vec<Post>>();
+    pub async fn add_post(
+        State(app_state): State<AppState>,
+        auth_token: axum::Extension<AuthToken>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::AddPost {
+            title,
+            description,
+            files,
+        } = req
+        else {
+            return Err(ServerDesErr::ServerWrongInput(format!(
+                "expected AddPost, received: {req:?}"
+            ))
+            .into());
+        };
+        let time = app_state.clock.now().await;
 
-    Ok(ServerRes::Posts(posts))
-}
+        let title = proccess_post_title(title)
+            .map_err(|err| ServerAddPostErr::InvalidTitle(err.to_string()))?;
+        let description = proccess_post_description(description)
+            .map_err(|err| ServerAddPostErr::InvalidDescription(err.to_string()))?;
 
-#[cfg(feature = "ssr")]
-pub async fn add_post(
-    axum::extract::State(app_state): axum::extract::State<app_state::AppState>,
-    jar: axum_extra::extract::cookie::CookieJar,
-    // username: Extension<String>,
-    // multipart: axum::extract::Multipart,
-    auth_token: axum::Extension<AuthToken>,
-    req: ServerReq,
-) -> Result<ServerRes, ServerErr> {
-    let ServerReq::AddPost {
-        title,
-        description,
-        files,
-    } = req
-    else {
-        return Err(
-            ServerDesErr::ServerWrongInput(format!("expected AddPost, received: {req:?}")).into(),
-        );
-    };
-    // let username = &*username;
-    trace!("executing post api");
-    use std::{io::Cursor, path::Path, str::FromStr};
-
-    use crate::db::post::PostFile;
-    use axum_extra::extract::cookie::Cookie;
-    use gxhash::{gxhash64, gxhash128};
-    use http::header::AUTHORIZATION;
-    use image::{ImageFormat, ImageReader};
-    use little_exif::{filetype::FileExtension, metadata::Metadata};
-    use tokio::fs;
-
-    let time = app_state.clock.now().await;
-    // trace!("{input:?}");
-    let (files, errs) = files
-        .into_iter()
-        .map(|v| {
-            let path = v.path;
-            let img_data_for_thumbnail = v.data.clone();
-            let img_data_for_org = v.data;
-            ImageReader::new(Cursor::new(img_data_for_thumbnail))
-                .with_guessed_format()
-                .inspect_err(|err| error!("error guesing the format {err}"))
-                .map_err(|err| ServerErrImg::ServerImgUnsupportedFormat(err.to_string()))
-                .and_then(|v| {
-                    let img_format = v.format().ok_or(ServerErrImg::ServerImgUnsupportedFormat(
-                        "uwknown".to_string(),
-                    ))?;
-                    v.decode()
-                        .inspect_err(|err| error!("error decoding img {err}"))
-                        .map_err(|err| ServerErrImg::ServerImgDecodeFailed(err.to_string()))
-                        .map(|img| (img_format, img))
-                })
-                .and_then(|(img_format, img)| {
-                    let width = img.width();
-                    let height = img.height();
-                    webp::Encoder::from_image(&img)
-                        .inspect_err(|err| error!("failed to create webp encoder {err}"))
-                        .map_err(|err| {
-                            ServerErrImg::ServerImgWebPEncoderCreationFailed(err.to_string())
-                        })
-                        .and_then(|encoder| {
-                            encoder
-                                .encode_simple(false, 90.0)
-                                .inspect_err(|err| error!("failed to create webp encoder {err:?}"))
+        let (files, errs) = files
+            .into_iter()
+            .map(|v| {
+                let path = v.path;
+                let img_data_for_thumbnail = v.data.clone();
+                let img_data_for_org = v.data;
+                ImageReader::new(Cursor::new(img_data_for_thumbnail))
+                    .with_guessed_format()
+                    .inspect_err(|err| error!("error guesing the format {err}"))
+                    .map_err(|err| ServerErrImg::ServerImgUnsupportedFormat(err.to_string()))
+                    .and_then(|v| {
+                        let img_format = v.format().ok_or(
+                            ServerErrImg::ServerImgUnsupportedFormat("uwknown".to_string()),
+                        )?;
+                        v.decode()
+                            .inspect_err(|err| error!("error decoding img {err}"))
+                            .map_err(|err| ServerErrImg::ServerImgDecodeFailed(err.to_string()))
+                            .map(|img| (img_format, img))
+                    })
+                    .and_then(|(img_format, img)| {
+                        let width = img.width();
+                        let height = img.height();
+                        webp::Encoder::from_image(&img)
+                            .inspect_err(|err| error!("failed to create webp encoder {err}"))
+                            .map_err(|err| {
+                                ServerErrImg::ServerImgWebPEncoderCreationFailed(err.to_string())
+                            })
+                            .and_then(|encoder| {
+                                encoder
+                                    .encode_simple(false, 90.0)
+                                    .inspect_err(|err| {
+                                        error!("failed to create webp encoder {err:?}")
+                                    })
+                                    .map_err(|err| {
+                                        ServerErrImg::ServerImgWebPEncodingFailed(format!(
+                                            "{err:?}"
+                                        ))
+                                    })
+                            })
+                            .map(|img| (img_format, (width, height), img))
+                    })
+                    .and_then(|(img_format, (width, height), img_data_thumbnail)| {
+                        let img_format = img_format.extensions_str()[0];
+                        let mut img_data_org = img_data_for_org;
+                        FileExtension::from_str(img_format)
+                            .map_err(|_| {
+                                ServerErrImg::ServerImgUnsupportedFormat(img_format.to_string())
+                            })
+                            .and_then(|img_format| {
+                                little_exif::metadata::Metadata::clear_metadata(
+                                    &mut img_data_org,
+                                    img_format,
+                                )
+                                .inspect_err(|err| error!("failed to read metadata {err:?}"))
                                 .map_err(|err| {
-                                    ServerErrImg::ServerImgWebPEncodingFailed(format!("{err:?}"))
+                                    ServerErrImg::ServerImgMetadataReadFail(err.to_string())
                                 })
-                        })
-                        .map(|img| (img_format, (width, height), img))
-                })
-                .and_then(|(img_format, (width, height), img_data_thumbnail)| {
-                    let img_format = img_format.extensions_str()[0];
-                    let mut img_data_org = img_data_for_org;
-                    FileExtension::from_str(img_format)
-                        .map_err(|_| {
-                            ServerErrImg::ServerImgUnsupportedFormat(img_format.to_string())
-                        })
-                        .and_then(|img_format| {
-                            little_exif::metadata::Metadata::clear_metadata(
-                                &mut img_data_org,
-                                img_format,
-                            )
-                            .inspect_err(|err| error!("failed to read metadata {err:?}"))
-                            .map_err(|err| ServerErrImg::ServerImgMetadataReadFail(err.to_string()))
-                        })
-                        .map(|_| {
-                            (
-                                PostFile {
-                                    extension: img_format.to_string(),
-                                    hash: format!("{:X}", gxhash128(&img_data_org, 0)),
-                                    width,
-                                    height,
-                                },
-                                img_data_org,
-                                img_data_thumbnail.to_vec(),
-                            )
-                        })
-                })
-                .map_err(|err| ServerErrImgMeta { path, err })
-        })
-        .fold(
-            (
-                Vec::<(PostFile, Vec<u8>, Vec<u8>)>::new(),
-                Vec::<ServerErrImgMeta>::new(),
-            ),
-            |(mut oks, mut errs), file| {
-                match file {
-                    Ok(v) => {
-                        oks.push(v);
+                            })
+                            .map(|_| {
+                                (
+                                    PostFile {
+                                        extension: img_format.to_string(),
+                                        hash: format!("{:X}", gxhash128(&img_data_org, 0)),
+                                        width,
+                                        height,
+                                    },
+                                    img_data_org,
+                                    img_data_thumbnail.to_vec(),
+                                )
+                            })
+                    })
+                    .map_err(|err| ServerErrImgMeta { path, err })
+            })
+            .fold(
+                (
+                    Vec::<(PostFile, Vec<u8>, Vec<u8>)>::new(),
+                    Vec::<ServerErrImgMeta>::new(),
+                ),
+                |(mut oks, mut errs), file| {
+                    match file {
+                        Ok(v) => {
+                            oks.push(v);
+                        }
+                        Err(v) => {
+                            errs.push(v);
+                        }
                     }
-                    Err(v) => {
-                        errs.push(v);
-                    }
-                }
 
-                (oks, errs)
-            },
-        );
-    if !errs.is_empty() {
-        return Err(ServerAddPostErr::ServerImgErr(errs).into());
-    }
-
-    let root_path = Path::new(&app_state.settings.site.files_path);
-    let mut output_imgs = Vec::<Post>::new();
-    for file in &files {
-        let file_path = root_path.join(format!("{}.{}", &file.0.hash, &file.0.extension));
-        if file_path.exists() {
-            trace!(
-                "file already exists {}",
-                file_path.to_str().unwrap_or("err")
+                    (oks, errs)
+                },
             );
+        if !errs.is_empty() {
+            return Err(ServerAddPostErr::ServerImgErr(errs).into());
+        }
+
+        let root_path = Path::new(&app_state.settings.site.files_path);
+        let mut output_imgs = Vec::<Post>::new();
+        for file in &files {
+            let file_path = root_path.join(format!("{}.{}", &file.0.hash, &file.0.extension));
+            if file_path.exists() {
+                trace!(
+                    "file already exists {}",
+                    file_path.to_str().unwrap_or("err")
+                );
+                output_imgs.push(Post {
+                    hash: file.0.hash.clone(),
+                    extension: file.0.extension.clone(),
+                    width: file.0.width,
+                    height: file.0.height,
+                    created_at: time.as_nanos(),
+                });
+                continue;
+            }
+
+            trace!("saving {}", file_path.to_str().unwrap_or("err"));
+            (match fs::write(&file_path, &file.1).await {
+                Ok(v) => Ok(v),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                    fs::create_dir_all(&root_path)
+                        .await
+                        .inspect(|_| trace!("created img output dir {:?}", &file_path))
+                        .inspect_err(|err| error!("error creating img output dir {err}"))
+                        .map_err(|err| {
+                            ServerAddPostErr::ServerDirCreationFailed(err.to_string())
+                        })?;
+                    fs::write(&file_path, &file.1).await
+                }
+                Err(err) => {
+                    //
+                    Err(err)
+                }
+            })
+            .inspect_err(|err| error!("failed to save img to disk {err:?}"))
+            .map_err(|err| ServerAddPostErr::ServerFSErr(err.to_string()))?;
             output_imgs.push(Post {
                 hash: file.0.hash.clone(),
                 extension: file.0.extension.clone(),
@@ -1791,250 +1657,164 @@ pub async fn add_post(
                 height: file.0.height,
                 created_at: time.as_nanos(),
             });
-            continue;
         }
 
-        trace!("saving {}", file_path.to_str().unwrap_or("err"));
-        (match fs::write(&file_path, &file.1).await {
-            Ok(v) => Ok(v),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                fs::create_dir_all(&root_path)
-                    .await
-                    .inspect(|_| trace!("created img output dir {:?}", &file_path))
-                    .inspect_err(|err| error!("error creating img output dir {err}"))
-                    .map_err(|err| ServerAddPostErr::ServerDirCreationFailed(err.to_string()))?;
-                fs::write(&file_path, &file.1).await
+        let post_files = files.into_iter().map(|v| v.0).collect::<Vec<PostFile>>();
+        app_state
+            .db
+            .add_post(
+                time.as_nanos(),
+                &auth_token.username,
+                &title,
+                &description,
+                post_files,
+            )
+            .await
+            .inspect_err(|err| error!("failed to save images {err:?}"))
+            .map_err(|_| ServerErr::ServerDbErr)?;
+
+        Ok(ServerRes::Posts(output_imgs))
+    }
+
+    pub async fn get_invite(
+        State(app_state): State<AppState>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::GetInvite { email } = req else {
+            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                "expected AddPost, received: {req:?}"
+            ))));
+        };
+
+        let time = app_state.clock.now().await;
+        let exp = time + Duration::from_secs(app_state.settings.auth.invite_exp_s);
+        let invite = InviteToken::new(email.clone(), time.as_nanos());
+        let invite_token = encode_token(&app_state.settings.auth.secret, invite)
+            .map_err(|_| ServerInviteErr::ServerJWT)?;
+
+        trace!("invite token created: {invite_token}");
+
+        let invite = app_state
+            .db
+            .add_invite(time.clone().as_nanos(), invite_token, email, exp.as_nanos())
+            .await;
+        let invite = match invite {
+            Err(AddInviteErr::EmailIsTaken(_)) => {
+                return Ok(ServerRes::Ok);
+            }
+            invite => invite.map_err(|_| ServerErr::ServerDbErr),
+        }?;
+        trace!("result {invite:?}");
+
+        let link = format!(
+            "{}{}",
+            &app_state.settings.site.address,
+            crate::path::link_reg(&invite.token_raw),
+        );
+        trace!("{link}");
+
+        Ok(ServerRes::Ok)
+    }
+
+    pub async fn login(
+        State(app_state): State<AppState>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::Login { email, password } = req else {
+            return Err(ServerDesErr::ServerWrongInput(format!(
+                "expected Login, received: {req:?}"
+            ))
+            .into());
+        };
+        let time = app_state.clock.now().await;
+        let user = app_state
+            .db
+            .get_user_by_email(email)
+            .await
+            .inspect_err(|err| trace!("user not found - {err}"))
+            .map_err(|_| ServerErr::ServerLoginErr(ServerLoginErr::WrongCredentials))?;
+
+        verify_password(password, user.password)
+            .inspect_err(|err| trace!("passwords verification failed {err}"))
+            .map_err(|_| ServerErr::ServerLoginErr(ServerLoginErr::WrongCredentials))?;
+
+        let (token, cookie) = create_cookie(&app_state.settings.auth.secret, &user.username, time)
+            .map_err(|err| {
+                ServerErr::ServerLoginErr(ServerLoginErr::ServerCreateCookieErr(err.to_string()))
+            })?;
+
+        let _session = app_state
+            .db
+            .add_session(token, &user.username)
+            .await
+            .map_err(|err| ServerErr::ServerDbErr)?;
+
+        Ok(ServerRes::SetAuthCookie { cookie })
+    }
+
+    pub async fn auth_middleware(
+        State(app_state): State<AppState>,
+        mut req: axum::extract::Request,
+        next: axum::middleware::Next,
+    ) -> axum::response::Response {
+        let result = {
+            let headers = req.headers();
+            let jar = CookieJar::from_headers(headers);
+            check_auth(&app_state, &jar).await
+        };
+        match result {
+            Ok(token) => {
+                {
+                    let extensions = req.extensions_mut();
+                    extensions.insert(token);
+                }
+                let response = next.run(req).await;
+                return response;
             }
             Err(err) => {
-                //
-                Err(err)
+                return err.into_response();
             }
-        })
-        .inspect_err(|err| error!("failed to save img to disk {err:?}"))
-        .map_err(|err| ServerAddPostErr::ServerFSErr(err.to_string()))?;
-        output_imgs.push(Post {
-            hash: file.0.hash.clone(),
-            extension: file.0.extension.clone(),
-            width: file.0.width,
-            height: file.0.height,
-            created_at: time.as_nanos(),
-        });
-    }
-
-    let post_files = files.into_iter().map(|v| v.0).collect::<Vec<PostFile>>();
-    app_state
-        .db
-        .add_post(
-            time.as_nanos(),
-            &auth_token.username,
-            &title,
-            &description,
-            post_files,
-        )
-        .await
-        .inspect_err(|err| error!("failed to save images {err:?}"))
-        .map_err(|_| ServerErr::ServerDbErr)?;
-
-    Ok(ServerRes::Posts(output_imgs))
-}
-
-#[cfg(feature = "ssr")]
-pub async fn get_invite(
-    axum::extract::State(app_state): axum::extract::State<app_state::AppState>,
-    req: ServerReq,
-) -> Result<ServerRes, ServerErr> {
-    trace!("executing invite api");
-    use std::time::Duration;
-
-    use tracing::debug;
-
-    let ServerReq::GetInvite { email } = req else {
-        return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-            "expected AddPost, received: {req:?}"
-        ))));
-    };
-
-    let time = app_state.clock.now().await;
-    let exp = time + Duration::from_secs(60 * 30);
-    let invite = InviteToken::new(email.clone(), time.as_nanos());
-    let invite_token = encode_token(&app_state.settings.auth.secret, invite)
-        .map_err(|_| ServerInviteErr::ServerJWT)?;
-
-    trace!("invite token created: {invite_token}");
-
-    let invite = app_state
-        .db
-        .add_invite(time.clone().as_nanos(), invite_token, email, exp.as_nanos())
-        .await;
-    trace!("result {invite:?}");
-
-    match invite {
-        Ok(invite) => {
-            let link = format!(
-                "{}{}",
-                &app_state.settings.site.address,
-                crate::path::link_reg(&invite.token_raw),
-            );
-            trace!("{link}");
-        }
-        Err(err) => {
-            debug!("invite failed {err}");
         }
     }
 
-    Ok(ServerRes::Ok)
-}
+    pub async fn check_auth(app_state: &AppState, jar: &CookieJar) -> Result<AuthToken, ServerErr>
+    where
+        ServerErr: std::error::Error + 'static,
+    {
+        let token = jar
+            .get(AUTHORIZATION.as_str())
+            .ok_or(ServerAuthErr::ServerUnauthorizedNoCookie)
+            .map(|v| cut_cookie_value_decoded(v.value()).to_string())?;
 
-#[cfg(feature = "ssr")]
-pub async fn login(
-    axum::extract::State(app_state): axum::extract::State<app_state::AppState>,
-    jar: axum_extra::extract::cookie::CookieJar,
-    // multipart: axum::extract::Multipart,
-    req: ServerReq,
-) -> Result<ServerRes, ServerErr> {
-    use axum_extra::extract::cookie::Cookie;
-
-    let ServerReq::Login { email, password } = req else {
-        return Err(
-            ServerDesErr::ServerWrongInput(format!("expected Login, received: {req:?}")).into(),
-        );
-    };
-    let time = app_state.clock.now().await;
-
-    // trace!("yo wtf??");
-    // let result = (async || {
-    //     use crate::controller::{auth::create_cookie, encode::decode_multipart};
-    //
-    // })()
-    // .await;
-    // let input = decode_multipart::<Input, ServerErr>(multipart).await?;
-    // trace!("input!!!!!! {input:#?}");
-    let user = app_state
-        .db
-        .get_user_by_email(email)
-        .await
-        .inspect_err(|err| trace!("user not found - {err}"))
-        .map_err(|_| ServerErr::ServerLoginErr(ServerLoginErr::WrongCredentials))?;
-
-    verify_password(password, user.password)
-        .inspect_err(|err| trace!("passwords verification failed {err}"))
-        .map_err(|_| ServerErr::ServerLoginErr(ServerLoginErr::WrongCredentials))?;
-
-    let (token, cookie) = create_cookie(&app_state.settings.auth.secret, &user.username, time)
-        .map_err(|err| {
-            ServerErr::ServerLoginErr(ServerLoginErr::ServerCreateCookieErr(err.to_string()))
-        })?;
-
-    let _session = app_state
-        .db
-        .add_session(token, &user.username)
-        .await
-        .map_err(|err| ServerErr::ServerDbErr)?;
-
-    Ok(ServerRes::SetAuthCookie { cookie })
-}
-
-#[cfg(feature = "ssr")]
-pub async fn auth_middleware(
-    axum::extract::State(app_state): axum::extract::State<app_state::AppState>,
-    mut req: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> axum::response::Response {
-    use axum::{body::Body, extract::FromRequestParts, response::IntoResponse};
-    use axum_extra::extract::CookieJar;
-    use http::header::AUTHORIZATION;
-
-    // let r2 = axum::response::Response::builder()
-    //     .status(403)
-    //     .body(Body::empty())
-    //     .unwrap();
-
-    let result = {
-        let headers = req.headers();
-        let jar = CookieJar::from_headers(headers);
-        check_auth(&app_state, &jar).await
-    };
-    match result {
-        Ok(token) => {
-            {
-                let extensions = req.extensions_mut();
-                extensions.insert(token);
-            }
-            let response = next.run(req).await;
-            return response;
-        }
-        Err(err) => {
-            return err.into_response();
-        }
-    }
-    // let r1 = ServerErr::ServerUnauthorized.into_response();
-    // trace!("hello666");
-    //
-    // r1
-}
-
-#[cfg(feature = "ssr")]
-impl<S> axum::extract::FromRequest<S> for ServerReq
-where
-    S: Send + Sync,
-{
-    type Rejection = ServerErr;
-
-    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
-        use axum::extract::Multipart;
-
-        // let (a, b) = req.into_parts();
-        let multipart = Multipart::from_request(req, state)
+        let _session = app_state
+            .db
+            .get_session(&token)
             .await
-            .map_err(|err| ServerDesErr::ServerDesGettingMultipartErr(err.to_string()))?;
-        recv(multipart).await
-    }
-}
+            .map_err(|err| match err {
+                GetSessionErr::NotFound => {
+                    ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie)
+                }
+                _ => ServerErr::ServerDbErr,
+            })?;
 
-#[cfg(feature = "ssr")]
-pub async fn check_auth(
-    app_state: &app_state::AppState,
-    jar: &axum_extra::extract::cookie::CookieJar,
-) -> Result<AuthToken, ServerErr>
-where
-    ServerErr: std::error::Error + 'static,
-{
-    use http::header::AUTHORIZATION;
-
-    use crate::db::session::get_session::GetSessionErr;
-
-    let token = jar
-        .get(AUTHORIZATION.as_str())
-        .ok_or(ServerAuthErr::ServerUnauthorizedNoCookie)
-        .map(|v| cut_cookie_value_decoded(v.value()).to_string())?;
-
-    let _session = app_state
-        .db
-        .get_session(&token)
-        .await
-        .map_err(|err| match err {
-            GetSessionErr::NotFound => {
-                ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie)
+        let token = match decode_token::<AuthToken>(&app_state.settings.auth.secret, &token, false)
+        {
+            Ok(v) => v,
+            Err(err) => {
+                error!("invalid token was stored {err}");
+                app_state
+                    .db
+                    .delete_session(token)
+                    .await
+                    .map_err(|err| ServerErr::ServerDbErr)?;
+                return Err(ServerErr::from(
+                    ServerAuthErr::ServerUnauthorizedInvalidCookie,
+                ));
             }
-            _ => ServerErr::ServerDbErr,
-        })?;
+        };
 
-    let token = match decode_token::<AuthToken>(&app_state.settings.auth.secret, &token, false) {
-        Ok(v) => v,
-        Err(err) => {
-            error!("invalid token was stored {err}");
-            app_state
-                .db
-                .delete_session(token)
-                .await
-                .map_err(|err| ServerErr::ServerDbErr)?;
-            return Err(ServerErr::from(
-                ServerAuthErr::ServerUnauthorizedInvalidCookie,
-            ));
-        }
-    };
-
-    Ok(token.claims)
+        Ok(token.claims)
+    }
 }
 
 #[cfg(test)]
@@ -2061,8 +1841,8 @@ mod tests {
     #[test(tokio::test)]
     async fn full_api_test() {
         let current_time = Duration::from_nanos(1);
-        let time = Arc::new(Mutex::new(current_time));
-        let app_state = AppState::new_testng(time).await;
+        let time_mut = Arc::new(Mutex::new(current_time));
+        let app_state = AppState::new_testng(time_mut.clone()).await;
         let my_app = create_api_router(app_state.clone()).with_state(app_state.clone());
 
         let time = app_state.clock.now().await.as_nanos();
@@ -2111,6 +1891,29 @@ mod tests {
         trace!("bad invite added: {bad_invite:#?}");
 
         {
+            *time_mut.lock().await = Duration::from_secs(10);
+            let result = api
+                .register("hey", &invite.token_raw, "*wowowowwoW12222pp")
+                .send_native()
+                .await;
+
+            assert!(matches!(
+                result,
+                Err(ServerErr::ServerRegistrationErr(
+                    ServerRegistrationErr::TokenExpired
+                ))
+            ));
+            *time_mut.lock().await = Duration::from_nanos(1);
+            // match result {
+            //      => {
+            //         assert!(username.is_some());
+            //         assert!(email.is_none());
+            //         assert!(password.is_some());
+            //     }
+            //     etc => panic!("expexted register err, got: {etc:?}"),
+            // }
+        }
+        {
             let result = api
                 .register("he", &invite.token_raw, "wowowowwoW12222pp")
                 .send_native()
@@ -2136,6 +1939,13 @@ mod tests {
             .register("hey", &invite.token_raw, "wowowowwoW12222pp*")
             .send_native_and_extract_auth(&app_state.settings.auth.secret)
             .await;
+
+        let result = api
+            .get_invite("hey1@hey.com")
+            .send_native()
+            .await
+            .unwrap();
+        assert_eq!(result, ServerRes::Ok);
 
         let token_raw = token.unwrap();
 

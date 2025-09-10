@@ -342,6 +342,13 @@ pub mod path {
         // Loading,
     }
 
+    pub fn link_user(user: impl AsRef<str>) -> String {
+        format!(
+            "/u/{}",
+            user.as_ref()
+        )
+    }
+
     pub fn link_check_email<Email: AsRef<str>>(email: Email) -> String {
         format!(
             "{}?kind={}&email={}",
