@@ -1,9 +1,14 @@
 use std::{collections::HashMap, env, time::Duration};
 
+use ab_glyph::{FontRef, PxScale};
 use artbounty::{
+    api::{Api, ApiNative, ServerReqImg},
     path::{PATH_API_INVITE, PATH_API_LOGIN, PATH_API_POST_ADD, PATH_API_REGISTER, PATH_API_USER},
 };
 use clap::{Command, arg};
+use image::{Rgb, RgbImage};
+use imageproc::drawing::draw_text;
+use rand::Rng;
 use tokio::fs;
 use tracing::{info, trace};
 
@@ -19,13 +24,13 @@ async fn main() {
         .try_init()
         .unwrap();
 
-    let args: Vec<String> = env::args().collect();
-    let help = "available commands: api invite";
-    let command1 = args.get(1).cloned().unwrap_or_default();
-    let command2 = args.get(2).cloned().unwrap_or_default();
-    let command3 = args.get(3).cloned().unwrap_or_default();
-    let command4 = args.get(4).cloned().unwrap_or_default();
-    let command5 = args.get(5).cloned().unwrap_or_default();
+    // let args: Vec<String> = env::args().collect();
+    // let help = "available commands: api invite";
+    // let command1 = args.get(1).cloned().unwrap_or_default();
+    // let command2 = args.get(2).cloned().unwrap_or_default();
+    // let command3 = args.get(3).cloned().unwrap_or_default();
+    // let command4 = args.get(4).cloned().unwrap_or_default();
+    // let command5 = args.get(5).cloned().unwrap_or_default();
     // let settings = Settings::new_from_file();
     //
     // match (command1.as_str(), command2.as_str()) {
@@ -218,24 +223,88 @@ async fn main() {
     // }
     // trace!("{args:?}");
     //
-    // let command = Command::new("seed")
-    //     .about("data seeder")
-    //     .subcommand_required(true)
-    //     .arg_required_else_help(true)
-    //     .subcommand(
-    //         Command::new("user")
-    //             .about("manage users")
-    //             .arg(arg!(<NAME>).last(true))
-    //             .arg_required_else_help(true),
-    //     );
-    // let matches = command.get_matches();
-    // match matches.subcommand() {
-    //     Some(("user", sub_matches)) => {
-    //         let name = sub_matches.get_one::<String>("name").unwrap();
-    //         trace!("is this working or no?: {name}");
-    //     },
-    //     _ => unreachable!(),
-    // }
+    let command = Command::new("seed")
+        .about("data seeder")
+        .subcommand_required(true)
+        .arg_required_else_help(true)
+        .subcommand(
+            Command::new("user")
+                .about("manage users")
+                .arg(arg!(--"token" <TOKEN>).required(true))
+                // .arg(arg!(--"name" <NAME>).required(true))
+                .arg(arg!(--"count" <COUNT>).required(true))
+                // .arg(arg!(<NAME>).last(true))
+                .arg_required_else_help(true),
+        );
+    let matches = command.get_matches();
+    match matches.subcommand() {
+        Some(("user", sub_matches)) => {
+            let token = sub_matches.get_one::<String>("token").unwrap();
+            // let name = sub_matches.get_one::<String>("name").unwrap();
+            let count = sub_matches.get_one::<String>("count").unwrap();
+            let count = u32::from_str_radix(count, 10).unwrap();
+            // trace!("is this working or no?: {name}");
+            let path = "/tmp/img.png";
+            let api = ApiNative::new("http://localhost:3000");
+            let mut rng = rand::rng();
+
+            for i in 0..count {
+                // let mut image = RgbImage::new(200, 200);
+
+                // let mut imgbuf = image::ImageBuffer::new(250, 250);
+                // // Iterate over the coordinates and pixels of the image
+                // for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
+                //     let r = (0.3 * x as f32) as u8;
+                //     let b = (0.3 * y as f32) as u8;
+                //     *pixel = image::Rgb([r, i as u8, b]);
+                // }
+
+                let mut image = RgbImage::new(200, 200);
+                let r = rng.random_range(200u8..255);
+                let g = rng.random_range(200u8..255);
+                let b = rng.random_range(200u8..255);
+                for (x, y, pixel) in image.enumerate_pixels_mut() {
+                    // let r = (0.3 * x as f32) as u8;
+                    // let b = (0.3 * y as f32) as u8;
+                    *pixel = image::Rgb([r, g, b]);
+                }
+                let height = 64.0;
+                let scale = PxScale {
+                    x: height * 2.0,
+                    y: height,
+                };
+                let font = FontRef::try_from_slice(include_bytes!("/nix/store/5qc9yxwnfa074zrfsymmabhdbhg1rp7d-home-manager-path/share/fonts/noto/NotoSansMono[wdth,wght].ttf")).unwrap();
+                let img = draw_text(
+                    &mut image,
+                    Rgb([0u8, 0u8, 0u8]),
+                    // Rgb([255u8, 255u8, 255u8]),
+                    0,
+                    50,
+                    scale,
+                    &font,
+                    &i.to_string(),
+                );
+                img.save(path).unwrap();
+
+                // imgbuf.save(path).unwrap();
+                let img = fs::read(path).await.unwrap();
+
+                let result = api
+                    .add_post(
+                        "title1",
+                        "wow",
+                        Vec::from([ServerReqImg {
+                            path: path.to_string(),
+                            data: img.clone(),
+                        }]),
+                    )
+                    .send_native_with_token(token.clone())
+                    .await
+                    .unwrap();
+            }
+        }
+        _ => unreachable!(),
+    }
 
     //
     // // let time = get_timestamp();

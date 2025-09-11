@@ -202,7 +202,7 @@ pub enum ServerReq {
         invite_token: String,
         password: String,
     },
-    GetPostAfter {
+    GetPosts {
         time: u128,
         limit: u32,
     },
@@ -823,9 +823,22 @@ pub trait Api {
         }
     }
 
+    fn get_posts_newer(&self, time: u128, limit: u32) -> ApiReq {
+        let builder = self.provide_builder(crate::path::PATH_API_POST_GET_NEWER);
+        let server_req = ServerReq::GetPosts { time, limit };
+        let result_signal = self.provide_signal_result();
+        let busy_signal = self.provide_signal_busy();
+        ApiReq {
+            builder,
+            server_req,
+            result: result_signal,
+            busy: busy_signal,
+        }
+    }
+
     fn get_posts_older(&self, time: u128, limit: u32) -> ApiReq {
-        let builder = self.provide_builder(crate::path::PATH_API_POST_GET_AFTER);
-        let server_req = ServerReq::GetPostAfter { time, limit };
+        let builder = self.provide_builder(crate::path::PATH_API_POST_GET_OLDER);
+        let server_req = ServerReq::GetPosts { time, limit };
         let result_signal = self.provide_signal_result();
         let busy_signal = self.provide_signal_busy();
         ApiReq {
@@ -1013,6 +1026,29 @@ impl Api for ApiWebpTmp {
 impl ApiWebpTmp {
     pub fn new() -> Self {
         Self::default()
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct ApiNative {
+    pub origin: String,
+}
+
+impl Api for ApiNative {
+    fn provide_builder(&self, path: impl AsRef<str>) -> RequestBuilder {
+        let origin = &self.origin;
+        let path = path.as_ref();
+        let url = format!("{origin}{}{path}", crate::path::PATH_API);
+        reqwest::Client::new().post(url)
+    }
+}
+
+impl ApiNative {
+    pub fn new(origin: impl Into<String>) -> Self {
+        Self {
+            origin: origin.into()
+        }
+
     }
 }
 
@@ -1453,11 +1489,51 @@ pub mod backend {
         Ok(ServerRes::SetAuthCookie { cookie })
     }
 
+    pub async fn get_posts_newer(
+        State(app_state): State<AppState>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::GetPosts { time, limit } = req else {
+            return Err(ServerDesErr::ServerWrongInput(format!(
+                "expected GetPostAfter, received: {req:?}"
+            ))
+            .into());
+        };
+        let posts = app_state
+            .db
+            .get_post_newer(time, limit)
+            .await
+            .map_err(|_| ServerErr::ServerDbErr)?
+            .into_iter()
+            .map(|post| {
+                post.file
+                    .first()
+                    .cloned()
+                    .map(|post_file| Post {
+                        hash: post_file.hash,
+                        extension: post_file.extension,
+                        width: post_file.width,
+                        height: post_file.height,
+                        created_at: post.created_at,
+                    })
+                    .unwrap_or(Post {
+                        hash: "404".to_string(),
+                        extension: "webp".to_string(),
+                        width: 300,
+                        height: 200,
+                        created_at: 0,
+                    })
+            })
+            .collect::<Vec<Post>>();
+
+        Ok(ServerRes::Posts(posts))
+    }
+
     pub async fn get_posts_older(
         State(app_state): State<AppState>,
         req: ServerReq,
     ) -> Result<ServerRes, ServerErr> {
-        let ServerReq::GetPostAfter { time, limit } = req else {
+        let ServerReq::GetPosts { time, limit } = req else {
             return Err(ServerDesErr::ServerWrongInput(format!(
                 "expected GetPostAfter, received: {req:?}"
             ))
@@ -1940,11 +2016,7 @@ mod tests {
             .send_native_and_extract_auth(&app_state.settings.auth.secret)
             .await;
 
-        let result = api
-            .get_invite("hey1@hey.com")
-            .send_native()
-            .await
-            .unwrap();
+        let result = api.get_invite("hey1@hey.com").send_native().await.unwrap();
         assert_eq!(result, ServerRes::Ok);
 
         let token_raw = token.unwrap();
@@ -2001,14 +2073,14 @@ mod tests {
 
         let result = api
             .add_post(
-                "hey",
+                "title1",
                 "wow",
                 Vec::from([ServerReqImg {
                     path: path.to_string(),
-                    data: img,
+                    data: img.clone(),
                 }]),
             )
-            .send_native_with_token(token_raw)
+            .send_native_with_token(token_raw.clone())
             .await
             .unwrap();
         trace!("{result:#?}");
@@ -2027,6 +2099,108 @@ mod tests {
         match result {
             crate::api::ServerRes::Posts(posts) => {
                 assert!(posts.len() == 0);
+            }
+            wrong => {
+                panic!("{}", format!("expected posts, got {:?}", wrong));
+            }
+        }
+
+        *time_mut.lock().await = Duration::from_nanos(2);
+
+        let result = api
+            .add_post(
+                "title2",
+                "wow",
+                Vec::from([ServerReqImg {
+                    path: path.to_string(),
+                    data: img.clone(),
+                }]),
+            )
+            .send_native_with_token(token_raw.clone())
+            .await
+            .unwrap();
+
+        *time_mut.lock().await = Duration::from_nanos(3);
+
+        let result = api
+            .add_post(
+                "title3",
+                "wow",
+                Vec::from([ServerReqImg {
+                    path: path.to_string(),
+                    data: img.clone(),
+                }]),
+            )
+            .send_native_with_token(token_raw.clone())
+            .await
+            .unwrap();
+
+        let result = api.get_posts_older(2, 25).send_native().await.unwrap();
+        match result {
+            crate::api::ServerRes::Posts(posts) => {
+                assert!(posts.len() == 1);
+                assert_eq!(posts[0].created_at, 1);
+            }
+            wrong => {
+                panic!("{}", format!("expected posts, got {:?}", wrong));
+            }
+        }
+
+        let result = api.get_posts_newer(2, 25).send_native().await.unwrap();
+        match result {
+            crate::api::ServerRes::Posts(posts) => {
+                assert!(posts.len() == 1);
+                assert_eq!(posts[0].created_at, 3);
+            }
+            wrong => {
+                panic!("{}", format!("expected posts, got {:?}", wrong));
+            }
+        }
+
+        *time_mut.lock().await = Duration::from_nanos(4);
+
+        let result = api
+            .add_post(
+                "title4",
+                "wow",
+                Vec::from([ServerReqImg {
+                    path: path.to_string(),
+                    data: img.clone(),
+                }]),
+            )
+            .send_native_with_token(token_raw.clone())
+            .await
+            .unwrap();
+
+        let result = api.get_posts_newer(2, 25).send_native().await.unwrap();
+        match result {
+            crate::api::ServerRes::Posts(posts) => {
+                assert!(posts.len() == 2);
+                assert_eq!(posts[0].created_at, 4);
+                assert_eq!(posts[1].created_at, 3);
+            }
+            wrong => {
+                panic!("{}", format!("expected posts, got {:?}", wrong));
+            }
+        }
+
+        let result = api.get_posts_older(3, 25).send_native().await.unwrap();
+        match result {
+            crate::api::ServerRes::Posts(posts) => {
+                assert!(posts.len() == 2);
+                assert_eq!(posts[0].created_at, 2);
+                assert_eq!(posts[1].created_at, 1);
+            }
+            wrong => {
+                panic!("{}", format!("expected posts, got {:?}", wrong));
+            }
+        }
+
+        let result = api.get_posts_newer(2, 1).send_native().await.unwrap();
+        match result {
+            crate::api::ServerRes::Posts(posts) => {
+                assert!(posts.len() == 1);
+                assert_eq!(posts[0].created_at, 3);
             }
             wrong => {
                 panic!("{}", format!("expected posts, got {:?}", wrong));

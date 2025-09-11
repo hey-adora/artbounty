@@ -391,7 +391,7 @@ pub mod home {
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen">
                 <Nav/>
-                <Gallery />
+                <Gallery row_height=250 />
                 // <Gallery fetch_init fetch_bottom=|c, img| async {Vec::new()} fetch_top />
             </main>
         }
