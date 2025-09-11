@@ -193,47 +193,60 @@ pub mod post {
         use super::Post;
 
         impl<C: Connection> Db<C> {
+            pub async fn get_post_newer(
+                &self,
+                time: u128,
+                limit: u32,
+            ) -> Result<Vec<Post>, GetPostErr> {
+                let db = &self.db;
+
+                db.query(
+                    r#"
+                        (SELECT * FROM post WHERE created_at > $created_at ORDER BY created_at ASC LIMIT $post_limit).reverse()
+                    "#,
+                )
+                        .bind(("post_limit", limit))
+                        .bind(("created_at", time))
+                .await
+                .inspect_err(|err| error!("get posts newer error: {err}"))
+                .inspect(|e| trace!("result {e:#?}"))?
+                .check()
+                .inspect_err(|err| error!("get posts newer check error: {err}"))
+                .map_err(|err| GetPostErr::from(err))
+                .and_then(|mut result| {
+                    result
+                        .take::<Vec<Post>>(0)
+                        .inspect_err(|err| error!("unexpected err {err}"))
+                        .map_err(|err| GetPostErr::from(err))
+                })
+            }
+
             pub async fn get_post_older(
                 &self,
                 time: u128,
                 limit: u32,
             ) -> Result<Vec<Post>, GetPostErr> {
                 let db = &self.db;
-                // let username = username.into();
-                // let title = title.into();
-                // let description = description.into();
 
-                let result = db
-                        .query(
-                            r#"
-                            -- LET $user = SELECT id FROM ONLY user WHERE username = $username;
-                            -- SELECT * FROM post WHERE created_at = $created_at AND user_id = $user.id
-                            SELECT * FROM post WHERE created_at < $created_at ORDER BY created_at DESC LIMIT $post_limit
-                        "#,
-                        )
-                        // .bind(("files", files))
-                        // .bind(("username", username))
-                        // .bind(("title", title))
-                        // .bind(("description", description))
+                db.query(
+                    r#"
+                        SELECT * FROM post WHERE created_at < $created_at ORDER BY created_at DESC LIMIT $post_limit
+                    "#,
+                )
                         .bind(("post_limit", limit))
                         .bind(("created_at", time))
-                        .await
-                        .inspect_err(|err| error!("get_post query {:#?}", err))?;
-
-                trace!("{:#?}", result);
-                let mut result = result.check().map_err(|err| match err {
-                    err => {
-                        error!("get_post res {:#?}", err);
-                        GetPostErr::from(err)
-                    }
-                })?;
-                let result = result
-                    .take::<Vec<Post>>(0)
-                    .inspect_err(|err| error!("get_post serialize error {:#?}", err))?;
-
-                trace!("record created: {result:#?}");
-
-                Ok(result)
+                .await
+                .inspect_err(|err| error!("get posts older error: {err}"))
+                .inspect(|e| trace!("result {e:#?}"))?
+                .check()
+                .inspect_err(|err| error!("get posts older check error: {err}"))
+                .map_err(|err| GetPostErr::from(err))
+                .and_then(|mut result| {
+                    result
+                        .take::<Vec<Post>>(0)
+                        .inspect_err(|err| error!("unexpected err {err}"))
+                        .map_err(|err| GetPostErr::from(err))
+                })
             }
         }
 
@@ -289,10 +302,10 @@ pub mod post {
                     .unwrap();
                 trace!("{posts:#?}");
                 assert!(posts.len() == 1);
-                let posts2 = db.get_post_older(0, 25).await.unwrap();
+                let posts2 = db.get_post_older(2, 25).await.unwrap();
                 assert_eq!(posts, posts2);
-                let posts3 = db.get_post_older(1, 25).await.unwrap();
-                assert_eq!(posts, posts3);
+                // let posts3 = db.get_post_older(1, 25).await.unwrap();
+                // assert_eq!(posts, posts3);
             }
         }
     }

@@ -326,7 +326,8 @@ pub mod path {
     pub const PATH_API_REGISTER: &'static str = "/register";
     pub const PATH_API_LOGIN: &'static str = "/login";
     pub const PATH_API_POST_ADD: &'static str = "/post/add";
-    pub const PATH_API_POST_GET_AFTER: &'static str = "/post/get_after";
+    pub const PATH_API_POST_GET_OLDER: &'static str = "/post/get_older";
+    pub const PATH_API_POST_GET_NEWER: &'static str = "/post/get_newer";
     pub const PATH_HOME: &'static str = "/";
     pub const PATH_HOME_BS: () = path!("/");
     pub const PATH_U_USER: &'static str = "/u/:user";

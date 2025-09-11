@@ -37,6 +37,8 @@ strum = { version = "0.27.1", features = ["strum_macros", "derive"] }
 # artbounty-shared = { path = "artbounty-shared" }
 little_exif = "0.6.14"
 image = "0.25.6"
+imageproc = "0.25.0"
+ab_glyph = "0.2.31"
 webp = "0.3.0"
 resend-rs = "0.15.0"
 chrono = { version = "0.4.41", features = ["rkyv", "rkyv-validation"] }
@@ -56,7 +58,7 @@ jsonwebtoken = "9.3.1"
 reqwest = { version = "0.12.22", features = ["zstd", "multipart"] }
 syn = { version = "2.0.104", features = ["full", "extra-traits"] }
 jiff = { version = "0.2.15", features = ["serde", "js"] }
-# rand = "0.9.1"
+rand = "0.9.1"
 # getrandom = { version = "0.3.3", features = ["wasm_js"] }
 serde = "1.0.219"
 serde-untagged = "0.1.8"
