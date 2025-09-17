@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate macro_rules_attribute;
+
 pub mod server;
 // pub mod controller;
 pub mod api;
