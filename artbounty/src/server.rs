@@ -24,7 +24,7 @@ pub async fn server() {
     };
 
     use crate::{
-        api::app_state::AppState, view::{app::App, shell}
+        api::{app_state::AppState, clock::get_timestamp}, view::{app::App, shell}
     };
 
     tracing_subscriber::fmt()
@@ -44,13 +44,15 @@ pub async fn server() {
     let addr = leptos_options.site_addr;
     let routes = generate_route_list(App);
 
+    let time = get_timestamp().as_nanos();
+
     let comppression_layer = CompressionLayer::new()
         .br(true)
         .zstd(true)
         .gzip(true)
         .deflate(true)
         .compress_when(predicate::SizeAbove::new(0));
-    let app_state = AppState::new().await;
+    let app_state = AppState::new(time).await;
 
     let cors = CorsLayer::new()
         // allow `GET` and `POST` when accessing the resource

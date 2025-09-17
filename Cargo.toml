@@ -31,6 +31,7 @@ opt-level = 0
 clap = "4.5.45"
 pin-project-lite = "0.2.16"
 strum = { version = "0.27.1", features = ["strum_macros", "derive"] }
+macro_rules_attribute = { version = "0.2.2", features = ["verbose-expansions"] }
 # artbounty-frontend = { path = "artbounty-frontend" }
 # artbounty-api = { path = "artbounty-api" }
 # artbounty-db = { path = "artbounty-db" }

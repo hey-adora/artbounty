@@ -28,9 +28,9 @@ pub mod app_state {
     }
 
     impl AppState {
-        pub async fn new() -> Self {
+        pub async fn new(time: u128) -> Self {
             let settings = Settings::new_from_file();
-            let db = db::new_local(&settings.db.path).await;
+            let db = db::new_local(time, &settings.db.path).await;
             let f = move || async move { get_timestamp() };
             let clock = Clock::new(f);
 
@@ -42,7 +42,7 @@ pub mod app_state {
         }
 
         pub async fn new_testng(time: Arc<Mutex<Duration>>) -> Self {
-            let db = db::new_mem().await;
+            let db = db::new_mem(time.lock().await.as_nanos()).await;
             let settings = Settings::new_testing();
             let f = move || {
                 let time = time.clone();
@@ -173,16 +173,11 @@ pub mod clock {
     }
 }
 
-#[derive(
-    Debug,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-)]
+derive_alias! {
+    #[derive(Com!)] = #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)];
+}
+
+#[derive(Com!)]
 pub enum ServerReq {
     Login {
         email: String,
@@ -201,6 +196,9 @@ pub enum ServerReq {
         username: String,
         invite_token: String,
         password: String,
+    },
+    GetPost {
+        post_id: String,
     },
     GetPosts {
         time: u128,
@@ -229,50 +227,23 @@ where
     }
 }
 
-#[derive(
-    Debug,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-)]
+#[derive(Com!)]
 pub struct ServerReqImg {
     pub path: String,
     pub data: Vec<u8>,
 }
 
-#[derive(
-    Debug,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-)]
+#[derive(Com!)]
 pub enum ServerRes {
     SetAuthCookie { cookie: String },
     User { username: String },
     InviteToken(InviteToken),
-    Posts(Vec<Post>),
+    Posts(Vec<UserPost>),
+    Post(UserPost),
     Ok,
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Error,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-)]
+#[derive(Error, Com!)]
 pub enum ServerErr {
     #[error("client err {0}")]
     ClientErr(#[from] ClientErr),
@@ -305,17 +276,7 @@ pub enum ServerErr {
     ServerDbErr,
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Error,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-)]
+#[derive(Error, Com!)]
 pub enum ServerLoginErr {
     #[error("wrong credentials")]
     WrongCredentials,
@@ -324,17 +285,7 @@ pub enum ServerLoginErr {
     ServerCreateCookieErr(String),
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Error,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-)]
+#[derive(Error, Com!)]
 pub enum ServerDesErr {
     #[error("wrong variant")]
     ServerWrongInput(String),
@@ -355,17 +306,7 @@ pub enum ServerDesErr {
     ServerDesGettingMultipartErr(String),
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Error,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-)]
+#[derive(Error, Com!)]
 pub enum ClientErr {
     #[error("failed to deserialize req {0}")]
     ClientDesErr(String),
@@ -374,33 +315,13 @@ pub enum ClientErr {
     ClientSendErr(String),
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Error,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-)]
+#[derive(Error, Com!)]
 pub enum ServerGetUserErr {
     #[error("user not found")]
     NotFound,
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Error,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-)]
+#[derive(Error, Com!)]
 pub enum ServerAuthErr {
     #[error("unauthorized no cookie")]
     ServerUnauthorizedNoCookie,
@@ -409,33 +330,13 @@ pub enum ServerAuthErr {
     ServerUnauthorizedInvalidCookie,
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Error,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-)]
+#[derive(Error, Com!)]
 pub enum ServerInviteErr {
     #[error("jwt error")]
     ServerJWT,
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Error,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-)]
+#[derive(Error, Com!)]
 pub enum ServerAddPostErr {
     #[error("failed to create dir {0}")]
     ServerDirCreationFailed(String),
@@ -453,17 +354,7 @@ pub enum ServerAddPostErr {
     ServerImgErr(Vec<ServerErrImgMeta>),
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Error,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-)]
+#[derive(Error, Com!)]
 pub enum ServerDecodeInviteErr {
     #[error("invite not found")]
     InviteNotFound,
@@ -472,17 +363,7 @@ pub enum ServerDecodeInviteErr {
     JWT(String),
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Error,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-)]
+#[derive(Error, Com!)]
 pub enum ServerRegistrationErr {
     #[error("invalid registration input")]
     ServerRegistrationInvalidInput {
@@ -524,50 +405,72 @@ pub enum ServerRegistrationErr {
     // ServerInviteTokenNotFound,
 }
 
-#[derive(
-    Debug,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-)]
-pub struct Post {
-    pub hash: String,
-    pub extension: String,
-    pub width: u32,
-    pub height: u32,
+#[derive(Com!)]
+pub struct User {
+    pub username: String,
     pub created_at: u128,
 }
 
-#[derive(
-    Debug,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-)]
+#[cfg(feature = "ssr")]
+impl From<crate::db::DBUser> for User {
+    fn from(value: crate::db::DBUser) -> Self {
+        Self {
+            username: value.username,
+            created_at: value.created_at,
+        }
+    }
+}
+
+#[derive(Com!)]
+pub struct UserPost {
+    pub id: String,
+    pub user: User,
+    pub show: bool,
+    pub title: String,
+    pub file: Vec<UserPostFile>,
+    pub modified_at: u128,
+    pub created_at: u128,
+}
+
+#[cfg(feature = "ssr")]
+impl From<crate::db::DBUserPost> for UserPost {
+    fn from(value: crate::db::DBUserPost) -> Self {
+        Self {
+            id: value.id.to_string(),
+            user: value.user.into(),
+            file: value.file.into_iter().map(UserPostFile::from).collect(),
+            title: value.title,
+            show: value.show,
+            modified_at: value.modified_at,
+            created_at: value.created_at,
+        }
+    }
+}
+
+
+
+#[derive(Com!)]
+pub struct UserPostFile {
+    pub extension: String,
+    pub hash: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[cfg(feature = "ssr")]
+impl From<crate::db::DBUserPostFile> for UserPostFile {
+    fn from(value: crate::db::DBUserPostFile) -> Self {
+        Self { extension: value.extension, hash: value.hash, width: value.width, height: value.height }
+    }
+}
+
+#[derive(Com!)]
 pub struct ServerErrImgMeta {
     pub path: String,
     pub err: ServerErrImg,
 }
 
-#[derive(
-    Debug,
-    Error,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-)]
+#[derive(Error, Com!)]
 pub enum ServerErrImg {
     #[error("failed to read img metadata {0}")]
     ServerImgMetadataReadFail(String),
@@ -585,16 +488,7 @@ pub enum ServerErrImg {
     ServerImgWebPEncodingFailed(String),
 }
 
-#[derive(
-    Debug,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-)]
+#[derive(Com!)]
 pub struct AuthToken {
     pub username: String,
     pub created_at: u128,
@@ -612,16 +506,7 @@ impl AuthToken {
     }
 }
 
-#[derive(
-    Debug,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-)]
+#[derive(Com!)]
 pub struct InviteToken {
     pub email: String,
     pub created_at: u128,
@@ -1046,9 +931,8 @@ impl Api for ApiNative {
 impl ApiNative {
     pub fn new(origin: impl Into<String>) -> Self {
         Self {
-            origin: origin.into()
+            origin: origin.into(),
         }
-
     }
 }
 
@@ -1290,17 +1174,12 @@ pub async fn send(
 pub mod backend {
     use crate::api::app_state::AppState;
     use crate::api::{
-        AuthToken, InviteToken, Post, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr,
-        ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerGetUserErr, ServerInviteErr,
-        ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes, create_cookie,
-        cut_cookie_value_decoded, decode_token, encode_token, hash_password, verify_password,
+        create_cookie, cut_cookie_value_decoded, decode_token, encode_token, hash_password, verify_password, AuthToken, InviteToken, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerGetUserErr, ServerInviteErr, ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes, UserPost, UserPostFile
     };
-    use crate::db::invite::add_invite::AddInviteErr;
-    use crate::db::invite::get_invite::GetInviteErr;
-    use crate::db::post::PostFile;
-    use crate::db::session::get_session::GetSessionErr;
-    use crate::db::user::add_user::AddUserErr;
-    use crate::db::user::get_user_by_username::GetUserByUsernameErr;
+    use crate::db::AddInviteErr;
+    use crate::db::DB404Err;
+    use crate::db::DBUserPostFile;
+    use crate::db::AddUserErr;
     use crate::valid::auth::{
         proccess_password, proccess_post_description, proccess_post_title, proccess_username,
     };
@@ -1333,7 +1212,7 @@ pub mod backend {
             .get_user_by_username(username)
             .await
             .map_err(|err| match err {
-                GetUserByUsernameErr::UserNotFound => ServerGetUserErr::NotFound.into(),
+                DB404Err::NotFound => ServerGetUserErr::NotFound.into(),
                 _ => ServerErr::ServerDbErr,
             })?;
 
@@ -1417,8 +1296,8 @@ pub mod backend {
             .await
             .inspect_err(|err| error!("failed to run use_invite {err}"))
             .map_err(|err| match err {
-                GetInviteErr::DB(_) => ServerErr::ServerDbErr,
-                GetInviteErr::NotFound => ServerRegistrationErr::TokenNotFound.into(),
+                DB404Err::DB(_) => ServerErr::ServerDbErr,
+                DB404Err::NotFound => ServerRegistrationErr::TokenNotFound.into(),
             })
             .and_then(|invite| {
                 if invite.expires < time_ns {
@@ -1448,7 +1327,7 @@ pub mod backend {
 
         let user = app_state
             .db
-            .add_user(username, email, password)
+            .add_user(time_ns, username, email, password)
             .await
             .map_err(|err| match err {
                 AddUserErr::EmailIsTaken(_) => {
@@ -1482,11 +1361,30 @@ pub mod backend {
 
         let _session = app_state
             .db
-            .add_session(token, &user.username)
+            .add_session(time_ns, token, &user.username)
             .await
             .map_err(|err| ServerErr::ServerDbErr)?;
 
         Ok(ServerRes::SetAuthCookie { cookie })
+    }
+
+    pub async fn get_post(
+        State(app_state): State<AppState>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::GetPost { post_id } = req else {
+            return Err(ServerDesErr::ServerWrongInput(format!(
+                "expected GetPost, received: {req:?}"
+            ))
+            .into());
+        };
+        let post = app_state
+            .db
+            .get_post_str(post_id)
+            .await
+            .map_err(|_| ServerErr::ServerDbErr)?;
+
+        Ok(ServerRes::Post(post.into()))
     }
 
     pub async fn get_posts_newer(
@@ -1505,26 +1403,8 @@ pub mod backend {
             .await
             .map_err(|_| ServerErr::ServerDbErr)?
             .into_iter()
-            .map(|post| {
-                post.file
-                    .first()
-                    .cloned()
-                    .map(|post_file| Post {
-                        hash: post_file.hash,
-                        extension: post_file.extension,
-                        width: post_file.width,
-                        height: post_file.height,
-                        created_at: post.created_at,
-                    })
-                    .unwrap_or(Post {
-                        hash: "404".to_string(),
-                        extension: "webp".to_string(),
-                        width: 300,
-                        height: 200,
-                        created_at: 0,
-                    })
-            })
-            .collect::<Vec<Post>>();
+            .map(UserPost::from)
+            .collect::<Vec<UserPost>>();
 
         Ok(ServerRes::Posts(posts))
     }
@@ -1539,32 +1419,15 @@ pub mod backend {
             ))
             .into());
         };
+
         let posts = app_state
             .db
             .get_post_older(time, limit)
             .await
             .map_err(|_| ServerErr::ServerDbErr)?
             .into_iter()
-            .map(|post| {
-                post.file
-                    .first()
-                    .cloned()
-                    .map(|post_file| Post {
-                        hash: post_file.hash,
-                        extension: post_file.extension,
-                        width: post_file.width,
-                        height: post_file.height,
-                        created_at: post.created_at,
-                    })
-                    .unwrap_or(Post {
-                        hash: "404".to_string(),
-                        extension: "webp".to_string(),
-                        width: 300,
-                        height: 200,
-                        created_at: 0,
-                    })
-            })
-            .collect::<Vec<Post>>();
+            .map(UserPost::from)
+            .collect::<Vec<UserPost>>();
 
         Ok(ServerRes::Posts(posts))
     }
@@ -1652,7 +1515,7 @@ pub mod backend {
                             })
                             .map(|_| {
                                 (
-                                    PostFile {
+                                    DBUserPostFile {
                                         extension: img_format.to_string(),
                                         hash: format!("{:X}", gxhash128(&img_data_org, 0)),
                                         width,
@@ -1667,7 +1530,7 @@ pub mod backend {
             })
             .fold(
                 (
-                    Vec::<(PostFile, Vec<u8>, Vec<u8>)>::new(),
+                    Vec::<(DBUserPostFile, Vec<u8>, Vec<u8>)>::new(),
                     Vec::<ServerErrImgMeta>::new(),
                 ),
                 |(mut oks, mut errs), file| {
@@ -1688,7 +1551,7 @@ pub mod backend {
         }
 
         let root_path = Path::new(&app_state.settings.site.files_path);
-        let mut output_imgs = Vec::<Post>::new();
+        let mut output_imgs = Vec::<UserPostFile>::new();
         for file in &files {
             let file_path = root_path.join(format!("{}.{}", &file.0.hash, &file.0.extension));
             if file_path.exists() {
@@ -1696,13 +1559,7 @@ pub mod backend {
                     "file already exists {}",
                     file_path.to_str().unwrap_or("err")
                 );
-                output_imgs.push(Post {
-                    hash: file.0.hash.clone(),
-                    extension: file.0.extension.clone(),
-                    width: file.0.width,
-                    height: file.0.height,
-                    created_at: time.as_nanos(),
-                });
+                output_imgs.push(file.0.clone().into());
                 continue;
             }
 
@@ -1726,17 +1583,11 @@ pub mod backend {
             })
             .inspect_err(|err| error!("failed to save img to disk {err:?}"))
             .map_err(|err| ServerAddPostErr::ServerFSErr(err.to_string()))?;
-            output_imgs.push(Post {
-                hash: file.0.hash.clone(),
-                extension: file.0.extension.clone(),
-                width: file.0.width,
-                height: file.0.height,
-                created_at: time.as_nanos(),
-            });
+            output_imgs.push(file.0.clone().into());
         }
 
-        let post_files = files.into_iter().map(|v| v.0).collect::<Vec<PostFile>>();
-        app_state
+        let post_files = files.into_iter().map(|v| v.0).collect::<Vec<DBUserPostFile>>();
+        let post = app_state
             .db
             .add_post(
                 time.as_nanos(),
@@ -1749,7 +1600,7 @@ pub mod backend {
             .inspect_err(|err| error!("failed to save images {err:?}"))
             .map_err(|_| ServerErr::ServerDbErr)?;
 
-        Ok(ServerRes::Posts(output_imgs))
+        Ok(ServerRes::Post(post.into()))
     }
 
     pub async fn get_invite(
@@ -1803,6 +1654,7 @@ pub mod backend {
             .into());
         };
         let time = app_state.clock.now().await;
+        let time_ns = time.as_nanos();
         let user = app_state
             .db
             .get_user_by_email(email)
@@ -1821,7 +1673,7 @@ pub mod backend {
 
         let _session = app_state
             .db
-            .add_session(token, &user.username)
+            .add_session(time_ns, token, &user.username)
             .await
             .map_err(|err| ServerErr::ServerDbErr)?;
 
@@ -1867,7 +1719,7 @@ pub mod backend {
             .get_session(&token)
             .await
             .map_err(|err| match err {
-                GetSessionErr::NotFound => {
+                DB404Err::NotFound => {
                     ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie)
                 }
                 _ => ServerErr::ServerDbErr,
