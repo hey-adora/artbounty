@@ -189,6 +189,8 @@ pub struct DBUserPost {
     pub user: DBUser,
     pub show: bool,
     pub title: String,
+    pub description: String,
+    pub favorites: u64,
     pub file: Vec<DBUserPostFile>,
     pub modified_at: u128,
     pub created_at: u128,
@@ -356,6 +358,7 @@ impl<C: Connection> Db<C> {
                             DEFINE FIELD show ON TABLE post TYPE bool;
                             DEFINE FIELD title ON TABLE post TYPE string;
                             DEFINE FIELD description ON TABLE post TYPE string;
+                            DEFINE FIELD favorites ON TABLE post TYPE number;
                             DEFINE FIELD file ON TABLE post TYPE array<object>;
                             DEFINE FIELD file.*.extension ON TABLE post TYPE string;
                             DEFINE FIELD file.*.hash ON TABLE post TYPE string;
@@ -424,6 +427,7 @@ impl<C: Connection> Db<C> {
         username: impl Into<String>,
         title: impl Into<String>,
         description: impl Into<String>,
+        favorites: u64,
         files: Vec<DBUserPostFile>,
     ) -> Result<DBUserPost, AddPostErr> {
         let username = username.into();
@@ -439,6 +443,7 @@ impl<C: Connection> Db<C> {
                 show = true,
                 title = $title,
                 description = $description,
+                favorites = $favorites,
                 file = $files,
                 modified_at = $time,
                 created_at = $time;
@@ -449,6 +454,7 @@ impl<C: Connection> Db<C> {
             .bind(("username", username.clone()))
             .bind(("title", title))
             .bind(("description", description))
+            .bind(("favorites", favorites))
             .bind(("time", time))
             .await
             .check_good(|err| match err {
@@ -700,6 +706,7 @@ mod tests {
                 "hey",
                 "title",
                 "description",
+                0,
                 vec![
                     DBUserPostFile {
                         extension: ".png".to_string(),
@@ -730,6 +737,7 @@ mod tests {
                     "hey",
                     format!("title{i}"),
                     "description",
+                    0,
                     vec![DBUserPostFile {
                         extension: ".png".to_string(),
                         hash: i.to_string(),

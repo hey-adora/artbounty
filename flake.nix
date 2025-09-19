@@ -64,6 +64,7 @@
           with pkgs;
           mkShell {
             packages = [
+              inotify-tools
               rust_toolchain
               mold
               clang
