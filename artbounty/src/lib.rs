@@ -329,6 +329,7 @@ pub mod path {
     pub const PATH_API_REGISTER: &'static str = "/register";
     pub const PATH_API_LOGIN: &'static str = "/login";
     pub const PATH_API_POST_ADD: &'static str = "/post/add";
+    pub const PATH_API_POST_GET: &'static str = "/post/get";
     pub const PATH_API_POST_GET_OLDER: &'static str = "/post/get_older";
     pub const PATH_API_POST_GET_NEWER: &'static str = "/post/get_newer";
     pub const PATH_HOME: &'static str = "/";
@@ -337,6 +338,7 @@ pub mod path {
     pub const PATH_LOGIN: &'static str = "/login";
     pub const PATH_LOGIN_BS: (StaticSegment<&'static str>,) = path!("/login");
     pub const PATH_REGISTER: &'static str = "/register";
+    pub const PATH_UPLOAD: &'static str = "/upload";
 
     #[derive(Debug, Clone, PartialEq, strum::EnumString, strum::Display)]
     #[strum(serialize_all = "lowercase")]
@@ -344,6 +346,17 @@ pub mod path {
         Reg,
         CheckEmail,
         // Loading,
+    }
+
+    pub fn link_post(user: impl AsRef<str>, post: impl AsRef<str>) -> String {
+        format!(
+            "/u/{}/{}",
+            user.as_ref(),
+            post.as_ref(),
+        )
+    }
+    pub fn link_img(hash: impl AsRef<str>, extension: impl AsRef<str>) -> String {
+            format!("/file/{}.{}", hash.as_ref(), extension.as_ref())
     }
 
     pub fn link_user(user: impl AsRef<str>) -> String {

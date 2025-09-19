@@ -1,7 +1,7 @@
 pub mod nav {
     use crate::{
         api::{Api, ApiWeb},
-        path::PATH_LOGIN,
+        path::{PATH_LOGIN, PATH_UPLOAD},
         view::{app::GlobalState, toolbox::prelude::*},
     };
     use leptos::prelude::*;
@@ -45,7 +45,7 @@ pub mod nav {
                     <a href=PATH_LOGIN>"Login"</a>
                 </div>
                 <div class=move||format!("flex gap-2 {}", if global_state.is_logged_in() { "" } else { "hidden" })>
-                    <a href="/post">"U"</a>
+                    <a href=PATH_UPLOAD>"U"</a>
                     <a href=move||format!("/u/{}", acc_username())>{acc_username}</a>
                     <form method="POST" action="" on:submit=on_logout >
                         <input type="submit" value=logout_or_loading class="transition-all duration-300 ease-in hover:font-bold"/>
@@ -58,6 +58,7 @@ pub mod nav {
 }
 pub mod gallery {
     use crate::api::{Api, ApiWeb, UserPost, UserPostFile};
+    use crate::path::{link_img, link_post};
     use crate::view::toolbox::prelude::*;
     use chrono::Utc;
     use leptos::html;
@@ -119,10 +120,7 @@ pub mod gallery {
                             return;
                         };
 
-                        let new_imgs = files
-                            .into_iter()
-                            .map(Img::from)
-                            .collect::<Vec<Img>>();
+                        let new_imgs = files.into_iter().map(Img::from).collect::<Vec<Img>>();
 
                         if new_imgs.is_empty() {
                             trace!("RECEIVED EMPTY");
@@ -537,8 +535,9 @@ pub mod gallery {
         let view_height = img.view_height;
         let img_width = img.width;
         let img_height = img.height;
-        let img_id = img.id;
-        let link = img.get_link();
+        let img_id = img.id.clone();
+        let post_link = img.get_post_link();
+        let img_link = img.get_img_link();
         // let link = "/file/404.webp".to_string();
 
         let fn_background = move || format!("rgb({}, {}, {})", 50, 50, 50);
@@ -553,15 +552,17 @@ pub mod gallery {
 
         view! {
 
-            <img
-                class="absolute"
-                node_ref=img_ref
-                style:left=fn_left
-                style:top=fn_top
-                style:width=fn_width
-                style:height=fn_height
-                src=link
-            />
+            <a href=post_link>
+                <img
+                    class="absolute"
+                    node_ref=img_ref
+                    style:left=fn_left
+                    style:top=fn_top
+                    style:width=fn_width
+                    style:height=fn_height
+                    src=img_link
+                />
+            </a>
             // <div
             //     class="text-white grid place-items-center bg-blue-950 absolute border border-red-600 overflow-hidden"
             //
@@ -583,7 +584,8 @@ pub mod gallery {
 
     #[derive(Debug, Clone)]
     pub struct Img {
-        pub id: u64,
+        pub id: String,
+        pub username: String,
         pub hash: String,
         pub extension: String,
         // pub row_id: usize,
@@ -605,7 +607,8 @@ pub mod gallery {
                 extension: "webp".to_string(),
             });
             Self {
-                id: 0,
+                id: user_post.id,
+                username: user_post.user.username,
                 width: post_thumbnail.width,
                 height: post_thumbnail.height,
                 hash: post_thumbnail.hash,
@@ -637,11 +640,14 @@ pub mod gallery {
     }
 
     impl ResizableImage for Img {
-        fn get_id(&self) -> u64 {
-            self.id
+        fn get_id(&self) -> String {
+            self.id.clone()
         }
-        fn get_link(&self) -> String {
-            format!("/file/{}.{}", self.hash, self.extension)
+        fn get_post_link(&self) -> String {
+            link_post(&self.username, &self.id)
+        }
+        fn get_img_link(&self) -> String {
+            link_img(&self.hash, &self.extension)
         }
         fn get_width(&self) -> u32 {
             self.width
@@ -684,8 +690,9 @@ pub mod gallery {
             let id = random_u64();
 
             Self {
-                id,
+                id: id.to_string(),
                 // row_id: 0,
+                username: "bot".to_string(),
                 hash: "404".to_string(),
                 extension: "webp".to_string(),
                 width,
@@ -698,13 +705,14 @@ pub mod gallery {
             }
         }
 
-        pub fn rand(id: usize) -> Self {
+        pub fn rand(id: String) -> Self {
             let width = random_u32_ranged(500, 1000);
             let height = random_u32_ranged(500, 1000);
 
             Self {
-                id: id as u64,
+                id,
                 // row_id: 0,
+                username: "bot".to_string(),
                 hash: "404".to_string(),
                 extension: "webp".to_string(),
                 width,
@@ -720,15 +728,16 @@ pub mod gallery {
         pub fn rand_vec(n: usize) -> Vec<Self> {
             let mut output = Vec::new();
             for i in 0..n {
-                output.push(Img::rand(i));
+                output.push(Img::rand(i.to_string()));
             }
             output
         }
     }
 
     pub trait ResizableImage {
-        fn get_id(&self) -> u64;
-        fn get_link(&self) -> String;
+        fn get_id(&self) -> String;
+        fn get_post_link(&self) -> String;
+        fn get_img_link(&self) -> String;
         fn get_width(&self) -> u32;
         fn get_height(&self) -> u32;
         fn get_size(&self) -> (u32, u32);
@@ -1242,7 +1251,7 @@ pub mod gallery {
 
         #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq)]
         struct Img {
-            pub id: u32,
+            pub id: String,
             pub width: u32,
             pub height: u32,
             pub view_width: OrderedFloat<f64>,
@@ -1279,9 +1288,9 @@ pub mod gallery {
         }
 
         impl Img {
-            pub const fn new(id: u32, width: u32, height: u32) -> Self {
+            pub fn new(id: usize, width: u32, height: u32) -> Self {
                 Self {
-                    id,
+                    id: id.to_string(),
                     width,
                     height,
                     view_width: OrderedFloat(0.0),
@@ -1291,8 +1300,8 @@ pub mod gallery {
                 }
             }
 
-            pub const fn new_full(
-                id: u32,
+            pub fn new_full(
+                id: usize,
                 width: u32,
                 height: u32,
                 view_width: f64,
@@ -1301,7 +1310,7 @@ pub mod gallery {
                 view_pos_y: f64,
             ) -> Self {
                 Self {
-                    id,
+                    id: id.to_string(),
                     width,
                     height,
                     view_width: OrderedFloat(view_width),
@@ -1313,10 +1322,13 @@ pub mod gallery {
         }
 
         impl ResizableImage for Img {
-            fn get_id(&self) -> u64 {
-                self.id as u64
+            fn get_id(&self) -> String {
+                self.id.clone()
             }
-            fn get_link(&self) -> String {
+            fn get_post_link(&self) -> String {
+                "test".to_string()
+            }
+            fn get_img_link(&self) -> String {
                 "test".to_string()
             }
             fn get_width(&self) -> u32 {

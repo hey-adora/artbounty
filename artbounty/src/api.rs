@@ -254,8 +254,8 @@ pub enum ServerErr {
     #[error("login err {0}")]
     ServerLoginErr(#[from] ServerLoginErr),
 
-    #[error("get user err {0}")]
-    ServerGetUserErr(#[from] ServerGetUserErr),
+    // #[error("get user err {0}")]
+    // ServerGetUserErr(#[from] ServerGetErr),
 
     #[error("decode invite err {0}")]
     ServerDecodeInviteErr(#[from] ServerDecodeInviteErr),
@@ -271,6 +271,9 @@ pub enum ServerErr {
 
     #[error("add deserialization err {0}")]
     ServerDesErr(#[from] ServerDesErr),
+
+    #[error("failed to get {0}")]
+    ServerGetErr(#[from] ServerGetErr),
 
     #[error("database err")]
     ServerDbErr,
@@ -315,9 +318,15 @@ pub enum ClientErr {
     ClientSendErr(String),
 }
 
+// #[derive(Error, Com!)]
+// pub enum ServerGetUserErr {
+//     #[error("user not found")]
+//     NotFound,
+// }
+
 #[derive(Error, Com!)]
-pub enum ServerGetUserErr {
-    #[error("user not found")]
+pub enum ServerGetErr {
+    #[error("not found")]
     NotFound,
 }
 
@@ -427,6 +436,8 @@ pub struct UserPost {
     pub user: User,
     pub show: bool,
     pub title: String,
+    pub description: String,
+    pub favorites: u64,
     pub file: Vec<UserPostFile>,
     pub modified_at: u128,
     pub created_at: u128,
@@ -441,6 +452,8 @@ impl From<crate::db::DBUserPost> for UserPost {
             file: value.file.into_iter().map(UserPostFile::from).collect(),
             title: value.title,
             show: value.show,
+            description: value.description,
+            favorites: value.favorites,
             modified_at: value.modified_at,
             created_at: value.created_at,
         }
@@ -698,6 +711,19 @@ pub trait Api {
         let token = token.into();
         let builder = self.provide_builder(crate::path::PATH_API_INVITE_DECODE);
         let server_req = ServerReq::DecodeInvite { token };
+        let result_signal = self.provide_signal_result();
+        let busy_signal = self.provide_signal_busy();
+        ApiReq {
+            builder,
+            server_req,
+            result: result_signal,
+            busy: busy_signal,
+        }
+    }
+
+    fn get_post(&self, post_id: impl Into<String>) -> ApiReq {
+        let builder = self.provide_builder(crate::path::PATH_API_POST_GET);
+        let server_req = ServerReq::GetPost { post_id: post_id.into() };
         let result_signal = self.provide_signal_result();
         let busy_signal = self.provide_signal_busy();
         ApiReq {
@@ -1037,7 +1063,7 @@ impl axum::response::IntoResponse for ServerErr {
             | ServerErr::ServerLoginErr(ServerLoginErr::WrongCredentials) => {
                 axum::http::StatusCode::UNAUTHORIZED
             }
-            ServerErr::ServerGetUserErr(ServerGetUserErr::NotFound) => {
+            ServerErr::ServerGetErr(ServerGetErr::NotFound) => {
                 axum::http::StatusCode::NOT_FOUND
             }
             ServerErr::ClientErr(_) => unreachable!(),
@@ -1174,7 +1200,7 @@ pub async fn send(
 pub mod backend {
     use crate::api::app_state::AppState;
     use crate::api::{
-        create_cookie, cut_cookie_value_decoded, decode_token, encode_token, hash_password, verify_password, AuthToken, InviteToken, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerGetUserErr, ServerInviteErr, ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes, UserPost, UserPostFile
+        create_cookie, cut_cookie_value_decoded, decode_token, encode_token, hash_password, verify_password, AuthToken, InviteToken, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerGetErr, ServerInviteErr, ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes, UserPost, UserPostFile
     };
     use crate::db::AddInviteErr;
     use crate::db::DB404Err;
@@ -1212,7 +1238,7 @@ pub mod backend {
             .get_user_by_username(username)
             .await
             .map_err(|err| match err {
-                DB404Err::NotFound => ServerGetUserErr::NotFound.into(),
+                DB404Err::NotFound => ServerGetErr::NotFound.into(),
                 _ => ServerErr::ServerDbErr,
             })?;
 
@@ -1382,7 +1408,10 @@ pub mod backend {
             .db
             .get_post_str(post_id)
             .await
-            .map_err(|_| ServerErr::ServerDbErr)?;
+            .map_err(|err| match err {
+                DB404Err::NotFound => ServerErr::ServerGetErr(ServerGetErr::NotFound),
+                _ => ServerErr::ServerDbErr,
+            })?;
 
         Ok(ServerRes::Post(post.into()))
     }
@@ -1594,6 +1623,7 @@ pub mod backend {
                 &auth_token.username,
                 &title,
                 &description,
+                0,
                 post_files,
             )
             .await

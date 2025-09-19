@@ -96,7 +96,7 @@ pub fn create_api_router(
         routing::post,
     };
 
-    use crate::{api::{self, backend::auth_middleware}, path::PATH_API_POST_GET_NEWER};
+    use crate::{api::{self, backend::auth_middleware}, path::{PATH_API_POST_GET, PATH_API_POST_GET_NEWER}};
 
     // use crate::api::{self, auth_middleware};
     let api_router_public = Router::new()
@@ -106,6 +106,7 @@ pub fn create_api_router(
         .route(PATH_API_INVITE, post(api::backend::get_invite))
         .route(PATH_API_USER, post(api::backend::get_user))
         .route(PATH_API_LOGOUT, post(api::backend::logout))
+        .route(PATH_API_POST_GET, post(api::backend::get_post))
         .route(PATH_API_POST_GET_OLDER, post(api::backend::get_posts_older))
         .route(PATH_API_POST_GET_NEWER, post(api::backend::get_posts_newer));
     let api_router_auth = Router::new()

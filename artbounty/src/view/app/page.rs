@@ -1,4 +1,119 @@
 pub mod post {
+    use crate::api::{Api, ApiWeb, ServerErr, ServerGetErr};
+    use crate::path::link_img;
+    use crate::view::app::components::nav::Nav;
+    use crate::view::toolbox::prelude::*;
+    use leptos::prelude::*;
+    use leptos::{Params, task::spawn_local};
+    use leptos_router::hooks::use_params;
+    use leptos_router::params::Params;
+    use tracing::{error, trace};
+
+    #[derive(Params, PartialEq, Clone)]
+    pub struct PostParams {
+        pub username: Option<String>,
+        pub post: Option<String>,
+    }
+
+    #[component]
+    pub fn Page() -> impl IntoView {
+        let main_ref = NodeRef::new();
+        let api = ApiWeb::new();
+        let param = use_params::<PostParams>();
+        let param_username = move || param.read().as_ref().ok().and_then(|v| v.username.clone());
+        let param_post = move || param.read().as_ref().ok().and_then(|v| v.post.clone());
+        let imgs_links = RwSignal::new(Vec::<String>::new());
+        let title = RwSignal::new(String::from("loading..."));
+        let author = RwSignal::new(String::from("loading..."));
+        let description = RwSignal::new(String::from("loading..."));
+        let favorites = RwSignal::new(0_u64);
+        let not_found = RwSignal::new(false);
+
+        Effect::new(move || {
+            let (Some(username), Some(post_id)) = (param_username(), param_post()) else {
+                return;
+            };
+
+            api.get_post(post_id).send_web(move |result| async move {
+                match result {
+                    Ok(crate::api::ServerRes::Post(post)) => {
+                        title.set(post.title);
+                        author.set(post.user.username);
+                        description.set(post.description);
+                        favorites.set(post.favorites);
+                        imgs_links.set(post.file.into_iter().map(|file| link_img(file.hash, file.extension)).collect());
+
+                        // let mut links = Vec::new():
+                        // for post_file in post.file {
+                        //     trace!("rec: {post:#?}");
+                        //
+                        // }
+                    }
+                    Ok(res) => {
+                        error!("wrong res, expected Post, got {:?}", res);
+                    },
+                    Err(ServerErr::ServerGetErr(ServerGetErr::NotFound)) => {
+                        not_found.set(true);
+                    }
+                    Err(err) => {
+                        error!("unexpected err {:#?}", {err});
+                    }
+                }
+            });
+        });
+
+        let imgs = move || imgs_links.get().into_iter().map(|url| view! { <img src=url /> }).collect_view();
+        let title = move || title.get();
+        let author = move || author.get();
+        let description = move || description.get();
+        let favorites = move || favorites.get();
+
+        view! {
+            <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen">
+                <Nav/>
+
+                <div class=move || format!("place-items-center text-[1.5rem] {}", if not_found.get() {"grid"} else {"hidden"})>
+                    "Not Found"
+                </div>
+
+                <div class=move || format!("flex-col gap-4 px-2 {}", if not_found.get() {"hidden"} else {"flex"})>
+                    <div>
+                        { imgs }
+                    </div>
+                    <div class="flex justify-between gap-2 grid grid-cols-[1fr_1fr_1fr_1fr_1fr]">
+                        <div class="h-[5rem] bg-main-light"></div>
+                        <div class="h-[5rem] bg-main-light"></div>
+                        <div class="h-[5rem] bg-main-light"></div>
+                        <div class="h-[5rem] bg-main-light"></div>
+                        <div class="h-[5rem] bg-main-light"></div>
+                    </div>
+                    <div class="flex justify-between">
+                        <h1 class="text-[1.5rem] text-ellipsis">{ title }</h1>
+                        <div>"X"</div>
+                    </div>
+                    <div class="flex justify-between">
+                        <div class="flex gap-1">
+                            <p class="text-[1rem] rounded-full h-[3rem] w-[3rem] bg-main-light"></p>
+                            <div class="flex flex-col gap-1">
+                                <div class="flex gap-1">
+                                    <p class="text-[1rem]">"by"</p>
+                                    <p class="text-[1rem] font-bold">{ author }</p>
+                                </div>
+                                <p class="text-[1rem]">"9999 followers"</p>
+                            </div>
+                        </div>
+                        <div>{favorites}" favorites"</div>
+                    </div>
+                    <div class="flex flex-col justify-between">
+                        <h1 class="text-[1.2rem] ">"Description"</h1>
+                        <div class="text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)]">{description}</div>
+                    </div>
+                </div>
+            </main>
+        }
+    }
+}
+pub mod upload {
     use std::rc::Rc;
 
     use crate::api::{Api, ApiWeb, ServerAddPostErr, ServerErr, ServerReqImg};
@@ -103,13 +218,13 @@ pub mod post {
                                     .join("\n");
                                 let _ = upload_image_err.try_set(msg);
                             }
-                            Err(ServerErr::ServerAddPostErr(
-                                ServerAddPostErr::ServerDirCreationFailed(err),
-                            )) => {
+                            // Err(ServerErr::ServerAddPostErr(
+                            //     ServerAddPostErr::ServerDirCreationFailed(err),
+                            // )) => {
+                            //     let _ = upload_general_err.try_set(err.to_string());
+                            // }
+                            Err(err) => {
                                 let _ = upload_general_err.try_set(err.to_string());
-                            }
-                            Err(_) => {
-                                //
                             }
                         };
                     });
@@ -211,7 +326,7 @@ pub mod profile {
     use crate::api::Api;
     use crate::api::ApiWeb;
     use crate::api::ServerErr;
-    use crate::api::ServerGetUserErr;
+    use crate::api::ServerGetErr;
     use crate::api::ServerRes;
     use crate::view::app::components::nav::Nav;
     use crate::view::toolbox::prelude::*;
@@ -251,7 +366,7 @@ pub mod profile {
                         user_username.set(format!("expected Uesr, received {res:?}"));
                         error!("expected Uesr, received {res:?}");
                     }
-                    Err(ServerErr::ServerGetUserErr(ServerGetUserErr::NotFound)) => {
+                    Err(ServerErr::ServerGetErr(ServerGetErr::NotFound)) => {
                         user_username.set("Not Found".to_string());
                     }
                     Err(err) => {
