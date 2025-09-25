@@ -294,7 +294,7 @@ pub enum ServerDesErr {
     ServerWrongInput(String),
 
     #[error("failed to run field to bytes")]
-    ServerDesFieldToBytesErr,
+    ServerMutlipartAccessErr,
 
     #[error("failed to run rkyv access")]
     ServerDesRkyvAccessErr,
@@ -734,6 +734,32 @@ pub trait Api {
         }
     }
 
+    fn get_posts_newer_or_equal(&self, time: u128, limit: u32) -> ApiReq {
+        let builder = self.provide_builder(crate::path::PATH_API_POST_GET_NEWER_OR_EQUAL);
+        let server_req = ServerReq::GetPosts { time, limit };
+        let result_signal = self.provide_signal_result();
+        let busy_signal = self.provide_signal_busy();
+        ApiReq {
+            builder,
+            server_req,
+            result: result_signal,
+            busy: busy_signal,
+        }
+    }
+
+    fn get_posts_older_or_equal(&self, time: u128, limit: u32) -> ApiReq {
+        let builder = self.provide_builder(crate::path::PATH_API_POST_GET_OLDER_OR_EQUAL);
+        let server_req = ServerReq::GetPosts { time, limit };
+        let result_signal = self.provide_signal_result();
+        let busy_signal = self.provide_signal_busy();
+        ApiReq {
+            builder,
+            server_req,
+            result: result_signal,
+            busy: busy_signal,
+        }
+    }
+
     fn get_posts_newer(&self, time: u128, limit: u32) -> ApiReq {
         let builder = self.provide_builder(crate::path::PATH_API_POST_GET_NEWER);
         let server_req = ServerReq::GetPosts { time, limit };
@@ -1012,7 +1038,8 @@ pub async fn recv(mut multipart: axum::extract::Multipart) -> Result<ServerReq, 
             bytes = field
                 .bytes()
                 .await
-                .map_err(|_| ServerDesErr::ServerDesFieldToBytesErr)?;
+                .inspect_err(|err| error!("multipart accesing data field failed: {err}"))
+                .map_err(|_| ServerDesErr::ServerMutlipartAccessErr)?;
         }
     }
 
@@ -1414,6 +1441,51 @@ pub mod backend {
             })?;
 
         Ok(ServerRes::Post(post.into()))
+    }
+
+    pub async fn get_posts_newer_or_equal(
+        State(app_state): State<AppState>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::GetPosts { time, limit } = req else {
+            return Err(ServerDesErr::ServerWrongInput(format!(
+                "expected GetPostAfter, received: {req:?}"
+            ))
+            .into());
+        };
+        let posts = app_state
+            .db
+            .get_post_newer_or_equal(time, limit)
+            .await
+            .map_err(|_| ServerErr::ServerDbErr)?
+            .into_iter()
+            .map(UserPost::from)
+            .collect::<Vec<UserPost>>();
+
+        Ok(ServerRes::Posts(posts))
+    }
+
+    pub async fn get_posts_older_or_equal(
+        State(app_state): State<AppState>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::GetPosts { time, limit } = req else {
+            return Err(ServerDesErr::ServerWrongInput(format!(
+                "expected GetPostAfter, received: {req:?}"
+            ))
+            .into());
+        };
+
+        let posts = app_state
+            .db
+            .get_post_older_or_equal(time, limit)
+            .await
+            .map_err(|_| ServerErr::ServerDbErr)?
+            .into_iter()
+            .map(UserPost::from)
+            .collect::<Vec<UserPost>>();
+
+        Ok(ServerRes::Posts(posts))
     }
 
     pub async fn get_posts_newer(

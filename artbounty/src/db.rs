@@ -395,6 +395,32 @@ impl<C: Connection> Db<C> {
             .and_then_take_or(0, DB404Err::NotFound)
     }
 
+    pub async fn get_post_newer_or_equal(
+        &self,
+        time: u128,
+        limit: u32,
+    ) -> Result<Vec<DBUserPost>, surrealdb::Error> {
+        self.db.query("(SELECT *, user.* FROM post WHERE created_at >= $created_at ORDER BY created_at ASC LIMIT $post_limit).reverse()")
+            .bind(("post_limit", limit))
+            .bind(("created_at", time))
+            .await
+            .check_good(surrealdb::Error::from)
+            .and_then_take_all(0)
+    }
+
+    pub async fn get_post_older_or_equal(
+        &self,
+        time: u128,
+        limit: u32,
+    ) -> Result<Vec<DBUserPost>, surrealdb::Error> {
+        self.db.query("SELECT *, user.* FROM post WHERE created_at <= $created_at ORDER BY created_at DESC LIMIT $post_limit")
+            .bind(("post_limit", limit))
+            .bind(("created_at", time))
+            .await
+            .check_good(surrealdb::Error::from)
+            .and_then_take_all(0)
+    }
+
     pub async fn get_post_newer(
         &self,
         time: u128,

@@ -5,8 +5,10 @@ pub mod prelude {
     pub use super::file::{self, GetFileStream, GetFiles, GetStreamChunk, PushChunkToVec};
     pub use super::intersection_observer::{self, AddIntersectionObserver, IntersectionOptions};
     pub use super::interval::{self};
+    pub use super::mutation_observer::{self, AddMutationObserver, MutationObserverOptions};
     pub use super::random::{random_u8, random_u32, random_u32_ranged, random_u64};
     pub use super::resize_observer::{self, AddResizeObserver, GetContentBoxSize};
+    pub use super::url::set_query;
 }
 
 pub mod api {
@@ -161,8 +163,7 @@ pub mod api {
                 }
             });
         }
-        pub fn dispatch(&self, dto: DTO)
-        {
+        pub fn dispatch(&self, dto: DTO) {
             self.inner.update(|v| {
                 v.value = None;
                 v.pending = true;
@@ -234,6 +235,42 @@ pub mod api {
             }),
             // is_pending: RwSignal::new(false)
         }
+    }
+}
+
+pub mod url {
+    use leptos::prelude::*;
+    use tracing::{error, trace};
+
+    pub fn set_query(key: impl AsRef<str>, value: impl AsRef<str>) {
+        let location = window().location();
+        let Some(mut url) = location
+            .href()
+            .inspect_err(|err| error!("getting location err"))
+            .ok()
+            .and_then(|v| {
+                url::Url::parse(&v)
+                    .inspect_err(|err| error!("parsing location err"))
+                    .ok()
+            })
+            .inspect(|v| trace!("parsed url: {v}"))
+        else {
+            return;
+        };
+        {
+            let mut query = url.query_pairs_mut();
+            query.append_pair(key.as_ref(), value.as_ref());
+        }
+        let Some(query) = url.query() else {
+            return;
+        };
+        trace!("href: {query:?}");
+        let _ = location
+            .set_search(query)
+            .inspect_err(|_| error!("failed to set location err"));
+        // let _ = location
+        //     .set_href(&href)
+        //     .inspect_err(|_| error!("failed to set location err"));
     }
 }
 
@@ -798,6 +835,199 @@ pub mod intersection_observer {
             options,
         )
         .unwrap()
+    }
+}
+
+pub mod mutation_observer {
+    use leptos::{html::ElementType, prelude::*};
+    use tracing::{error, trace_span};
+    use wasm_bindgen::prelude::*;
+    use web_sys::{
+        self, HtmlElement, MutationRecord,
+        js_sys::{self, Array},
+    };
+
+    #[derive(Clone, Debug, Copy, Default)]
+    pub struct MutationObserverOptions {
+        pub child_list: bool, 
+        pub attributes: bool, 
+        pub subtree: bool,
+    }
+
+    impl MutationObserverOptions {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        pub fn set_child_list(mut self, value: bool) -> Self {
+            self.child_list = value;
+            self
+        }
+
+        pub fn set_attributes(mut self, value: bool) -> Self {
+            self.attributes = value;
+            self
+        }
+
+        pub fn set_subtree(mut self, value: bool) -> Self {
+            self.subtree = value;
+            self
+        }
+    }
+
+    impl From<MutationObserverOptions> for web_sys::MutationObserverInit {
+        fn from(value: MutationObserverOptions) -> Self {
+            let options = web_sys::MutationObserverInit::new();
+
+            if value.subtree {
+                options.set_subtree(value.subtree);
+            }
+
+            if value.attributes {
+                options.set_attributes(value.attributes);
+            }
+
+            if value.child_list {
+                options.set_child_list(value.child_list);
+            }
+
+            options
+            
+        }
+    }
+
+    pub trait AddMutationObserver {
+        fn add_mutation_observer<O, F>(&self, callback: F, options: O)
+        where
+            O: Into<web_sys::MutationObserverInit> + Clone + 'static,
+            F: FnMut(Vec<MutationRecord>, web_sys::MutationObserver)
+                + Send
+                + Sync
+                + Clone
+                + 'static;
+    }
+
+    impl<E> AddMutationObserver for NodeRef<E>
+    where
+        E: ElementType,
+        E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
+    {
+        fn add_mutation_observer<O, F>(&self, callback: F, options: O)
+        where
+            O: Into<web_sys::MutationObserverInit> + Clone + 'static,
+            F: FnMut(Vec<MutationRecord>, web_sys::MutationObserver)
+                + Send
+                + Sync
+                + Clone
+                + 'static,
+        {
+            new(*self, callback, options);
+        }
+    }
+
+    // #[derive(Clone, Debug, Default)]
+    // pub struct MutationOberver {
+    //     pub observer: RwSignal<Option<web_sys::MutationObserver>, LocalStorage>,
+    // }
+    //
+    // impl MutationOberver {
+    //     pub fn new<F>(callback: F) -> Self
+    //     where
+    //         F: FnMut(Vec<MutationRecord>, web_sys::MutationObserver)
+    //             + Clone
+    //             + Send
+    //             + Sync
+    //             + 'static,
+    //     {
+    //         let observer = Self::default();
+    //
+    //         Effect::new(move || {
+    //             observer.observer.set(Some(new_raw(callback.clone())));
+    //         });
+    //
+    //         observer
+    //     }
+    //
+    //     pub fn observe<E>(target: NodeRef<E>)
+    //     where
+    //         E: ElementType,
+    //         E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
+    //     {
+    //         let Some(target) = target.get() else {
+    //             return;
+    //         };
+    //
+    //         let target: HtmlElement = target.into();
+    //
+    //         let _ = raw_observer
+    //             .observe(&target)
+    //             .inspect_err(|_| error!("failed to observer mutation"));
+    //         observer.set(Some(raw_observer));
+    //     }
+    // }
+
+    pub fn new<E, F, O>(target: NodeRef<E>, callback: F, options: O)
+    where
+        E: ElementType,
+        E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
+        F: FnMut(Vec<MutationRecord>, web_sys::MutationObserver) + Clone + Send + Sync + 'static,
+        O: Into<web_sys::MutationObserverInit> + Clone + 'static,
+    {
+        let observer = RwSignal::new_local(None::<web_sys::MutationObserver>);
+
+        Effect::new(move || {
+            let span = trace_span!("mutation observer").entered();
+            let raw_observer = new_raw(callback.clone());
+
+            let Some(target) = target.get() else {
+                return;
+            };
+
+            let target: HtmlElement = target.into();
+            let options = options.clone().into();
+
+            let _ = raw_observer
+                .observe_with_options(&target, &options)
+                .inspect_err(|err| {
+                    error!(
+                        "failed to observer mutation {:?}",
+                        js_sys::Error::from(err.clone())
+                    )
+                });
+            observer.set(Some(raw_observer));
+
+            span.exit();
+        });
+
+        on_cleanup(move || {
+            let span = trace_span!("resize observer").entered();
+
+            let Some(raw_observer) = observer.get_untracked() else {
+                return;
+            };
+
+            raw_observer.disconnect();
+
+            span.exit();
+        });
+    }
+
+    pub fn new_raw<F>(mut callback: F) -> web_sys::MutationObserver
+    where
+        F: FnMut(Vec<MutationRecord>, web_sys::MutationObserver) + Clone + 'static,
+    {
+        let resize_observer_closure = Closure::<dyn FnMut(Array, web_sys::MutationObserver)>::new(
+            move |entries: Array, observer: web_sys::MutationObserver| {
+                let entries: Vec<MutationRecord> = entries
+                    .to_vec()
+                    .into_iter()
+                    .map(|v| v.unchecked_into::<MutationRecord>())
+                    .collect();
+                callback(entries, observer);
+            },
+        )
+        .into_js_value();
+        web_sys::MutationObserver::new(resize_observer_closure.as_ref().unchecked_ref()).unwrap()
     }
 }
 

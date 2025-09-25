@@ -58,11 +58,13 @@ pub mod nav {
 }
 pub mod gallery {
     use crate::api::{Api, ApiWeb, UserPost, UserPostFile};
-    use crate::path::{link_img, link_post};
+    use crate::path::{link_img, link_post, link_post_with_history};
     use crate::view::toolbox::prelude::*;
     use chrono::Utc;
     use leptos::html;
     use leptos::{html::Div, prelude::*};
+    use leptos_router::hooks::{query_signal, use_params_map, use_query_map};
+    use leptos_router::params::Params;
     use std::default::Default;
     use std::time::Duration;
     use std::{
@@ -70,6 +72,7 @@ pub mod gallery {
         rc::Rc,
     };
     use tracing::{debug, error, trace};
+    use web_sys::{HtmlAnchorElement, MouseEvent};
 
     pub fn vec_img_to_string<IMG: ResizableImage + Display>(imgs: &[IMG]) -> String {
         let mut output = String::new();
@@ -82,33 +85,32 @@ pub mod gallery {
     }
 
     #[component]
-    pub fn Gallery(
-        // fetch_top: FetchTopFn,
-        // fetch_bottom: FetchBtmFn,
-        // #[prop(optional)] fetch_init: Option<Rc<dyn Fn(usize) -> Vec<Img> + Send + Sync + 'static>>,
-        #[prop(default = 250)] row_height: u32,
-    ) -> impl IntoView
-// where
-    //     FetchBtmFn: (Fn(usize, Img) -> FetchBtmFnFut) + Send + Sync + Clone + 'static,
-    //     FetchBtmFnFut: Future<Output = Vec<Img>>  + Send + Sync + 'static,
-    //     FetchTopFn: Fn(usize, Img) -> Vec<Img> + Send + Sync + 'static + Clone,
-    {
+    pub fn Gallery(#[prop(default = 250)] row_height: u32) -> impl IntoView {
         let gallery = RwSignal::<Vec<Img>>::new(Vec::new());
+        let delayed_scroll = RwSignal::new(0_usize);
         let gallery_ref = NodeRef::<Div>::new();
-        // let newest_img_hash = StoredValue::new(String::new());
-        // let oldest_img_hash = StoredValue::new(String::new());
-        // let scroll_offset: StoredValue<f32> = StoredValue::new(0.0_f32);
-        // let api_post_get_after = controller::post::route::get_after::client.ground();
         let api_top = ApiWeb::new();
         let api_btm = ApiWeb::new();
+        let navigate = leptos_router::hooks::use_navigate();
+        let (get_query_scroll, set_query_scroll) = query_signal::<usize>("scroll");
+        let (get_query_gallery_count, set_query_gallery_count) = query_signal::<usize>("img_count");
+        let (get_query_direction, set_query_direction) = query_signal::<String>("direction");
+        let (get_query_time, set_query_time) = query_signal::<u128>("time");
 
         let set_gallery = move |bottom: bool, width: u32, height: f64, time: u128, count: u32| {
-            // let gallery = gallery.clone();
-            // let gallery_ref = gallery_ref.clone();
+            let current_img_count = gallery.with_untracked(|v| v.len());
             if bottom {
-                api_btm.get_posts_older(time, count)
+                if current_img_count == 0 {
+                    api_btm.get_posts_older_or_equal(time, count)
+                } else {
+                    api_btm.get_posts_older(time, count)
+                }
             } else {
-                api_top.get_posts_newer(time, count)
+                if current_img_count == 0 {
+                    api_top.get_posts_newer_or_equal(time, count)
+                } else {
+                    api_top.get_posts_newer(time, count)
+                }
             }
             .send_web(move |result| async move {
                 match result {
@@ -132,8 +134,37 @@ pub mod gallery {
                         } else {
                             add_imgs_to_top(prev_imgs, new_imgs, width, height, row_height)
                         };
+
+                        let first_img_time = (if bottom {
+                            resized_imgs.first()
+                        } else {
+                            resized_imgs.last()
+                        })
+                        .map(|v| v.created_at);
+                        let new_img_count = resized_imgs.len();
+
+                        trace!("using new scroll: {scroll_by}");
                         gallery.set(resized_imgs);
-                        gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
+                        if current_img_count > 0 {
+                            gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
+                        }
+                        // if let Some(query_scroll) = get_query_scroll.get_untracked()
+                        //     && gallery.with_untracked(|v| v.is_empty())
+                        // {
+                        //     trace!("using initial scroll: {query_scroll}");
+                        //     gallery.set(resized_imgs);
+                        //     // gallery_elm.scroll_by_with_x_and_y(0.0, query_scroll as f64);
+                        //     delayed_scroll.set(query_scroll);
+                        // } else {
+                        //     trace!("using new scroll: {scroll_by}");
+                        //     gallery.set(resized_imgs);
+                        //     gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
+                        // }
+
+                        set_query_direction
+                            .set(Some(if bottom { "down" } else { "up" }.to_string()));
+                        set_query_time.set(first_img_time);
+                        set_query_gallery_count.set(Some(new_img_count));
                     }
                     Ok(_) => unreachable!(),
                     Err(err) => error!("{}", err.to_string()),
@@ -173,29 +204,10 @@ pub mod gallery {
             let Some(img) = gallery.first() else {
                 return;
             };
-            // if img.hash == newest_img_hash.get_value() {
-            //     trace!("skipping fetching new imgs");
-            //     return;
-            // }
-            // newest_img_hash.set_value(img.hash.clone());
-            // let time = Utc::now().timestamp_micros() as u128 * 1000;
             set_gallery(false, width, height * 8.0, img.created_at, count);
-
-            // gallery.set(resized_imgs);
-            // gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
-            // let new_imgs = fetch_top(count, prev_imgs.first().cloned().unwrap());
-            // if new_imgs.is_empty() {
-            //     return;
-            // }
-            // let (resized_imgs, scroll_by) =
-            //     add_imgs_to_top(prev_imgs, new_imgs, width, heigth * 3.0, row_height);
-            // trace!("scroll master: {scroll_by}");
         };
 
         let run_fetch_bottom = move || {
-            // if api_post_get_after.is_pending() {
-            //     return;
-            // }
             let Some(gallery_elm) = gallery_ref.get_untracked() else {
                 trace!("gallery NOT found");
                 return;
@@ -215,83 +227,26 @@ pub mod gallery {
             let Some(img) = gallery.last() else {
                 return;
             };
-            // if img.hash == oldest_img_hash.get_value() {
-            //     trace!("skipping fetching older imgs");
-            //     return;
-            // }
-            // oldest_img_hash.set_value(img.hash.clone());
-            // last.c
-
-            // let time = Utc::now().timestamp_micros() as u128 * 1000;
             set_gallery(true, width, height * 8.0, img.created_at, count);
+        };
 
-            // api.get_posts_after(time, count)
-            //     .send_web(move |result| async move {
-            //         match result {
-            //             Ok(crate::api::ServerRes::Posts(files)) => {
-            //                 let Some(prev_imgs) = gallery.try_get_untracked() else {
-            //                     return;
-            //                 };
-            //
-            //                 let new_imgs = files
-            //                     .iter()
-            //                     .map(|post| Img {
-            //                         id: 0,
-            //                         hash: post.hash.clone(),
-            //                         extension: post.extension.clone(),
-            //                         width: post.width,
-            //                         height: post.height,
-            //                         view_width: 0.0,
-            //                         view_height: 0.0,
-            //                         view_pos_x: 0.0,
-            //                         view_pos_y: 0.0,
-            //                         created_at: post.created_at,
-            //                     })
-            //                     .collect::<Vec<Img>>();
-            //
-            //                 let (resized_imgs, scroll_by) =
-            //                     add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth, row_height);
-            //                 gallery.set(resized_imgs);
-            //                 gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
-            //             }
-            //             Ok(_) => unreachable!(),
-            //             Err(err) => error!("{}", err.to_string()),
-            //         }
-            //     });
-            // api_post_get_after.dispatch_and_run(
-            //     controller::post::route::get_after::Input { time, limit: count },
-            //     move |files| {
-            //         let files = files.clone();
-            //         async move {
-            //             // gallery.set(vec![Img {
-            //             //     id: 0,
-            //             //     hash: "404".to_string(),
-            //             //     extension: "webp".to_string(),
-            //             //     width: 300,
-            //             //     height: 200,
-            //             //     view_width: 0.0,
-            //             //     view_height: 0.0,
-            //             //     view_pos_x: 0.0,
-            //             //     view_pos_y: 0.0,
-            //             // }]);
-            //             match files {
-            //                 Ok(files) => {}
-            //                 Err(err) => {
-            //                     error!("posts api err: {err}");
-            //                 }
-            //             }
-            //         }
-            //     },
-            // );
-            // let new_imgs = fetch_bottom(count, prev_imgs.last().cloned().unwrap());
-            // if new_imgs.is_empty() {
+        let run_on_click = move |e: MouseEvent, img: Img| {
+            // let Some(gallery_elm) = gallery_ref.get_untracked() else {
+            //     trace!("gallery NOT found");
+            //     return;
+            // };
+            // if gallery.with_untracked(|v| v.is_empty()) {
             //     return;
             // }
-            // let (resized_imgs, scroll_by) =
-            //     add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth * 3.0, row_height);
-            // trace!("scroll master: {scroll_by}");
-            // gallery.set(resized_imgs);
-            // gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
+
+            // e.prevent_default();
+            // e.stop_propagation();
+            //
+            // let scroll_top = gallery_elm.scroll_top() as usize;
+            // set_query_scroll.set(Some(scroll_top));
+            //
+            // let link = link_post(img.username.clone(), img.id.clone());
+            // navigate(&link, Default::default());
         };
 
         let _ = interval::new(
@@ -321,6 +276,25 @@ pub mod gallery {
             Duration::from_secs(2),
         );
 
+        let _ = interval::new(
+            move || {
+                // run_fetch_top();
+                // run_fetch_bottom();
+                let Some(gallery_elm) = gallery_ref.get_untracked() else {
+                    trace!("gallery NOT found");
+                    return;
+                };
+                if gallery.with_untracked(|v| v.is_empty()) {
+                    return;
+                }
+
+                let scroll_top = gallery_elm.scroll_top() as usize;
+                // let current_query_scroll = get_query_scroll();
+                set_query_scroll.set(Some(scroll_top));
+            },
+            Duration::from_millis(1000),
+        );
+
         let get_imgs = move || {
             let imgs = gallery.get();
             let total_count = imgs.len();
@@ -330,7 +304,8 @@ pub mod gallery {
                 .map({
                     let run_fetch_bottom = run_fetch_bottom.clone();
                     let run_fetch_top = run_fetch_top.clone();
-                    move |(i, img)| view! {<GalleryImg index=i img total_count run_fetch_bottom=run_fetch_bottom.clone() run_fetch_top=run_fetch_top.clone() />}
+                    let run_on_click = run_on_click.clone();
+                    move |(i, img)| view! {<GalleryImg index=i img total_count run_on_click=run_on_click.clone() run_fetch_bottom=run_fetch_bottom.clone() run_fetch_top=run_fetch_top.clone() />}
                 })
                 .collect_view()
         };
@@ -345,111 +320,53 @@ pub mod gallery {
 
             let width = gallery_elm.client_width() as u32;
             let height = gallery_elm.client_height() as f64;
-            let count = calc_fit_count(width, height, row_height) as u32;
-            let time = Utc::now().timestamp_micros() as u128 * 1000;
 
-            set_gallery(true, width, height, time, count);
-            // api_post_get_after.dispatch_and_run(
-            //     controller::post::route::get_after::Input { time, limit: count },
-            //     move |files| {
-            //         let files = files.clone();
-            //         async move {
-            //             // gallery.set(vec![Img {
-            //             //     id: 0,
-            //             //     hash: "404".to_string(),
-            //             //     extension: "webp".to_string(),
-            //             //     width: 300,
-            //             //     height: 200,
-            //             //     view_width: 0.0,
-            //             //     view_height: 0.0,
-            //             //     view_pos_x: 0.0,
-            //             //     view_pos_y: 0.0,
-            //             // }]);
-            //             match files {
-            //                 Ok(files) => {
-            //                     let Some(prev_imgs) = gallery.try_get_untracked() else {
-            //                         return;
-            //                     };
-            //
-            //                     let new_imgs = files
-            //                         .posts
-            //                         .iter()
-            //                         .map(|post| Img {
-            //                             id: 0,
-            //                             hash: post.hash.clone(),
-            //                             extension: post.extension.clone(),
-            //                             width: post.width,
-            //                             height: post.height,
-            //                             view_width: 0.0,
-            //                             view_height: 0.0,
-            //                             view_pos_x: 0.0,
-            //                             view_pos_y: 0.0,
-            //                             created_at: post.created_at,
-            //                         })
-            //                         .collect::<Vec<Img>>();
-            //
-            //                     let (resized_imgs, _scroll_by) = add_imgs_to_bottom(
-            //                         prev_imgs, new_imgs, width, heigth, row_height,
-            //                     );
-            //                     gallery.set(resized_imgs);
-            //                 }
-            //                 Err(err) => {
-            //                     error!("posts api err: {err}");
-            //                 }
-            //             }
-            //         }
-            //     },
-            // );
+            let query_gallery_count = get_query_gallery_count
+                .get_untracked()
+                .and_then(|v| if v == 0 { None } else { Some(v) });
+            let query_direction_is_up = get_query_direction.get_untracked().map(|v| v == "up");
+            let query_time = get_query_time.get_untracked();
+            let query_scroll = get_query_scroll.get_untracked();
+
+            let (Some(gallery_count), Some(direction_is_up), Some(time), Some(scroll)) = (
+                query_gallery_count,
+                query_direction_is_up,
+                query_time,
+                query_scroll,
+            ) else {
+                let count = calc_fit_count(width, height, row_height) as u32;
+                let direction_is_bottom = true;
+                let time = Utc::now().timestamp_micros() as u128 * 1000;
+                trace!(
+                    "initial gallery init - using new params {} {} {} {} {}",
+                    direction_is_bottom, width, height, time, count
+                );
+                set_gallery(direction_is_bottom, width, height, time, count);
+                return;
+            };
+
+            delayed_scroll.set(scroll);
+            trace!(
+                "initial gallery init - using old params {} {} {} {} {}",
+                !direction_is_up, width, height, time, gallery_count as u32
+            );
+            set_gallery(!direction_is_up, width, height, time, gallery_count as u32);
         });
 
-        // Effect::new(move || {
-        //     trace!("ON LOAD");
-        //     if api_post_get_after.is_pending() {
-        //         return;
-        //     }
-        //     let (Some(gallery_elm), Some(files)) = (gallery_ref.get(), api_post_get_after.value())
-        //     else {
-        //         // trace!("gallery NOT found");
-        //         return;
-        //     };
-        //     trace!("gallery elm found");
-        //     match files {
-        //         Ok(files) => {
-        //             let width = gallery_elm.client_width() as u32;
-        //             let heigth = gallery_elm.client_height() as f64;
-        //
-        //             let prev_imgs = gallery.get_untracked();
-        //             let count = calc_fit_count(width, heigth, row_height);
-        //
-        //             let (resized_imgs, _scroll_by) =
-        //                 add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth, row_height);
-        //             gallery.set(resized_imgs);
-        //         }
-        //         Err(err) => {
-        //             error!("posts api err: {err}");
-        //         }
-        //     }
-        //
-        //     // let new_imgs = match fetch_init.clone() {
-        //     //     Some(fetch_init) => {
-        //     //         let imgs = fetch_init(count);
-        //     //         if imgs.is_empty() {
-        //     //             return;
-        //     //         }
-        //     //         imgs
-        //     //     }
-        //     //     None => Img::rand_vec(count),
-        //     // };
-        //     // let (resized_imgs, _scroll_by) =
-        //     //     add_imgs_to_bottom(prev_imgs, new_imgs, width, heigth, row_height);
-        //     // gallery.set(resized_imgs);
-        // });
-        //
-        let onscroll = move |e| {
+        Effect::new(move || {
             let Some(gallery_elm) = gallery_ref.get() else {
                 return;
             };
             if api_top.busy.get_untracked() {
+                return;
+            }
+
+            let gallery_count = get_query_gallery_count.with(|v| v.is_none());
+            let direction_is_bottom = get_query_direction.with(|v| v.is_none());
+            let time = get_query_time.with(|v| v.is_none());
+            let current_gallery_count = gallery.with_untracked(|v| v.len());
+
+            if current_gallery_count == 0 || !(gallery_count || direction_is_bottom || time) {
                 return;
             }
 
@@ -458,19 +375,41 @@ pub mod gallery {
             let count = calc_fit_count(width, height, row_height) as u32;
             let time = Utc::now().timestamp_micros() as u128 * 1000;
 
-            // let prev_imgs = gallery.get_untracked();
-            // let Some(time) = prev_imgs.last().map(|v| v.created_at) else {
-            //     return;
-            // };
-            trace!("SCROLLINGGG");
-        };
-        // on:scroll=onscroll
+            gallery.set(Vec::new());
+
+            set_gallery(true, width, height, time, count);
+        });
+
+        // let on_scroll = move |e: web_sys::Event| {
+        //     let Some(gallery_elm) = gallery_ref.get() else {
+        //         return;
+        //     };
+        //     let scroll_top = gallery_elm.scroll_top() as usize;
+        //     set_query_scroll.set(Some(scroll_top));
+        // };
+
+        gallery_ref.add_mutation_observer(
+            move |entries, observer| {
+                trace!("IT HAS MUTATED");
+                let Some(gallery_elm) = gallery_ref.get_untracked() else {
+                    trace!("gallery NOT found");
+                    return;
+                };
+                let delayed_scroll_value = delayed_scroll.get_untracked();
+                if delayed_scroll_value == 0 {
+                    return;
+                }
+                gallery_elm.scroll_by_with_x_and_y(0.0, delayed_scroll_value as f64);
+                delayed_scroll.set(0);
+            },
+            MutationObserverOptions::new().set_child_list(true),
+        );
 
         let a = view! {
             <div
                 id="gallery"
                 node_ref=gallery_ref
-                on:scroll=onscroll
+                // on:scroll=on_scroll
                 class="relative overflow-y-scroll overflow-x-hidden"
             >
                 {
@@ -483,21 +422,25 @@ pub mod gallery {
     }
 
     #[component]
-    pub fn GalleryImg<FetchBtmFn, FetchTopFn>(
+    pub fn GalleryImg<FetchBtmFn, FetchTopFn, OnClickFn>(
         img: Img,
         index: usize,
         total_count: usize,
+        run_on_click: OnClickFn,
         run_fetch_bottom: FetchBtmFn,
         run_fetch_top: FetchTopFn,
     ) -> impl IntoView
     where
+        OnClickFn: Fn(MouseEvent, Img) + Send + Sync + 'static + Clone,
         FetchBtmFn: Fn() + Send + Sync + 'static + Clone,
         FetchTopFn: Fn() + Send + Sync + 'static + Clone,
     {
         let img_ref = NodeRef::<html::Img>::new();
+        let link_ref = NodeRef::<html::A>::new();
 
+        let query = use_query_map();
+        let (get_query_scroll, set_query_scroll) = query_signal::<usize>("s");
         let activated = StoredValue::new(false);
-        // let activated = StoredValue::new(None::<bool>);
 
         img_ref.add_intersection_observer_with_options(
             move |entry, _observer| {
@@ -536,23 +479,48 @@ pub mod gallery {
         let img_width = img.width;
         let img_height = img.height;
         let img_id = img.id.clone();
+        let img_username = img.username.clone();
         let post_link = img.get_post_link();
+        // let post_link_with_history = img.get_post_link_with_history(9999);
         let img_link = img.get_img_link();
-        // let link = "/file/404.webp".to_string();
 
-        let fn_background = move || format!("rgb({}, {}, {})", 50, 50, 50);
         let fn_left = move || format!("{view_left}px");
         let fn_top = move || format!("{view_top}px");
         let fn_width = move || format!("{view_width}px");
         let fn_height = move || format!("{view_height}px");
-        let fn_text = move || format!("{img_width}x{img_height}");
-        let fn_text2 = move || format!("{view_left}x{view_top}");
-        let fn_text3 = move || format!("{img_id}");
-        // let link = move || link;
+
+        // let l = location();
+
+        let on_img_click = move |e: MouseEvent| {
+            // e.prevent_default();
+            // e.stop_propagation();
+            // trace!("img click!!!!!!!!");
+            // let link = link_post_with_history(img_username.clone(), img_id.clone(), 999);
+            // navigate(&link, Default::default());
+            run_on_click(e, img.clone());
+            // let Some(link_ref) = link_ref.get_untracked() else {
+            //     return;
+            // };
+
+            // set_query("scroll", "9999");
+            // let href = e.target().map(|v| v);
+            // set_query_scroll.set(Some(9999));
+            // let issue_list_url = url::Url::parse(
+            //     "https://github.com/rust-lang/rust/issues?labels=E-easy&state=open",
+            // )
+            // .unwrap();
+
+            // l.set_search(value);
+            // query.with(|v| v);
+        };
 
         view! {
 
-            <a href=post_link>
+            <a
+               href=post_link
+               node_ref=link_ref
+               on:click=on_img_click
+            >
                 <img
                     class="absolute"
                     node_ref=img_ref
@@ -563,22 +531,6 @@ pub mod gallery {
                     src=img_link
                 />
             </a>
-            // <div
-            //     class="text-white grid place-items-center bg-blue-950 absolute border border-red-600 overflow-hidden"
-            //
-            //     node_ref=img_ref
-            //     style:background-color=fn_background
-            //     style:left=fn_left
-            //     style:top=fn_top
-            //     style:width=fn_width
-            //     style:height=fn_height
-            // >
-            //     // <div>
-            //     //     <div>{fn_text3}</div>
-            //     //     <div>{fn_text}</div>
-            //     //     <div>{fn_text2}</div>
-            //     // </div>
-            // </div>
         }
     }
 
@@ -646,6 +598,9 @@ pub mod gallery {
         fn get_post_link(&self) -> String {
             link_post(&self.username, &self.id)
         }
+        // fn get_post_link_with_history(&self, scroll: usize) -> String {
+        //     link_post_with_history(&self.username, &self.id, scroll)
+        // }
         fn get_img_link(&self) -> String {
             link_img(&self.hash, &self.extension)
         }
@@ -737,6 +692,7 @@ pub mod gallery {
     pub trait ResizableImage {
         fn get_id(&self) -> String;
         fn get_post_link(&self) -> String;
+        // fn get_post_link_with_history(&self) -> String;
         fn get_img_link(&self) -> String;
         fn get_width(&self) -> u32;
         fn get_height(&self) -> u32;
@@ -1224,7 +1180,7 @@ pub mod gallery {
     }
 
     pub fn calc_fit_count(width: u32, height: f64, row_height: u32) -> usize {
-        ((width * height as u32) / (row_height * row_height)) as usize
+        ((width * height as u32) / (row_height * row_height)) as usize * 2
     }
 
     #[cfg(test)]

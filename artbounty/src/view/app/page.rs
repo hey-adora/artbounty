@@ -41,7 +41,12 @@ pub mod post {
                         author.set(post.user.username);
                         description.set(post.description);
                         favorites.set(post.favorites);
-                        imgs_links.set(post.file.into_iter().map(|file| link_img(file.hash, file.extension)).collect());
+                        imgs_links.set(
+                            post.file
+                                .into_iter()
+                                .map(|file| link_img(file.hash, file.extension))
+                                .collect(),
+                        );
 
                         // let mut links = Vec::new():
                         // for post_file in post.file {
@@ -51,18 +56,25 @@ pub mod post {
                     }
                     Ok(res) => {
                         error!("wrong res, expected Post, got {:?}", res);
-                    },
+                    }
                     Err(ServerErr::ServerGetErr(ServerGetErr::NotFound)) => {
                         not_found.set(true);
                     }
                     Err(err) => {
-                        error!("unexpected err {:#?}", {err});
+                        error!("unexpected err {:#?}", { err });
                     }
                 }
             });
         });
 
-        let imgs = move || imgs_links.get().into_iter().map(|url| view! { <img src=url /> }).collect_view();
+
+        let imgs = move || {
+            imgs_links
+                .get()
+                .into_iter()
+                .map(|url| view! { <img class="w-full" src=url /> })
+                .collect_view()
+        };
         let title = move || title.get();
         let author = move || author.get();
         let description = move || description.get();
@@ -76,37 +88,39 @@ pub mod post {
                     "Not Found"
                 </div>
 
-                <div class=move || format!("flex-col gap-4 px-2 {}", if not_found.get() {"hidden"} else {"flex"})>
+                <div class=move || format!("flex flex-col lg:grid grid-cols-[2fr_1fr] gap-2 px-2 {}", if not_found.get() {"hidden"} else {"flex"})>
                     <div>
                         { imgs }
                     </div>
-                    <div class="flex justify-between gap-2 grid grid-cols-[1fr_1fr_1fr_1fr_1fr]">
-                        <div class="h-[5rem] bg-main-light"></div>
-                        <div class="h-[5rem] bg-main-light"></div>
-                        <div class="h-[5rem] bg-main-light"></div>
-                        <div class="h-[5rem] bg-main-light"></div>
-                        <div class="h-[5rem] bg-main-light"></div>
-                    </div>
-                    <div class="flex justify-between">
-                        <h1 class="text-[1.5rem] text-ellipsis">{ title }</h1>
-                        <div>"X"</div>
-                    </div>
-                    <div class="flex justify-between">
-                        <div class="flex gap-1">
-                            <p class="text-[1rem] rounded-full h-[3rem] w-[3rem] bg-main-light"></p>
-                            <div class="flex flex-col gap-1">
-                                <div class="flex gap-1">
-                                    <p class="text-[1rem]">"by"</p>
-                                    <p class="text-[1rem] font-bold">{ author }</p>
-                                </div>
-                                <p class="text-[1rem]">"9999 followers"</p>
-                            </div>
+                    <div class="flex-col gap-4">
+                        <div class="flex justify-between gap-2 grid grid-cols-[1fr_1fr_1fr_1fr_1fr]">
+                            <div class="h-[5rem] bg-main-light"></div>
+                            <div class="h-[5rem] bg-main-light"></div>
+                            <div class="h-[5rem] bg-main-light"></div>
+                            <div class="h-[5rem] bg-main-light"></div>
+                            <div class="h-[5rem] bg-main-light"></div>
                         </div>
-                        <div>{favorites}" favorites"</div>
-                    </div>
-                    <div class="flex flex-col justify-between">
-                        <h1 class="text-[1.2rem] ">"Description"</h1>
-                        <div class="text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)]">{description}</div>
+                        <div class="flex justify-between">
+                            <h1 class="text-[1.5rem] text-ellipsis">{ title }</h1>
+                            <div>"X"</div>
+                        </div>
+                        <div class="flex justify-between">
+                            <div class="flex gap-1">
+                                <p class="text-[1rem] rounded-full h-[3rem] w-[3rem] bg-main-light"></p>
+                                <div class="flex flex-col gap-1">
+                                    <div class="flex gap-1">
+                                        <p class="text-[1rem]">"by"</p>
+                                        <p class="text-[1rem] font-bold">{ author }</p>
+                                    </div>
+                                    <p class="text-[1rem]">"9999 followers"</p>
+                                </div>
+                            </div>
+                            <div>{favorites}" favorites"</div>
+                        </div>
+                        <div class="flex flex-col justify-between">
+                            <h1 class="text-[1.2rem] ">"Description"</h1>
+                            <div class="text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)]">{description}</div>
+                        </div>
                     </div>
                 </div>
             </main>
@@ -117,6 +131,7 @@ pub mod upload {
     use std::rc::Rc;
 
     use crate::api::{Api, ApiWeb, ServerAddPostErr, ServerErr, ServerReqImg};
+    use crate::path::link_post;
     use crate::valid::auth::{proccess_post_description, proccess_post_title};
     use crate::view::app::components::nav::Nav;
     use crate::view::toolbox::prelude::*;
@@ -146,10 +161,12 @@ pub mod upload {
         let upload_tags_err = RwSignal::new(String::new());
         let upload_general_err = RwSignal::new(String::new());
         let api = ApiWeb::new();
+        let navigate = leptos_router::hooks::use_navigate();
         // let api_post = controller::post::route::add::client.ground();
         let on_upload = move |e: SubmitEvent| {
             e.prevent_default();
             trace!("uploading...");
+            let navigate = navigate.clone();
             let (Some(files), Some(title), Some(description), Some(tags)) = (
                 (upload_image.get_untracked() as Option<HtmlInputElement>)
                     .and_then(|f: HtmlInputElement| f.files())
@@ -202,66 +219,44 @@ pub mod upload {
                 }
                 trace!("files data read");
                 api.add_post(title, description, files_data)
-                    .send_web(move |res| async move {
-                        match res {
-                            Ok(_) => {
-                                //
-                            }
-                            Err(ServerErr::ServerAddPostErr(ServerAddPostErr::ServerImgErr(
-                                errs,
-                            ))) => {
-                                let msg = errs
-                                    .clone()
-                                    .into_iter()
-                                    .map(|err| err.err.to_string())
-                                    .collect::<Vec<String>>()
-                                    .join("\n");
-                                let _ = upload_image_err.try_set(msg);
-                            }
-                            // Err(ServerErr::ServerAddPostErr(
-                            //     ServerAddPostErr::ServerDirCreationFailed(err),
-                            // )) => {
-                            //     let _ = upload_general_err.try_set(err.to_string());
-                            // }
-                            Err(err) => {
-                                let _ = upload_general_err.try_set(err.to_string());
-                            }
-                        };
+                    .send_web(move |res| {
+                        let navigate = navigate.clone();
+                        async move {
+                            match res {
+                                Ok(crate::api::ServerRes::Post(post)) => {
+                                    //
+                                    navigate(
+                                        &link_post(post.user.username, post.id),
+                                        Default::default(),
+                                    );
+                                }
+                                Err(ServerErr::ServerAddPostErr(
+                                    ServerAddPostErr::ServerImgErr(errs),
+                                )) => {
+                                    let msg = errs
+                                        .clone()
+                                        .into_iter()
+                                        .map(|err| err.err.to_string())
+                                        .collect::<Vec<String>>()
+                                        .join("\n");
+                                    let _ = upload_image_err.try_set(msg);
+                                }
+                                // Err(ServerErr::ServerAddPostErr(
+                                //     ServerAddPostErr::ServerDirCreationFailed(err),
+                                // )) => {
+                                //     let _ = upload_general_err.try_set(err.to_string());
+                                // }
+                                Ok(err) => {
+                                    error!("expected Post, received {err:?}");
+                                    let _ = upload_general_err
+                                        .try_set("SERVER ERROR, wrong response.".to_string());
+                                }
+                                Err(err) => {
+                                    let _ = upload_general_err.try_set(err.to_string());
+                                }
+                            };
+                        }
                     });
-                // api_post.dispatch_and_run(
-                //     controller::post::route::add::Input {
-                //         title,
-                //         description,
-                //         files: files_data,
-                //     },
-                //     move |result| {
-                //         let result = result.clone();
-                //         async move {
-                //             match result {
-                //                 Ok(_) => {
-                //                     //
-                //                 }
-                //                 Err(ResErr::ServerErr(
-                //                     controller::post::route::add::ServerErr::ImgErrors(errs),
-                //                 )) => {
-                //                     let msg = errs
-                //                         .clone()
-                //                         .into_iter()
-                //                         .map(|err| err.to_string())
-                //                         .collect::<Vec<String>>()
-                //                         .join("\n");
-                //                     let _ = upload_image_err.try_set(msg);
-                //                 }
-                //                 Err(ResErr::ServerErr(err)) => {
-                //                     let _ = upload_general_err.try_set(err.to_string());
-                //                 }
-                //                 Err(_) => {
-                //                     //
-                //                 }
-                //             };
-                //         }
-                //     },
-                // );
             });
         };
 
@@ -375,30 +370,7 @@ pub mod profile {
                     }
                 }
             });
-            // api_user.dispatch(controller::auth::route::user::Input { username });
         });
-        //
-        // Effect::new(move || {
-        //     let result = api_user.value_tracked();
-        //     trace!("user received1 {result:?}");
-        //     let Some(result) = result else {
-        //         trace!("user received2 {result:?}");
-        //         return;
-        //     };
-        //     trace!("user received?");
-        //
-        //     match result {
-        //         Ok(v) => {
-        //             user_username.set(v.username);
-        //         }
-        //         Err(ResErr::ServerErr(controller::auth::route::user::ServerErr::NotFound)) => {
-        //             user_username.set("User Not Found".to_string());
-        //         }
-        //         Err(err) => {
-        //             user_username.set(err.to_string());
-        //         }
-        //     }
-        // });
 
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen">
@@ -457,32 +429,6 @@ pub mod home {
             }
         });
 
-        // let fetch_bottom = async move |count: usize, last_img: Img|  {
-        //      {
-        //         trace!("gogbtm");
-        //
-        //         // fake_imgs
-        //         //     .with_untracked(|imgs| {
-        //         //         imgs.iter()
-        //         //             .position(|img| img.id == last_img.id)
-        //         //             .and_then(|pos_start| {
-        //         //                 let len = imgs.len();
-        //         //                 if len == pos_start + 1 {
-        //         //                     return None;
-        //         //                 }
-        //         //                 let pos_end = pos_start + count;
-        //         //                 let pos_end = if pos_start + count > len {
-        //         //                     len
-        //         //                 } else {
-        //         //                     pos_end
-        //         //                 };
-        //         //                 Some(imgs[pos_start..pos_end].to_vec())
-        //         //             })
-        //         //     })
-        //         //     .unwrap_or_default()
-        //         Vec::new()
-        //     }
-        // };
         let fetch_top = move |count: usize, last_img: Img| -> Vec<Img> {
             trace!("gogtop");
 
@@ -580,14 +526,6 @@ pub mod register {
                 .unwrap_or_default()
         };
         let get_query_email_or_err = move || get_query_email().unwrap_or(String::from("error"));
-        // let decoded_email = move || api.result.with(|v| match v);
-
-        // Effect::new(move || {
-        //     match api.result.get()
-        // });
-        // let is_loading = move || {
-        //     api_register.is_pending_tracked() || api_invite.is_pending_tracked() || api_invite_decode.is_pending_tracked()
-        // };
 
         let on_invite = {
             let navigate = navigate.clone();
@@ -624,7 +562,6 @@ pub mod register {
                                         ..Default::default()
                                     },
                                 );
-                                // global_state.set_auth_from_res(result);
                             }
                             Ok(res) => {
                                 error!("expected Ok, received {res:?}");
@@ -637,23 +574,10 @@ pub mod register {
                         }
                     }
                 });
-
-                // api_invite.dispatch(controller::auth::route::invite::Input { email });
             }
         };
         let on_register = move |e: SubmitEvent| {
             e.prevent_default();
-            // let link = link_user("hey5");
-            // trace!("navigating to {link}");
-            // navigate(
-            //     &link,
-            //     NavigateOptions {
-            //         // replace: true,
-            //         ..Default::default()
-            //     },
-            // );
-            // return;
-            // let navigate = navigate.clone();
             let (Some(username), Some(password), Some(password_confirmation)) = (
                 register_username.get_untracked(),
                 // register_email.get(),
@@ -692,21 +616,9 @@ pub mod register {
                                 match res {
                                     Ok(ServerRes::User { username }) => {
                                         let _ = global_state.update_auth_now().await;
-                                        // let link = link_user(username);
-                                        // trace!("navigating to {link}");
-                                        // navigate(
-                                        //     &link,
-                                        //     NavigateOptions {
-                                        //         replace: true,
-                                        //         ..Default::default()
-                                        //     },
-                                        // );
-                                        //
-                                        // navigate(&link, Default::default());
                                     }
                                     res => {
                                         error!("expected User, received {res:?}");
-                                        // navigate("/", Default::default());
                                     }
                                 }
                             }
@@ -738,32 +650,7 @@ pub mod register {
                         }
                     }
                 });
-            // api_register.dispatch(controller::auth::route::register::Input {
-            //     email_token: token,
-            //     password,
-            //     username,
-            // });
         };
-        // Effect::new({
-        //     let navigate = navigate.clone();
-        //     move || {
-        //         let (Some(result), Some(email)) =
-        //             (api_invite.value_tracked(), invite_email.get().map(|v| v.value()))
-        //         else {
-        //             return;
-        //         };
-        //
-        //         match result {
-        //             Ok(_) => {
-        //                 navigate(&path::link_check_email(email), Default::default());
-        //             }
-        //             // Err(ResErr::ServerErr(artbounty_api::auth::api::invite::ServerErr::))
-        //             Err(err) => {
-        //                 invite_general_err.set(err.to_string());
-        //             }
-        //         }
-        //     }
-        // });
 
         Effect::new(move || {
             let Some(token) = get_query_token() else {
@@ -786,56 +673,7 @@ pub mod register {
                         }
                     }
                 });
-
-            // api_invite_decode.dispatch(controller::auth::route::invite_decode::Input { token });
         });
-
-        //
-        // Effect::new(move || {
-        //     let Some(result) = api_register.value_tracked() else {
-        //         trace!("does anything work?");
-        //         return;
-        //     };
-        //     trace!("no");
-        //     match result {
-        //         Ok(res) => {
-        //             trace!("ok???");
-        //             global_state.acc.set(Some(Acc {
-        //                 username: res.username,
-        //             }));
-        //             navigate("/", Default::default());
-        //             //
-        //         }
-        //         Err(ResErr::ServerErr(
-        //             controller::auth::route::register::ServerErr::EmailInvalid(err),
-        //         )) => {
-        //             register_email_err.set(err);
-        //         }
-        //         Err(ResErr::ServerErr(
-        //             controller::auth::route::register::ServerErr::EmailTaken,
-        //         )) => {
-        //             register_email_err.set("email is taken".to_string());
-        //         }
-        //         Err(ResErr::ServerErr(
-        //             controller::auth::route::register::ServerErr::UsernameInvalid(err),
-        //         )) => {
-        //             register_username_err.set(err);
-        //         }
-        //         Err(ResErr::ServerErr(
-        //             controller::auth::route::register::ServerErr::PasswordInvalid(err),
-        //         )) => {
-        //             register_password_err.set(err);
-        //         }
-        //         Err(ResErr::ServerErr(
-        //             controller::auth::route::register::ServerErr::UsernameTaken,
-        //         )) => {
-        //             register_username_err.set("username is taken".to_string());
-        //         }
-        //         Err(err) => {
-        //             register_general_err.set(err.to_string());
-        //         }
-        //     }
-        // });
 
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] min-h-[100dvh]">
