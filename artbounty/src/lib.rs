@@ -332,6 +332,8 @@ pub mod path {
     pub const PATH_API_POST_GET: &'static str = "/post/get";
     pub const PATH_API_POST_GET_OLDER: &'static str = "/post/get_older";
     pub const PATH_API_POST_GET_NEWER: &'static str = "/post/get_newer";
+    pub const PATH_API_POST_GET_OLDER_OR_EQUAL: &'static str = "/post/get_older_or_equal";
+    pub const PATH_API_POST_GET_NEWER_OR_EQUAL: &'static str = "/post/get_newer_or_equal";
     pub const PATH_HOME: &'static str = "/";
     pub const PATH_HOME_BS: () = path!("/");
     pub const PATH_U_USER: &'static str = "/u/:user";
@@ -346,6 +348,14 @@ pub mod path {
         Reg,
         CheckEmail,
         // Loading,
+    }
+    pub fn link_post_with_history(user: impl AsRef<str>, post: impl AsRef<str>, scroll: usize) -> String {
+        format!(
+            "/u/{}/{}?s={}",
+            user.as_ref(),
+            post.as_ref(),
+            scroll,
+        )
     }
 
     pub fn link_post(user: impl AsRef<str>, post: impl AsRef<str>) -> String {

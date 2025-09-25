@@ -28,6 +28,7 @@ strip = "none"
 opt-level = 0
 
 [workspace.dependencies]
+url = "2.5.7"
 clap = "4.5.45"
 pin-project-lite = "0.2.16"
 strum = { version = "0.27.1", features = ["strum_macros", "derive"] }
@@ -122,6 +123,10 @@ web-sys = { version = "0.3.77", features = [
     "ResizeObserverSize",
     "DomRectReadOnly",
     "MutationObserver",
+    "MutationRecord",
+    "MutationObservingInfo",
+    "MutationEvent",
+    "MutationObserverInit",
     "IntersectionObserver",
     "IntersectionObserverInit",
     "IntersectionObserverEntry",

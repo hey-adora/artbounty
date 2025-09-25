@@ -41,6 +41,7 @@ csr = ["leptos/csr"]
 [dependencies]
 # artbounty-shared = { workspace = true }
 # artbounty-api = { workspace = true }
+url = { workspace = true }
 macro_rules_attribute = { workspace = true }
 strum = { workspace = true }
 serde = { workspace = true }
