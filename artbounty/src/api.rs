@@ -204,6 +204,11 @@ pub enum ServerReq {
         time: u128,
         limit: u32,
     },
+    GetUserPosts {
+        time: u128,
+        limit: u32,
+        username: String,
+    },
     AddPost {
         title: String,
         description: String,
@@ -256,7 +261,6 @@ pub enum ServerErr {
 
     // #[error("get user err {0}")]
     // ServerGetUserErr(#[from] ServerGetErr),
-
     #[error("decode invite err {0}")]
     ServerDecodeInviteErr(#[from] ServerDecodeInviteErr),
 
@@ -460,8 +464,6 @@ impl From<crate::db::DBUserPost> for UserPost {
     }
 }
 
-
-
 #[derive(Com!)]
 pub struct UserPostFile {
     pub extension: String,
@@ -473,7 +475,12 @@ pub struct UserPostFile {
 #[cfg(feature = "ssr")]
 impl From<crate::db::DBUserPostFile> for UserPostFile {
     fn from(value: crate::db::DBUserPostFile) -> Self {
-        Self { extension: value.extension, hash: value.hash, width: value.width, height: value.height }
+        Self {
+            extension: value.extension,
+            hash: value.hash,
+            width: value.width,
+            height: value.height,
+        }
     }
 }
 
@@ -651,6 +658,9 @@ pub trait Api {
     fn provide_signal_busy(&self) -> Option<RwSignal<bool>> {
         None
     }
+    fn into_req(&self, url: impl AsRef<str>, req: ServerReq) -> ApiReq {
+        ApiReq::from_api(self, url, req)
+    }
 
     fn login(&self, email: impl Into<String>, password: impl Into<String>) -> ApiReq {
         let email = email.into();
@@ -723,7 +733,9 @@ pub trait Api {
 
     fn get_post(&self, post_id: impl Into<String>) -> ApiReq {
         let builder = self.provide_builder(crate::path::PATH_API_POST_GET);
-        let server_req = ServerReq::GetPost { post_id: post_id.into() };
+        let server_req = ServerReq::GetPost {
+            post_id: post_id.into(),
+        };
         let result_signal = self.provide_signal_result();
         let busy_signal = self.provide_signal_busy();
         ApiReq {
@@ -734,17 +746,65 @@ pub trait Api {
         }
     }
 
+    fn get_user_posts_newer(&self, time: u128, limit: u32, username: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_USER_POST_GET_NEWER,
+            ServerReq::GetUserPosts {
+                time,
+                limit,
+                username: username.into(),
+            },
+        )
+    }
+
+    fn get_user_posts_older(&self, time: u128, limit: u32, username: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_USER_POST_GET_OLDER,
+            ServerReq::GetUserPosts {
+                time,
+                limit,
+                username: username.into(),
+            },
+        )
+    }
+
+    fn get_user_posts_older_or_equal(
+        &self,
+        time: u128,
+        limit: u32,
+        username: impl Into<String>,
+    ) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_USER_POST_GET_OLDER_OR_EQUAL,
+            ServerReq::GetUserPosts {
+                time,
+                limit,
+                username: username.into(),
+            },
+        )
+    }
+
+    fn get_user_posts_newer_or_equal(
+        &self,
+        time: u128,
+        limit: u32,
+        username: impl Into<String>,
+    ) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_USER_POST_GET_NEWER_OR_EQUAL,
+            ServerReq::GetUserPosts {
+                time,
+                limit,
+                username: username.into(),
+            },
+        )
+    }
+
     fn get_posts_newer_or_equal(&self, time: u128, limit: u32) -> ApiReq {
-        let builder = self.provide_builder(crate::path::PATH_API_POST_GET_NEWER_OR_EQUAL);
-        let server_req = ServerReq::GetPosts { time, limit };
-        let result_signal = self.provide_signal_result();
-        let busy_signal = self.provide_signal_busy();
-        ApiReq {
-            builder,
-            server_req,
-            result: result_signal,
-            busy: busy_signal,
-        }
+        self.into_req(
+            crate::path::PATH_API_POST_GET_NEWER_OR_EQUAL,
+            ServerReq::GetPosts { time, limit },
+        )
     }
 
     fn get_posts_older_or_equal(&self, time: u128, limit: u32) -> ApiReq {
@@ -858,6 +918,21 @@ pub struct ApiReq {
 }
 
 impl ApiReq {
+    pub fn from_api<A>(api: &A, url: impl AsRef<str>, req: ServerReq) -> Self
+    where
+        A: Api + ?Sized,
+    {
+        let builder = api.provide_builder(url.as_ref());
+        let result_signal = api.provide_signal_result();
+        let busy_signal = api.provide_signal_busy();
+        ApiReq {
+            builder,
+            server_req: req,
+            result: result_signal,
+            busy: busy_signal,
+        }
+    }
+
     pub fn send_web<F, Fut>(self, fut: F)
     where
         F: Fn(Result<ServerRes, ServerErr>) -> Fut + 'static,
@@ -1090,9 +1165,7 @@ impl axum::response::IntoResponse for ServerErr {
             | ServerErr::ServerLoginErr(ServerLoginErr::WrongCredentials) => {
                 axum::http::StatusCode::UNAUTHORIZED
             }
-            ServerErr::ServerGetErr(ServerGetErr::NotFound) => {
-                axum::http::StatusCode::NOT_FOUND
-            }
+            ServerErr::ServerGetErr(ServerGetErr::NotFound) => axum::http::StatusCode::NOT_FOUND,
             ServerErr::ClientErr(_) => unreachable!(),
         };
 
@@ -1159,6 +1232,7 @@ pub async fn send(
     token: Option<impl AsRef<str>>,
 ) -> (http::HeaderMap, Result<ServerRes, ServerErr>) {
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&req).unwrap();
+    // http::header::REFERER
     debug!(
         "CLIENT SEND:\n{req:?} - {:X}",
         bytes::Bytes::copy_from_slice(bytes.as_ref())
@@ -1227,12 +1301,16 @@ pub async fn send(
 pub mod backend {
     use crate::api::app_state::AppState;
     use crate::api::{
-        create_cookie, cut_cookie_value_decoded, decode_token, encode_token, hash_password, verify_password, AuthToken, InviteToken, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerGetErr, ServerInviteErr, ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes, UserPost, UserPostFile
+        AuthToken, InviteToken, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr,
+        ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerGetErr, ServerInviteErr,
+        ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes, UserPost, UserPostFile,
+        create_cookie, cut_cookie_value_decoded, decode_token, encode_token, hash_password,
+        verify_password,
     };
     use crate::db::AddInviteErr;
+    use crate::db::AddUserErr;
     use crate::db::DB404Err;
     use crate::db::DBUserPostFile;
-    use crate::db::AddUserErr;
     use crate::valid::auth::{
         proccess_password, proccess_post_description, proccess_post_title, proccess_username,
     };
@@ -1441,6 +1519,154 @@ pub mod backend {
             })?;
 
         Ok(ServerRes::Post(post.into()))
+    }
+
+    pub async fn get_posts_newer_or_equal_for_user(
+        State(app_state): State<AppState>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::GetUserPosts {
+            time,
+            limit,
+            username,
+        } = req
+        else {
+            return Err(ServerDesErr::ServerWrongInput(format!(
+                "expected GetPostAfter, received: {req:?}"
+            ))
+            .into());
+        };
+
+        let user = app_state
+            .db
+            .get_user_by_username(username)
+            .await
+            .map_err(|err| match err {
+                DB404Err::NotFound => ServerGetErr::NotFound.into(),
+                DB404Err::DB(_) => ServerErr::ServerDbErr,
+            })?;
+
+        let posts = app_state
+            .db
+            .get_post_newer_or_equal_for_user(time, limit, user.id.clone())
+            .await
+            .map_err(|_| ServerErr::ServerDbErr)?
+            .into_iter()
+            .map(UserPost::from)
+            .collect::<Vec<UserPost>>();
+
+        Ok(ServerRes::Posts(posts))
+    }
+
+    pub async fn get_posts_older_or_equal_for_user(
+        State(app_state): State<AppState>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::GetUserPosts {
+            time,
+            limit,
+            username,
+        } = req
+        else {
+            return Err(ServerDesErr::ServerWrongInput(format!(
+                "expected GetPostAfter, received: {req:?}"
+            ))
+            .into());
+        };
+
+        let user = app_state
+            .db
+            .get_user_by_username(username)
+            .await
+            .map_err(|err| match err {
+                DB404Err::NotFound => ServerGetErr::NotFound.into(),
+                DB404Err::DB(_) => ServerErr::ServerDbErr,
+            })?;
+
+        let posts = app_state
+            .db
+            .get_post_older_or_equal_for_user(time, limit, user.id.clone())
+            .await
+            .map_err(|_| ServerErr::ServerDbErr)?
+            .into_iter()
+            .map(UserPost::from)
+            .collect::<Vec<UserPost>>();
+
+        Ok(ServerRes::Posts(posts))
+    }
+
+    pub async fn get_posts_older_for_user(
+        State(app_state): State<AppState>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::GetUserPosts {
+            time,
+            limit,
+            username,
+        } = req
+        else {
+            return Err(ServerDesErr::ServerWrongInput(format!(
+                "expected GetPostAfter, received: {req:?}"
+            ))
+            .into());
+        };
+
+        let user = app_state
+            .db
+            .get_user_by_username(username)
+            .await
+            .map_err(|err| match err {
+                DB404Err::NotFound => ServerGetErr::NotFound.into(),
+                DB404Err::DB(_) => ServerErr::ServerDbErr,
+            })?;
+
+        let posts = app_state
+            .db
+            .get_post_older_for_user(time, limit, user.id.clone())
+            .await
+            .map_err(|_| ServerErr::ServerDbErr)?
+            .into_iter()
+            .map(UserPost::from)
+            .collect::<Vec<UserPost>>();
+
+        Ok(ServerRes::Posts(posts))
+    }
+
+    pub async fn get_posts_newer_for_user(
+        State(app_state): State<AppState>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::GetUserPosts {
+            time,
+            limit,
+            username,
+        } = req
+        else {
+            return Err(ServerDesErr::ServerWrongInput(format!(
+                "expected GetPostAfter, received: {req:?}"
+            ))
+            .into());
+        };
+
+        let user = app_state
+            .db
+            .get_user_by_username(username)
+            .await
+            .map_err(|err| match err {
+                DB404Err::NotFound => ServerGetErr::NotFound.into(),
+                DB404Err::DB(_) => ServerErr::ServerDbErr,
+            })?;
+
+        let posts = app_state
+            .db
+            .get_post_newer_for_user(time, limit, user.id.clone())
+            .await
+            .map_err(|_| ServerErr::ServerDbErr)?
+            .into_iter()
+            .map(UserPost::from)
+            .collect::<Vec<UserPost>>();
+
+        Ok(ServerRes::Posts(posts))
     }
 
     pub async fn get_posts_newer_or_equal(
@@ -1687,7 +1913,10 @@ pub mod backend {
             output_imgs.push(file.0.clone().into());
         }
 
-        let post_files = files.into_iter().map(|v| v.0).collect::<Vec<DBUserPostFile>>();
+        let post_files = files
+            .into_iter()
+            .map(|v| v.0)
+            .collect::<Vec<DBUserPostFile>>();
         let post = app_state
             .db
             .add_post(
@@ -1863,8 +2092,8 @@ mod tests {
 
     use crate::api::app_state::AppState;
     use crate::api::{
-        Api, ApiTest, InviteToken, ServerErr, ServerLoginErr, ServerRegistrationErr, ServerReqImg,
-        ServerRes, encode_token,
+        Api, ApiTest, InviteToken, ServerErr, ServerGetErr, ServerLoginErr, ServerRegistrationErr,
+        ServerReqImg, ServerRes, encode_token,
     };
     use crate::server::create_api_router;
 
@@ -1897,7 +2126,6 @@ mod tests {
         let img = tokio::fs::read(path).await.unwrap();
 
         let result = api.get_invite("hey1@hey.com").send_native().await.unwrap();
-
         trace!("{result:#?}");
 
         let invite = app_state
@@ -1905,6 +2133,7 @@ mod tests {
             .get_invite("hey1@hey.com", current_time.as_nanos())
             .await
             .unwrap();
+
         trace!("good invite {invite:#?}");
 
         let bad_invite_token = encode_token(
@@ -2160,5 +2389,129 @@ mod tests {
                 panic!("{}", format!("expected posts, got {:?}", wrong));
             }
         }
+
+        let result = api
+            .get_user_posts_newer(2, 10, "hey")
+            .send_native()
+            .await
+            .unwrap();
+        match result {
+            crate::api::ServerRes::Posts(posts) => {
+                assert!(posts.len() == 2);
+            }
+            wrong => {
+                panic!("{}", format!("expected posts, got {:?}", wrong));
+            }
+        }
+
+        let result = api
+            .get_user_posts_newer_or_equal(2, 10, "hey")
+            .send_native()
+            .await
+            .unwrap();
+        match result {
+            crate::api::ServerRes::Posts(posts) => {
+                assert_eq!(posts.len(), 3);
+            }
+            wrong => {
+                panic!("{}", format!("expected posts, got {:?}", wrong));
+            }
+        }
+
+        let result = api
+            .get_user_posts_older(2, 10, "hey")
+            .send_native()
+            .await
+            .unwrap();
+        match result {
+            crate::api::ServerRes::Posts(posts) => {
+                assert_eq!(posts.len(), 1);
+            }
+            wrong => {
+                panic!("{}", format!("expected posts, got {:?}", wrong));
+            }
+        }
+
+        let result = api
+            .get_user_posts_older_or_equal(2, 10, "hey")
+            .send_native()
+            .await
+            .unwrap();
+        match result {
+            crate::api::ServerRes::Posts(posts) => {
+                assert_eq!(posts.len(), 2);
+            }
+            wrong => {
+                panic!("{}", format!("expected posts, got {:?}", wrong));
+            }
+        }
+
+        let result = api.get_invite("hey2@hey.com").send_native().await.unwrap();
+        trace!("{result:#?}");
+
+        *time_mut.lock().await = Duration::from_nanos(5);
+
+        let invite2 = app_state
+            .db
+            .get_invite("hey2@hey.com", current_time.as_nanos())
+            .await
+            .unwrap();
+
+        let (token2, decoded_token2, result2) = api
+            .register("hey2", &invite2.token_raw, "wowowowwoW12222pp*")
+            .send_native_and_extract_auth(&app_state.settings.auth.secret)
+            .await;
+
+        let token_raw2 = token2.unwrap();
+
+        *time_mut.lock().await = Duration::from_nanos(6);
+
+        let result = api
+            .add_post(
+                "420",
+                "wow",
+                Vec::from([ServerReqImg {
+                    path: path.to_string(),
+                    data: img.clone(),
+                }]),
+            )
+            .send_native_with_token(token_raw2.clone())
+            .await
+            .unwrap();
+
+        let result = api.get_user_posts_newer(2, 10, "hey2").send_native().await.unwrap();
+        match result {
+            crate::api::ServerRes::Posts(posts) => {
+                assert_eq!(posts.len(), 1);
+            }
+            wrong => {
+                panic!("{}", format!("expected posts, got {:?}", wrong));
+            }
+        }
+
+        let result = api.get_user_posts_older(7, 10, "hey2").send_native().await.unwrap();
+        match result {
+            crate::api::ServerRes::Posts(posts) => {
+                assert_eq!(posts.len(), 1);
+            }
+            wrong => {
+                panic!("{}", format!("expected posts, got {:?}", wrong));
+            }
+        }
+
+        let result = api.get_user_posts_newer(2, 10, "hey99").send_native().await;
+        assert!(matches!(
+            result,
+            Err(ServerErr::ServerGetErr(ServerGetErr::NotFound))
+        ));
+
+        let result = api
+            .get_user_posts_newer_or_equal(2, 10, "hey99")
+            .send_native()
+            .await;
+        assert!(matches!(
+            result,
+            Err(ServerErr::ServerGetErr(ServerGetErr::NotFound))
+        ));
     }
 }

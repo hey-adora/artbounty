@@ -1,6 +1,6 @@
 pub mod post {
     use crate::api::{Api, ApiWeb, ServerErr, ServerGetErr};
-    use crate::path::link_img;
+    use crate::path::{link_home, link_img, link_user};
     use crate::view::app::components::nav::Nav;
     use crate::view::toolbox::prelude::*;
     use leptos::prelude::*;
@@ -23,11 +23,38 @@ pub mod post {
         let param_username = move || param.read().as_ref().ok().and_then(|v| v.username.clone());
         let param_post = move || param.read().as_ref().ok().and_then(|v| v.post.clone());
         let imgs_links = RwSignal::new(Vec::<String>::new());
-        let title = RwSignal::new(String::from("loading..."));
-        let author = RwSignal::new(String::from("loading..."));
+        let title = RwSignal::new(String::new());
+        let author = RwSignal::new(String::new());
         let description = RwSignal::new(String::from("loading..."));
         let favorites = RwSignal::new(0_u64);
         let not_found = RwSignal::new(false);
+
+        let fn_link = move || {
+            let author = author.get();
+            if author.is_empty() {
+                link_home()
+            } else {
+                link_user(author)
+            }
+        };
+        let fn_title = move || {
+            let title = title.get();
+            if title.is_empty() {
+                "loading...".to_string()
+            } else {
+                title
+            }
+        };
+        let fn_author = move || {
+            let author = author.get();
+            if author.is_empty() {
+                "loading...".to_string()
+            } else {
+                author
+            }
+        };
+        let fn_description = move || description.get();
+        let fn_favorites = move || favorites.get();
 
         Effect::new(move || {
             let (Some(username), Some(post_id)) = (param_username(), param_post()) else {
@@ -67,7 +94,6 @@ pub mod post {
             });
         });
 
-
         let imgs = move || {
             imgs_links
                 .get()
@@ -75,10 +101,6 @@ pub mod post {
                 .map(|url| view! { <img class="w-full" src=url /> })
                 .collect_view()
         };
-        let title = move || title.get();
-        let author = move || author.get();
-        let description = move || description.get();
-        let favorites = move || favorites.get();
 
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen">
@@ -92,7 +114,7 @@ pub mod post {
                     <div>
                         { imgs }
                     </div>
-                    <div class="flex-col gap-4">
+                    <div class="flex flex-col gap-2">
                         <div class="flex justify-between gap-2 grid grid-cols-[1fr_1fr_1fr_1fr_1fr]">
                             <div class="h-[5rem] bg-main-light"></div>
                             <div class="h-[5rem] bg-main-light"></div>
@@ -101,7 +123,7 @@ pub mod post {
                             <div class="h-[5rem] bg-main-light"></div>
                         </div>
                         <div class="flex justify-between">
-                            <h1 class="text-[1.5rem] text-ellipsis">{ title }</h1>
+                            <h1 class="text-[1.5rem] text-ellipsis">{ fn_title }</h1>
                             <div>"X"</div>
                         </div>
                         <div class="flex justify-between">
@@ -110,16 +132,16 @@ pub mod post {
                                 <div class="flex flex-col gap-1">
                                     <div class="flex gap-1">
                                         <p class="text-[1rem]">"by"</p>
-                                        <p class="text-[1rem] font-bold">{ author }</p>
+                                        <a href=fn_link class="text-[1rem] font-bold">{ fn_author }</a>
                                     </div>
                                     <p class="text-[1rem]">"9999 followers"</p>
                                 </div>
                             </div>
-                            <div>{favorites}" favorites"</div>
+                            <div>{fn_favorites}" favorites"</div>
                         </div>
                         <div class="flex flex-col justify-between">
                             <h1 class="text-[1.2rem] ">"Description"</h1>
-                            <div class="text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)]">{description}</div>
+                            <div class="text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)]">{fn_description}</div>
                         </div>
                     </div>
                 </div>
@@ -323,6 +345,7 @@ pub mod profile {
     use crate::api::ServerErr;
     use crate::api::ServerGetErr;
     use crate::api::ServerRes;
+    use crate::view::app::components::gallery::Gallery;
     use crate::view::app::components::nav::Nav;
     use crate::view::toolbox::prelude::*;
     use leptos::Params;
@@ -346,7 +369,7 @@ pub mod profile {
         let api = ApiWeb::new();
         let param = use_params::<UserParams>();
         let param_username = move || param.read().as_ref().ok().and_then(|v| v.username.clone());
-        let user_username = RwSignal::new("loading...".to_string());
+        let user_username = RwSignal::new(None::<String>);
 
         Effect::new(move || {
             let Some(username) = param_username() else {
@@ -355,17 +378,17 @@ pub mod profile {
             api.get_user(username).send_web(move |result| async move {
                 match result {
                     Ok(ServerRes::User { username }) => {
-                        user_username.set(username);
+                        user_username.set(Some(username));
                     }
                     Ok(res) => {
-                        user_username.set(format!("expected Uesr, received {res:?}"));
+                        user_username.set(Some(format!("expected Uesr, received {res:?}")));
                         error!("expected Uesr, received {res:?}");
                     }
                     Err(ServerErr::ServerGetErr(ServerGetErr::NotFound)) => {
-                        user_username.set("Not Found".to_string());
+                        user_username.set(Some("Not Found".to_string()));
                     }
                     Err(err) => {
-                        user_username.set(err.to_string());
+                        user_username.set(Some(err.to_string()));
                         error!("get user err: {err}");
                     }
                 }
@@ -373,11 +396,12 @@ pub mod profile {
         });
 
         view! {
-            <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen">
+            <main node_ref=main_ref class="grid grid-rows-[auto_auto_1fr] h-screen">
                 <Nav/>
                 <div>
                     <h1>{move || user_username.get()}</h1>
                 </div>
+                <Gallery row_height=250 username=user_username />
             </main>
         }
     }
