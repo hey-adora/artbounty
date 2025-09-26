@@ -85,7 +85,10 @@ pub mod gallery {
     }
 
     #[component]
-    pub fn Gallery(#[prop(default = 250)] row_height: u32) -> impl IntoView {
+    pub fn Gallery(
+        #[prop(default = 250)] row_height: u32,
+        #[prop(optional)] username: Option<RwSignal<Option<String>>>,
+    ) -> impl IntoView {
         let gallery = RwSignal::<Vec<Img>>::new(Vec::new());
         let delayed_scroll = RwSignal::new(0_usize);
         let gallery_ref = NodeRef::<Div>::new();
@@ -97,19 +100,50 @@ pub mod gallery {
         let (get_query_direction, set_query_direction) = query_signal::<String>("direction");
         let (get_query_time, set_query_time) = query_signal::<u128>("time");
 
-        let set_gallery = move |bottom: bool, width: u32, height: f64, time: u128, count: u32| {
+        let set_gallery = move |bottom: bool,
+                                width: u32,
+                                height: f64,
+                                time: u128,
+                                count: u32,
+                                username: Option<String>| {
             let current_img_count = gallery.with_untracked(|v| v.len());
-            if bottom {
-                if current_img_count == 0 {
-                    api_btm.get_posts_older_or_equal(time, count)
+            // api_top.get_posts_newer_or_equal(time, limit)
+
+            if let Some(username) = username {
+                if bottom {
+                    if current_img_count == 0 {
+                        trace!("running get_user_posts_older_or_equal");
+                        api_btm.get_user_posts_older_or_equal(time, count, username)
+                    } else {
+                        trace!("running get_user_posts_older");
+                        api_btm.get_user_posts_older(time, count, username)
+                    }
                 } else {
-                    api_btm.get_posts_older(time, count)
+                    if current_img_count == 0 {
+                        trace!("running get_user_posts_newer_or_equal");
+                        api_top.get_user_posts_newer_or_equal(time, count, username)
+                    } else {
+                        trace!("running get_user_posts_newer");
+                        api_top.get_user_posts_newer(time, count, username)
+                    }
                 }
             } else {
-                if current_img_count == 0 {
-                    api_top.get_posts_newer_or_equal(time, count)
+                if bottom {
+                    if current_img_count == 0 {
+                        trace!("running get_posts_older_or_equal");
+                        api_btm.get_posts_older_or_equal(time, count)
+                    } else {
+                        trace!("running get_posts_older");
+                        api_btm.get_posts_older(time, count)
+                    }
                 } else {
-                    api_top.get_posts_newer(time, count)
+                    if current_img_count == 0 {
+                        trace!("running get_posts_newer_or_equal");
+                        api_top.get_posts_newer_or_equal(time, count)
+                    } else {
+                        trace!("running get_posts_newer");
+                        api_top.get_posts_newer(time, count)
+                    }
                 }
             }
             .send_web(move |result| async move {
@@ -191,6 +225,9 @@ pub mod gallery {
             if api_top.busy.get_untracked() {
                 return;
             }
+            let user_username = username.get_untracked();
+            trace!("gallery fetch top username state: {user_username:?}");
+            let user_username = user_username.flatten();
 
             trace!("gallery elm found");
             let width = gallery_elm.client_width() as u32;
@@ -204,7 +241,7 @@ pub mod gallery {
             let Some(img) = gallery.first() else {
                 return;
             };
-            set_gallery(false, width, height * 8.0, img.created_at, count);
+            set_gallery(false, width, height * 8.0, img.created_at, count, user_username);
         };
 
         let run_fetch_bottom = move || {
@@ -215,6 +252,14 @@ pub mod gallery {
             if api_btm.busy.get_untracked() {
                 return;
             }
+
+            let user_username = username.get_untracked();
+            trace!("gallery fetch btm username state: {user_username:?}");
+            let user_username = user_username.flatten();
+            // if username.is_some() && user_username.is_none() {
+            //     return;
+            // }
+
             trace!("gallery elm found");
             let width = gallery_elm.client_width() as u32;
             let height = gallery_elm.client_height() as f64;
@@ -227,7 +272,7 @@ pub mod gallery {
             let Some(img) = gallery.last() else {
                 return;
             };
-            set_gallery(true, width, height * 8.0, img.created_at, count);
+            set_gallery(true, width, height * 8.0, img.created_at, count, user_username);
         };
 
         let run_on_click = move |e: MouseEvent, img: Img| {
@@ -257,6 +302,13 @@ pub mod gallery {
                     trace!("gallery NOT found");
                     return;
                 };
+
+                let user_username = username.get_untracked();
+                trace!("gallery watch username state: {user_username:?}");
+                // let user_username = user_username.flatten();
+                // if username.is_some() && user_username.is_none() {
+                //     return;
+                // }
 
                 let scroll_top = gallery_elm.scroll_top() as u32;
                 let scroll_height = gallery_elm.scroll_height() as u32;
@@ -317,6 +369,14 @@ pub mod gallery {
             if api_top.busy.get_untracked() {
                 return;
             }
+            trace!("running gallery init");
+
+            let user_username = username.get();
+            trace!("gallery init username state: {user_username:?}");
+            let user_username = user_username.flatten();
+            if username.is_some() && user_username.is_none() {
+                return;
+            }
 
             let width = gallery_elm.client_width() as u32;
             let height = gallery_elm.client_height() as f64;
@@ -341,7 +401,14 @@ pub mod gallery {
                     "initial gallery init - using new params {} {} {} {} {}",
                     direction_is_bottom, width, height, time, count
                 );
-                set_gallery(direction_is_bottom, width, height, time, count);
+                set_gallery(
+                    direction_is_bottom,
+                    width,
+                    height,
+                    time,
+                    count,
+                    user_username,
+                );
                 return;
             };
 
@@ -350,7 +417,14 @@ pub mod gallery {
                 "initial gallery init - using old params {} {} {} {} {}",
                 !direction_is_up, width, height, time, gallery_count as u32
             );
-            set_gallery(!direction_is_up, width, height, time, gallery_count as u32);
+            set_gallery(
+                !direction_is_up,
+                width,
+                height,
+                time,
+                gallery_count as u32,
+                user_username,
+            );
         });
 
         Effect::new(move || {
@@ -360,13 +434,21 @@ pub mod gallery {
             if api_top.busy.get_untracked() {
                 return;
             }
+            trace!("running gallery reset");
 
-            let gallery_count = get_query_gallery_count.with(|v| v.is_none());
-            let direction_is_bottom = get_query_direction.with(|v| v.is_none());
-            let time = get_query_time.with(|v| v.is_none());
+            let user_username = username.get();
+            trace!("gallery reset username state: {user_username:?}");
+            let user_username = user_username.flatten();
+            if username.is_some() && user_username.is_none() {
+                return;
+            }
+
+            let gallery_count = get_query_gallery_count.with(|v| v.is_some());
+            let direction_is_bottom = get_query_direction.with(|v| v.is_some());
+            let time = get_query_time.with(|v| v.is_some());
             let current_gallery_count = gallery.with_untracked(|v| v.len());
 
-            if current_gallery_count == 0 || !(gallery_count || direction_is_bottom || time) {
+            if current_gallery_count == 0 || (gallery_count || direction_is_bottom || time) {
                 return;
             }
 
@@ -377,7 +459,7 @@ pub mod gallery {
 
             gallery.set(Vec::new());
 
-            set_gallery(true, width, height, time, count);
+            set_gallery(true, width, height, time, count, user_username);
         });
 
         // let on_scroll = move |e: web_sys::Event| {

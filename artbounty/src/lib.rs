@@ -4,9 +4,9 @@ extern crate macro_rules_attribute;
 pub mod server;
 // pub mod controller;
 pub mod api;
-pub mod view;
 #[cfg(feature = "ssr")]
 pub mod db;
+pub mod view;
 
 pub mod valid {
     use tracing::trace;
@@ -334,6 +334,10 @@ pub mod path {
     pub const PATH_API_POST_GET_NEWER: &'static str = "/post/get_newer";
     pub const PATH_API_POST_GET_OLDER_OR_EQUAL: &'static str = "/post/get_older_or_equal";
     pub const PATH_API_POST_GET_NEWER_OR_EQUAL: &'static str = "/post/get_newer_or_equal";
+    pub const PATH_API_USER_POST_GET_OLDER: &'static str = "/post/get_user_older";
+    pub const PATH_API_USER_POST_GET_NEWER: &'static str = "/post/get_user_newer";
+    pub const PATH_API_USER_POST_GET_OLDER_OR_EQUAL: &'static str = "/post/get_user_older_or_equal";
+    pub const PATH_API_USER_POST_GET_NEWER_OR_EQUAL: &'static str = "/post/get_user_newer_or_equal";
     pub const PATH_HOME: &'static str = "/";
     pub const PATH_HOME_BS: () = path!("/");
     pub const PATH_U_USER: &'static str = "/u/:user";
@@ -349,31 +353,26 @@ pub mod path {
         CheckEmail,
         // Loading,
     }
-    pub fn link_post_with_history(user: impl AsRef<str>, post: impl AsRef<str>, scroll: usize) -> String {
-        format!(
-            "/u/{}/{}?s={}",
-            user.as_ref(),
-            post.as_ref(),
-            scroll,
-        )
+    pub fn link_post_with_history(
+        user: impl AsRef<str>,
+        post: impl AsRef<str>,
+        scroll: usize,
+    ) -> String {
+        format!("/u/{}/{}?s={}", user.as_ref(), post.as_ref(), scroll,)
     }
 
+    pub fn link_home() -> String {
+        "/".to_string()
+    }
     pub fn link_post(user: impl AsRef<str>, post: impl AsRef<str>) -> String {
-        format!(
-            "/u/{}/{}",
-            user.as_ref(),
-            post.as_ref(),
-        )
+        format!("/u/{}/{}", user.as_ref(), post.as_ref(),)
     }
     pub fn link_img(hash: impl AsRef<str>, extension: impl AsRef<str>) -> String {
-            format!("/file/{}.{}", hash.as_ref(), extension.as_ref())
+        format!("/file/{}.{}", hash.as_ref(), extension.as_ref())
     }
 
     pub fn link_user(user: impl AsRef<str>) -> String {
-        format!(
-            "/u/{}",
-            user.as_ref()
-        )
+        format!("/u/{}", user.as_ref())
     }
 
     pub fn link_check_email<Email: AsRef<str>>(email: Email) -> String {

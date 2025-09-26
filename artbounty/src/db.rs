@@ -395,6 +395,66 @@ impl<C: Connection> Db<C> {
             .and_then_take_or(0, DB404Err::NotFound)
     }
 
+    pub async fn get_post_newer_or_equal_for_user(
+        &self,
+        time: u128,
+        limit: u32,
+        user: RecordId,
+    ) -> Result<Vec<DBUserPost>, surrealdb::Error> {
+        self.db.query("(SELECT *, user.* FROM post WHERE created_at >= $created_at AND user = $user ORDER BY created_at ASC LIMIT $post_limit).reverse()")
+            .bind(("post_limit", limit))
+            .bind(("created_at", time))
+            .bind(("user", user))
+            .await
+            .check_good(surrealdb::Error::from)
+            .and_then_take_all(0)
+    }
+
+    pub async fn get_post_older_or_equal_for_user(
+        &self,
+        time: u128,
+        limit: u32,
+        user: RecordId,
+    ) -> Result<Vec<DBUserPost>, surrealdb::Error> {
+        self.db.query("SELECT *, user.* FROM post WHERE created_at <= $created_at AND user = $user ORDER BY created_at DESC LIMIT $post_limit")
+            .bind(("post_limit", limit))
+            .bind(("created_at", time))
+            .bind(("user", user))
+            .await
+            .check_good(surrealdb::Error::from)
+            .and_then_take_all(0)
+    }
+
+    pub async fn get_post_newer_for_user(
+        &self,
+        time: u128,
+        limit: u32,
+        user: RecordId,
+    ) -> Result<Vec<DBUserPost>, surrealdb::Error> {
+        self.db.query("(SELECT *, user.* FROM post WHERE created_at > $created_at AND user = $user ORDER BY created_at ASC LIMIT $post_limit).reverse()")
+            .bind(("post_limit", limit))
+            .bind(("created_at", time))
+            .bind(("user", user))
+            .await
+            .check_good(surrealdb::Error::from)
+            .and_then_take_all(0)
+    }
+
+    pub async fn get_post_older_for_user(
+        &self,
+        time: u128,
+        limit: u32,
+        user: RecordId,
+    ) -> Result<Vec<DBUserPost>, surrealdb::Error> {
+        self.db.query("SELECT *, user.* FROM post WHERE created_at < $created_at AND user = $user ORDER BY created_at DESC LIMIT $post_limit")
+            .bind(("post_limit", limit))
+            .bind(("created_at", time))
+            .bind(("user", user))
+            .await
+            .check_good(surrealdb::Error::from)
+            .and_then_take_all(0)
+    }
+
     pub async fn get_post_newer_or_equal(
         &self,
         time: u128,
@@ -720,15 +780,19 @@ mod tests {
     #[test(tokio::test)]
     async fn db_post() {
         let db = Db::new::<Mem>(()).await.unwrap();
-        let time: u128 = 0;
-        db.migrate(time).await.unwrap();
-        db.add_user(time, "hey", "hey@hey.com", "123")
+        db.migrate(0).await.unwrap();
+        let user = db
+            .add_user(0, "hey", "hey@hey.com", "123")
+            .await
+            .unwrap();
+        let user2 = db
+            .add_user(0, "hey2", "hey2@hey.com", "123")
             .await
             .unwrap();
 
         let post = db
             .add_post(
-                time,
+                0,
                 "hey",
                 "title",
                 "description",
@@ -799,6 +863,26 @@ mod tests {
         let post = db.get_post_str("wow:wow").await;
         trace!("result: {post:#?}");
         assert!(matches!(post, Err(DB404Err::NotFound)));
+
+        let posts = db
+            .get_post_newer_or_equal_for_user(1, 3, user.id.clone())
+            .await
+            .unwrap();
+        assert_eq!(posts.len(), 3);
+        assert_eq!(posts[0].title, "title3");
+
+        let posts = db
+            .get_post_older_or_equal_for_user(1, 3, user.id.clone())
+            .await
+            .unwrap();
+        assert_eq!(posts.len(), 2);
+        assert_eq!(posts[0].title, "title1");
+
+        let posts = db
+            .get_post_newer_or_equal_for_user(1, 3, user2.id.clone())
+            .await
+            .unwrap();
+        assert_eq!(posts.len(), 0);
 
         // let posts = db.get_post_older(1, 1).await.unwrap();
         // assert_eq!(posts.len(), 2);

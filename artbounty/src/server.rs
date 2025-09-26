@@ -96,7 +96,7 @@ pub fn create_api_router(
         routing::post,
     };
 
-    use crate::{api::{self, backend::auth_middleware}, path::{PATH_API_POST_GET, PATH_API_POST_GET_NEWER, PATH_API_POST_GET_NEWER_OR_EQUAL, PATH_API_POST_GET_OLDER_OR_EQUAL}};
+    use crate::{api::{self, backend::auth_middleware}, path::{PATH_API_POST_GET, PATH_API_POST_GET_NEWER, PATH_API_POST_GET_NEWER_OR_EQUAL, PATH_API_POST_GET_OLDER_OR_EQUAL, PATH_API_USER_POST_GET_NEWER, PATH_API_USER_POST_GET_NEWER_OR_EQUAL, PATH_API_USER_POST_GET_OLDER, PATH_API_USER_POST_GET_OLDER_OR_EQUAL}};
 
     // use crate::api::{self, auth_middleware};
     let api_router_public = Router::new()
@@ -110,7 +110,11 @@ pub fn create_api_router(
         .route(PATH_API_POST_GET_OLDER, post(api::backend::get_posts_older))
         .route(PATH_API_POST_GET_NEWER, post(api::backend::get_posts_newer))
         .route(PATH_API_POST_GET_OLDER_OR_EQUAL, post(api::backend::get_posts_older_or_equal))
-        .route(PATH_API_POST_GET_NEWER_OR_EQUAL, post(api::backend::get_posts_newer_or_equal));
+        .route(PATH_API_POST_GET_NEWER_OR_EQUAL, post(api::backend::get_posts_newer_or_equal))
+        .route(PATH_API_USER_POST_GET_OLDER, post(api::backend::get_posts_older_for_user))
+        .route(PATH_API_USER_POST_GET_NEWER, post(api::backend::get_posts_newer_for_user))
+        .route(PATH_API_USER_POST_GET_OLDER_OR_EQUAL, post(api::backend::get_posts_older_or_equal_for_user))
+        .route(PATH_API_USER_POST_GET_NEWER_OR_EQUAL, post(api::backend::get_posts_newer_or_equal_for_user));
     let api_router_auth = Router::new()
         .route(PATH_API_PROFILE, post(api::backend::profile))
         .route(PATH_API_POST_ADD, post(api::backend::add_post))
