@@ -5,7 +5,7 @@ pub mod post {
     use crate::view::toolbox::prelude::*;
     use leptos::prelude::*;
     use leptos::{Params, task::spawn_local};
-    use leptos_router::hooks::use_params;
+    use leptos_router::hooks::{use_location, use_params};
     use leptos_router::params::Params;
     use tracing::{error, trace};
 
@@ -28,6 +28,8 @@ pub mod post {
         let description = RwSignal::new(String::from("loading..."));
         let favorites = RwSignal::new(0_u64);
         let not_found = RwSignal::new(false);
+        let location = use_location();
+        
 
         let fn_link = move || {
             let author = author.get();
@@ -94,11 +96,45 @@ pub mod post {
             });
         });
 
+        let selected_img = move || {
+            let hash = location.hash.get();
+            let imgs_links = imgs_links.get();
+            let selected_n = if hash.len() > 3 {
+                usize::from_str_radix(&hash[3..], 10).unwrap_or_default()
+            } else { 0 };
+            let selected_url = imgs_links.get(selected_n).cloned().unwrap_or_else(|| imgs_links.first().cloned().unwrap_or("/404.webp".to_string()));
+
+            view! { <img id=move || format!("id{selected_n}") class="max-h-full" src=selected_url /> }
+        };
+
         let imgs = move || {
             imgs_links
                 .get()
                 .into_iter()
-                .map(|url| view! { <img class="w-full" src=url /> })
+                .enumerate()
+                .map(|(i, url)| view! { <img id=move || format!("id{i}") class="w-full" src=url /> })
+                .collect_view()
+        };
+
+        let previews = move || {
+            imgs_links
+                .get()
+                .into_iter()
+                .enumerate()
+                .map(|(i, url)| {
+                    let id = format!("#id{i}");
+                    let id2 = id.clone();
+                    // let location = location.clone();
+
+                    view! { <a 
+                        href=id2
+                        class=move ||  {
+                            let hash = location.hash.get();
+                            trace!("hash: {hash}");
+                            format!("h-[5rem] w-[5rem] bg-main-light bg-cover bg-center {}", if id == hash || (hash.is_empty() && i == 0) {"border-2 border-main-highlight"} else {""})
+                        }
+                        style:background-image=move || format!("url(\"{url}\")") ></a> }
+                })
                 .collect_view()
         };
 
@@ -110,17 +146,21 @@ pub mod post {
                     "Not Found"
                 </div>
 
-                <div class=move || format!("flex flex-col lg:grid grid-cols-[2fr_1fr] gap-2 px-2 {}", if not_found.get() {"hidden"} else {"flex"})>
-                    <div>
+                <div class=move || format!("flex flex-col lg:grid grid-cols-[2fr_1fr] grid-cols-[2fr_1fr] lg:max-h-[calc(100vh-3rem)]  gap-2 px-2 {}", if not_found.get() {"hidden"} else {"flex"})>
+                    <div class="lg:hidden h-[50vh] flex justify-center place-items-center" >
+                        { selected_img }
+                    </div>
+                    <div class="hidden lg:flex flex-col lg:overflow-y-scroll" >
                         { imgs }
                     </div>
-                    <div class="flex flex-col gap-2">
-                        <div class="flex justify-between gap-2 grid grid-cols-[1fr_1fr_1fr_1fr_1fr]">
-                            <div class="h-[5rem] bg-main-light"></div>
-                            <div class="h-[5rem] bg-main-light"></div>
-                            <div class="h-[5rem] bg-main-light"></div>
-                            <div class="h-[5rem] bg-main-light"></div>
-                            <div class="h-[5rem] bg-main-light"></div>
+                    <div class="flex flex-col gap-2 lg:overflow-y-scroll">
+                        <div class="flex justify-start gap-2 flex flex-wrap">
+                            { previews }
+                            // <div class="h-[5rem] bg-main-light"></div>
+                            // <div class="h-[5rem] bg-main-light"></div>
+                            // <div class="h-[5rem] bg-main-light"></div>
+                            // <div class="h-[5rem] bg-main-light"></div>
+                            // <div class="h-[5rem] bg-main-light"></div>
                         </div>
                         <div class="flex justify-between">
                             <h1 class="text-[1.5rem] text-ellipsis">{ fn_title }</h1>
@@ -842,7 +882,7 @@ pub mod login {
             //     return;
             // };
 
-            trace!("lohin dispatched");
+            trace!("login dispatched");
             api.login(email, password)
                 .send_web(move |result| async move {
                     match result {

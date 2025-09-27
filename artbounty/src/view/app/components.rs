@@ -34,7 +34,7 @@ pub mod nav {
         };
 
         view! {
-            <nav class="text-gray-200 pb-1 flex gap-2 px-2 py-1 items-center justify-between">
+            <nav class="text-gray-200 flex gap-2 px-2 h-[3rem] items-center justify-between">
                 <a href="/" class="font-black text-[1.3rem]">
                     "ArtBounty"
                 </a>
