@@ -22,7 +22,7 @@ pub mod post {
         let param = use_params::<PostParams>();
         let param_username = move || param.read().as_ref().ok().and_then(|v| v.username.clone());
         let param_post = move || param.read().as_ref().ok().and_then(|v| v.post.clone());
-        let imgs_links = RwSignal::new(Vec::<String>::new());
+        let imgs_links = RwSignal::new(Vec::<(String, f64)>::new());
         let title = RwSignal::new(String::new());
         let author = RwSignal::new(String::new());
         let description = RwSignal::new(String::from("loading..."));
@@ -73,7 +73,7 @@ pub mod post {
                         imgs_links.set(
                             post.file
                                 .into_iter()
-                                .map(|file| link_img(file.hash, file.extension))
+                                .map(|file| (link_img(file.hash, file.extension), file.width as f64 / file.height as f64))
                                 .collect(),
                         );
 
@@ -102,9 +102,13 @@ pub mod post {
             let selected_n = if hash.len() > 3 {
                 usize::from_str_radix(&hash[3..], 10).unwrap_or_default()
             } else { 0 };
-            let selected_url = imgs_links.get(selected_n).cloned().unwrap_or_else(|| imgs_links.first().cloned().unwrap_or("/404.webp".to_string()));
+            let (selected_url, selected_ratio) = imgs_links.get(selected_n).cloned().unwrap_or_else(|| imgs_links.first().cloned().unwrap_or(("/404.webp".to_string(), 1920.0 / 1080.0)));
 
-            view! { <img id=move || format!("id{selected_n}") class="max-h-full" src=selected_url /> }
+            view! { 
+                // <div style:aspect-ratio=selected_ratio.to_string() class="w-full grid place-items-center bg-main-half">
+                // </div>
+                <img id=move || format!("id{selected_n}") class="max-h-full" src=selected_url />
+            }
         };
 
         let imgs = move || {
@@ -112,7 +116,11 @@ pub mod post {
                 .get()
                 .into_iter()
                 .enumerate()
-                .map(|(i, url)| view! { <img id=move || format!("id{i}") class="w-full" src=url /> })
+                .map(|(i, (url, ratio))| view! { 
+                    <div style:aspect-ratio=ratio.to_string() class="w-full grid place-items-center bg-main-half">
+                        <img id=move || format!("id{i}") class="" src=url />
+                    </div>
+                })
                 .collect_view()
         };
 
@@ -121,7 +129,7 @@ pub mod post {
                 .get()
                 .into_iter()
                 .enumerate()
-                .map(|(i, url)| {
+                .map(|(i, (url, ratio))| {
                     let id = format!("#id{i}");
                     let id2 = id.clone();
                     // let location = location.clone();
@@ -147,10 +155,10 @@ pub mod post {
                 </div>
 
                 <div class=move || format!("flex flex-col lg:grid grid-cols-[2fr_1fr] grid-cols-[2fr_1fr] lg:max-h-[calc(100vh-3rem)]  gap-2 px-2 {}", if not_found.get() {"hidden"} else {"flex"})>
-                    <div class="lg:hidden h-[50vh] flex justify-center place-items-center" >
+                    <div class="lg:hidden h-[50vh] flex justify-center place-items-center bg-main-half" >
                         { selected_img }
                     </div>
-                    <div class="hidden lg:flex flex-col lg:overflow-y-scroll" >
+                    <div class="hidden lg:flex flex-col gap-2 lg:overflow-y-scroll" >
                         { imgs }
                     </div>
                     <div class="flex flex-col gap-2 lg:overflow-y-scroll">
