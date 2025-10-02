@@ -3,7 +3,7 @@ use leptos_router::components::*;
 use leptos_router::path;
 use log::error;
 use log::trace;
-use page::{home, login, upload, profile, register, post};
+use page::{home, login, post, profile, register, upload};
 use tracing::info;
 
 use crate::api::Api;
@@ -31,7 +31,8 @@ impl GlobalState {
         }
     }
     pub fn get_username_untracked(&self) -> Option<String> {
-        self.acc.with_untracked(|acc| acc.as_ref().map(|acc| acc.username.clone()))
+        self.acc
+            .with_untracked(|acc| acc.as_ref().map(|acc| acc.username.clone()))
     }
     pub fn update_auth(&self) {
         let this = self.clone();
@@ -68,7 +69,9 @@ impl GlobalState {
         }
     }
     pub fn is_logged_in(&self) -> bool {
-        self.acc.with(|v| v.is_some())
+        let pending = self.acc_pending.get();
+        let has_data = self.acc.with(|v| v.is_some());
+        (pending && !has_data) || (!pending && has_data)
     }
     pub fn acc_pending(&self) -> bool {
         self.acc_pending.get()
@@ -123,15 +126,20 @@ pub fn App() -> impl IntoView {
     //     }
     //     global_state.acc_pending.set(false);
     // });
-    let redirect_path = move || link_user(global_state.get_username_untracked().unwrap_or(String::from("/")));
+    let redirect_path = move || {
+        global_state
+            .get_username_untracked()
+            .map(|v| link_user(v))
+            .unwrap_or(String::from("/"))
+    };
 
     view! {
         <Router>
             <Routes fallback=|| "not found">
                 <Route path=path!("") view=home::Page />
-                <Route path=path!("/upload") view=upload::Page />
                 <Route path=path!("/u/:username/:post") view=post::Page />
                 <Route path=path!("/u/:username") view=profile::Page />
+                <ProtectedRoute path=path!("/upload") condition=move||Some(global_state.is_logged_in()) redirect_path view=upload::Page />
                 <ProtectedRoute path=path!("/login") condition=move||Some(!global_state.is_logged_in()) redirect_path view=login::Page />
                 <ProtectedRoute path=path!("/register") condition=move||Some(!global_state.is_logged_in()) redirect_path view=register::Page />
             </Routes>
