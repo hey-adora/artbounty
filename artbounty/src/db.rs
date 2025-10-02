@@ -764,6 +764,14 @@ impl<C: Connection> Db<C> {
             .check_good(DB404Err::from)
             .and_then_take_or(0, DB404Err::NotFound)
     }
+
+    pub async fn get_all_session(&self) -> Result<Vec<Session>, DB404Err> {
+        self.db
+            .query("SELECT *, user.* FROM session")
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_all(0)
+    }
 }
 
 #[cfg(test)]
