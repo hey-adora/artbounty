@@ -567,7 +567,7 @@ const COOKIE_PREFIX: &'static str = "Bearer ";
 const COOKIE_PREFIX_FULL: &'static str = "authorization=Bearer ";
 const COOKIE_POSTFIX: &'static str = "; HttpOnly; Secure";
 const COOKIE_DELETED: &'static str =
-    "Bearer DELETED; Secure; HttpOnly; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    "authorization=Bearer DELETED; Secure; HttpOnly; expires=Thu, 01 Jan 1970 00:00:00 GMT";
 
 // pub fn cut_cookie<'a>(v: &'a str, start: &str, end: &str) -> &'a str {
 //     let pos_pre = v.find(start);
@@ -639,9 +639,9 @@ pub fn create_auth_header(token: impl AsRef<str>) -> String {
 }
 
 pub fn create_deleted_cookie() -> HeaderMap {
-    let cookie = format!("{}{}", COOKIE_PREFIX, COOKIE_DELETED);
+    let cookie = COOKIE_DELETED.to_string();
     let mut headers = HeaderMap::new();
-    headers.insert(AUTHORIZATION, cookie.parse().unwrap());
+    headers.insert(SET_COOKIE, cookie.parse().unwrap());
     headers
 }
 pub fn create_auth_cookie(token: impl AsRef<str>) -> HeaderMap {
