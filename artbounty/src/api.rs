@@ -1,7 +1,10 @@
-use http::header::AUTHORIZATION;
+use http::HeaderMap;
+use http::header::{AUTHORIZATION, SET_COOKIE};
 use leptos::prelude::*;
+use regex::Regex;
 use reqwest::RequestBuilder;
 use rkyv::result::ArchivedResult;
+use std::str::FromStr;
 use thiserror::Error;
 use tracing::{debug, error, trace};
 use wasm_bindgen_futures::spawn_local;
@@ -225,10 +228,11 @@ where
     type Rejection = ServerErr;
 
     async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
+        let headers = format!("{:#?}", req.headers());
         let multipart = axum::extract::Multipart::from_request(req, state)
             .await
             .map_err(|err| ServerDesErr::ServerDesGettingMultipartErr(err.to_string()))?;
-        recv(multipart).await
+        recv(headers, multipart).await
     }
 }
 
@@ -240,7 +244,8 @@ pub struct ServerReqImg {
 
 #[derive(Com!)]
 pub enum ServerRes {
-    SetAuthCookie { cookie: String },
+    SetAuthCookie { token: String },
+    DeleteAuthCookie,
     User { username: String },
     InviteToken(InviteToken),
     Posts(Vec<UserPost>),
@@ -543,54 +548,124 @@ impl InviteToken {
     }
 }
 
-#[cfg(feature = "ssr")]
-pub fn create_cookie<Key: AsRef<[u8]>, S: Into<String>>(
-    key: Key,
-    username: S,
-    time: std::time::Duration,
-) -> Result<(String, String), jsonwebtoken::errors::Error> {
-    use tracing::trace;
-    let key = key.as_ref();
-    let token = encode_token(key, AuthToken::new(username, time.as_nanos()))
-        .inspect_err(|err| error!("jwt exploded {err}"))?;
-    trace!("token created: {token:?}");
-    let cookie = format!("Bearer={token}; Secure; HttpOnly");
-    trace!("cookie created: {cookie:?}");
-    Ok((token, cookie))
+// #[cfg(feature = "ssr")]
+// pub fn create_cookie<Key: AsRef<[u8]>, S: Into<String>>(
+//     key: Key,
+//     username: S,
+//     time: std::time::Duration,
+// ) -> Result<(String, String), jsonwebtoken::errors::Error> {
+//     use tracing::trace;
+//     let key = key.as_ref();
+//     let token = encode_token(key, AuthToken::new(username, time.as_nanos()))
+//         .inspect_err(|err| error!("jwt exploded {err}"))?;
+//     trace!("token created: {token:?}");
+//     let cookie = format!("Bearer={token}; HttpOnly; Secure");
+//     trace!("cookie created: {cookie:?}");
+//     Ok((token, cookie))
+// }
+const COOKIE_PREFIX: &'static str = "Bearer ";
+const COOKIE_PREFIX_FULL: &'static str = "authorization=Bearer ";
+const COOKIE_POSTFIX: &'static str = "; HttpOnly; Secure";
+const COOKIE_DELETED: &'static str =
+    "Bearer DELETED; Secure; HttpOnly; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+
+// pub fn cut_cookie<'a>(v: &'a str, start: &str, end: &str) -> &'a str {
+//     let pos_pre = v.find(start);
+//     let pos_pos = v.find(end);
+//     match (pos_pre, pos_pos) {
+//         (Some(pre), Some(pos)) if pre < pos => &v[pre..pos],
+//         (Some(pre), None) => &v[pre..],
+//         (None, Some(pos)) => &v[..pos],
+//         _ => v,
+//     }
+//     // let start_len = start.len();
+//     // let v_len = v.len();
+//     // let end_len = end.len();
+//     // if v_len <= end_len {
+//     //     return v;
+//     // }
+//     // let final_len = v_len - end_len;
+//     // if final_len <= start_len {
+//     //     return v;
+//     // }
+//     // &v[start_len..final_len]
+// }
+
+// pub fn auth_token_get_from_set(headers: &mut HeaderMap) -> Option<String> {
+//     headers
+//         .get(SET_COOKIE)
+//         .inspect(|v| trace!("extract auth value raw {v:?}"))
+//         .map(|v| cut_cookie(v.to_str().unwrap(), COOKIE_PREFIX_FULL, COOKIE_POSTFIX).to_string())
+//         .inspect(|v| trace!("extract auth value cut {v:?}"))
+// }
+pub fn auth_token_get(
+    headers: &HeaderMap,
+    header_name: http::header::HeaderName,
+) -> Option<String> {
+    let rex = Regex::new(r"[a-zA-Z\d\-_]+\.[a-zA-Z\d\-_]+\.[a-zA-Z\d\-_]+").unwrap();
+    
+    headers
+        .get(header_name)
+        .inspect(|v| trace!("extract auth value raw {v:?}"))
+        .and_then(|v| rex.find(v.to_str().unwrap()))
+        .map(|v| v.as_str().to_string())
+        // .map(|v| cut_cookie(v.to_str().unwrap(), COOKIE_PREFIX_FULL, COOKIE_POSTFIX).to_string())
+        .inspect(|v| trace!("extract auth value cut {v:?}"))
 }
 
-pub fn cut_cookie<'a>(v: &'a str, start: &str, end: &str) -> &'a str {
-    let start_len = start.len();
-    let v_len = v.len();
-    let end_len = end.len();
-    if v_len <= end_len {
-        return v;
-    }
-    let final_len = v_len - end_len;
-    if final_len <= start_len {
-        return v;
-    }
-    &v[start_len..final_len]
+// pub fn auth_token_get_short(
+//     headers: &HeaderMap,
+//     header_name: http::header::HeaderName,
+// ) -> Option<String> {
+//
+//     headers
+//         .get(header_name)
+//         .inspect(|v| trace!("extract auth value raw {v:?}"))
+//         .map(|v| cut_cookie(v.to_str().unwrap(), COOKIE_PREFIX_FULL, "").to_string())
+//         .inspect(|v| trace!("extract auth value cut {v:?}"))
+// }
+
+pub fn create_auth_header(token: impl AsRef<str>) -> String {
+    let cookie = format!(
+        "{}={}{}{}",
+        AUTHORIZATION,
+        COOKIE_PREFIX,
+        token.as_ref(),
+        COOKIE_POSTFIX,
+    );
+
+    trace!("cookie set {cookie}");
+    cookie
 }
 
-pub fn cut_cookie_value_decoded(v: &str) -> &str {
-    let start = "Bearer=";
-    let end = "; Secure; HttpOnly";
-    cut_cookie(v, start, end)
+pub fn create_deleted_cookie() -> HeaderMap {
+    let cookie = format!("{}{}", COOKIE_PREFIX, COOKIE_DELETED);
+    let mut headers = HeaderMap::new();
+    headers.insert(AUTHORIZATION, cookie.parse().unwrap());
+    headers
+}
+pub fn create_auth_cookie(token: impl AsRef<str>) -> HeaderMap {
+    let cookie = format!("{}{}{}", COOKIE_PREFIX_FULL, token.as_ref(), COOKIE_POSTFIX);
+    let mut headers = HeaderMap::new();
+    headers.insert(SET_COOKIE, cookie.parse().unwrap());
+    trace!("set auth cookie {}", cookie);
+    headers
 }
 
-pub fn cut_cookie_full_encoded(v: &str) -> &str {
-    let start = "authorization=Bearer%3D";
-    let end = "%3B%20Secure%3B%20HttpOnly";
-    cut_cookie(v, start, end)
-}
+// pub fn cut_cookie_value_decoded(v: &str) -> &str {
+//     cut_cookie(v, COOKIE_PREFIX, "")
+// }
+//
+// pub fn cut_cookie_full_encoded(v: &str) -> &str {
+//     cut_cookie(v, COOKIE_PREFIX_FULL, COOKIE_POSTFIX)
+// }
 
-pub fn cut_cookie_full_with_expiration_encoded(v: &str) -> &str {
-    let start = "authorization=Bearer%3D";
-    let end =
-        "%3B%20Secure%3B%20HttpOnly%3B%20expires%3DThu%2C%2001%20Jan%201970%2000%3A00%3A00%20GMT";
-    cut_cookie(v, start, end)
-}
+// pub fn cut_cookie_full_with_expiration_encoded(v: &str) -> &str {
+//     let start = "authorization=Bearer%3D";
+//     let end =
+//         "%3B%20Secure%3B%20HttpOnly%3B%20expires%3DThu%2C%2001%20Jan%201970%2000%3A00%3A00%20GMT";
+//     cut_cookie(v, start, end)
+// }
 
 #[cfg(feature = "ssr")]
 pub fn verify_password<T: AsRef<[u8]>, S2: AsRef<str>>(
@@ -983,17 +1058,15 @@ impl ApiReq {
         Option<jsonwebtoken::TokenData<AuthToken>>,
         Result<ServerRes, ServerErr>,
     ) {
-        use axum_extra::extract::CookieJar;
+        use axum_extra::extract::{CookieJar, cookie::Cookie};
         use http::header::SET_COOKIE;
 
         let secret = secret.into();
         let req = self.server_req;
         let builder = self.builder;
-        let (headers, result) = send(builder, req, None::<&str>).await;
-        let jar = CookieJar::from_headers(&headers);
-        let token = headers
-            .get(SET_COOKIE)
-            .map(|v| cut_cookie_full_encoded(v.to_str().unwrap()).to_string());
+        let (mut headers, result) = send(builder, req, None::<&str>).await;
+        // let jar = CookieJar::from_headers(&headers);
+        let token = auth_token_get(&mut headers, SET_COOKIE);
         let decoded_token = token
             .clone()
             .and_then(|cookie| decode_token::<AuthToken>(secret, cookie, false).ok());
@@ -1102,7 +1175,10 @@ impl Api for ApiWeb {
 }
 
 #[cfg(feature = "ssr")]
-pub async fn recv(mut multipart: axum::extract::Multipart) -> Result<ServerReq, ServerErr> {
+pub async fn recv(
+    headers: impl AsRef<str>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<ServerReq, ServerErr> {
     let mut bytes = bytes::Bytes::new();
     while let Some(field) = multipart
         .next_field()
@@ -1126,7 +1202,10 @@ pub async fn recv(mut multipart: axum::extract::Multipart) -> Result<ServerReq, 
         .inspect_err(|err| error!("{err} SERVER RECV:\n{bytes:X}"))
         .map_err(|_| ServerDesErr::ServerDesRkyvErr)?;
 
-    debug!("SERVER RECV:\n {client_input:?} - {bytes:X}");
+    debug!(
+        "SERVER RECV:\n{}\n {client_input:?} - {bytes:X}",
+        headers.as_ref()
+    );
 
     Ok(client_input)
 }
@@ -1175,11 +1254,9 @@ impl axum::response::IntoResponse for ServerErr {
                 let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&result).unwrap();
                 let bytes = bytes.to_vec();
                 let bytes: bytes::Bytes = bytes.into();
-                let jar = CookieJar::new().add(Cookie::new(
-                    AUTHORIZATION.as_str(),
-                    "Bearer=DELETED; Secure; HttpOnly; expires=Thu, 01 Jan 1970 00:00:00 GMT",
-                ));
-                (status, jar, bytes).into_response()
+                let headers = create_deleted_cookie();
+                // let jar = CookieJar::new().add(Cookie::new(AUTHORIZATION.as_str(), COOKIE_DELETED));
+                (status, headers, bytes).into_response()
             }
             server_err => {
                 let result: Result<ServerRes, ServerErr> = Err(server_err);
@@ -1198,20 +1275,24 @@ impl axum::response::IntoResponse for ServerRes {
         use axum_extra::extract::{CookieJar, cookie::Cookie};
 
         match self {
-            ServerRes::SetAuthCookie { cookie } => {
-                let jar = CookieJar::new().add(Cookie::new(
-                    http::header::AUTHORIZATION.as_str(),
-                    cookie.clone(),
-                ));
-
+            ServerRes::DeleteAuthCookie => {
                 let result: Result<ServerRes, ServerErr> = Ok(ServerRes::Ok);
                 let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&result).unwrap();
                 let bytes = bytes.to_vec();
                 let bytes: bytes::Bytes = bytes.into();
+                let headers = create_deleted_cookie();
+                (headers, bytes).into_response()
+            }
+            ServerRes::SetAuthCookie { token } => {
+                let result: Result<ServerRes, ServerErr> = Ok(ServerRes::Ok);
+                let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&result).unwrap();
+                let bytes = bytes.to_vec();
+                let bytes: bytes::Bytes = bytes.into();
+                let headers = create_auth_cookie(token);
 
                 debug!("SERVER SEND:\n{result:?} - {bytes:X}");
 
-                (jar, bytes).into_response()
+                (headers, bytes).into_response()
             }
             res => {
                 let result: Result<ServerRes, ServerErr> = Ok(res);
@@ -1240,15 +1321,8 @@ pub async fn send(
     let part = reqwest::multipart::Part::bytes(bytes.to_vec());
     let form = reqwest::multipart::Form::new().part("data", part);
     if let Some(token) = token {
-        trace!("cookie set");
-        req_builder = req_builder.header(
-            http::header::COOKIE,
-            format!(
-                "{}=Bearer%3D{}%3B%20Secure%3B%20HttpOnly",
-                AUTHORIZATION,
-                token.as_ref()
-            ),
-        );
+        let cookie = create_auth_header(token);
+        req_builder = req_builder.header(http::header::COOKIE, cookie);
     }
     let res = req_builder
         .multipart(form)
@@ -1301,11 +1375,11 @@ pub async fn send(
 pub mod backend {
     use crate::api::app_state::AppState;
     use crate::api::{
-        AuthToken, InviteToken, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr,
-        ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerGetErr, ServerInviteErr,
-        ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes, UserPost, UserPostFile,
-        create_cookie, cut_cookie_value_decoded, decode_token, encode_token, hash_password,
-        verify_password,
+        AuthToken, InviteToken, ServerAddPostErr, ServerAuthErr,
+        ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta,
+        ServerGetErr, ServerInviteErr, ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes,
+        UserPost, UserPostFile, auth_token_get, decode_token, encode_token,
+        hash_password, verify_password,
     };
     use crate::db::AddInviteErr;
     use crate::db::AddUserErr;
@@ -1320,7 +1394,8 @@ pub mod backend {
     use axum_extra::extract::CookieJar;
     use axum_extra::extract::cookie::Cookie;
     use gxhash::{gxhash64, gxhash128};
-    use http::header::AUTHORIZATION;
+    use http::HeaderMap;
+    use http::header::{AUTHORIZATION, COOKIE};
     use image::{ImageFormat, ImageReader};
     use little_exif::{filetype::FileExtension, metadata::Metadata};
     use std::time::Duration;
@@ -1354,14 +1429,36 @@ pub mod backend {
 
     pub async fn logout(
         State(app_state): State<AppState>,
+        mut parts: http::request::Parts,
         jar: CookieJar,
+        req: ServerReq,
     ) -> Result<ServerRes, ServerErr> {
-        let token = jar
-            .get(AUTHORIZATION.as_str())
-            .ok_or(ServerErr::ServerAuthErr(
-                ServerAuthErr::ServerUnauthorizedNoCookie,
-            ))
-            .map(|v| cut_cookie_value_decoded(v.value()).to_string())?;
+        let ServerReq::None = req else {
+            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                "expected None, received: {req:?}"
+            ))));
+        };
+
+        let token = auth_token_get(&mut parts.headers, COOKIE).ok_or(ServerErr::ServerAuthErr(
+            ServerAuthErr::ServerUnauthorizedNoCookie,
+        ))?;
+        // {
+        //     let r = parts.headers;
+        //     let r2 = jar.get(AUTHORIZATION.as_str());
+        //     trace!("headers comparison {r:?}");
+        // }
+        // trace!("headers comparison 1111 {jar:?} 222222 {headers:?}");
+        // let token = auth_token_get(&mut parts.headers);
+        // let token = jar
+        //     .get(AUTHORIZATION.as_str())
+        //     // .map(|v| v.value().to_string())
+        //     .inspect(|v| trace!("logout token raw {v:?}"))
+        //     .ok_or(ServerErr::ServerAuthErr(
+        //         ServerAuthErr::ServerUnauthorizedNoCookie,
+        //     ))
+        //     .map(|v| cut_cookie(v.value(), COOKIE_PREFIX, "").to_string())?;
+
+        trace!("logout token {token}");
 
         app_state
             .db
@@ -1375,7 +1472,7 @@ pub mod backend {
             .await
             .map_err(|_err| ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie))?;
 
-        Ok(ServerRes::Ok)
+        Ok(ServerRes::DeleteAuthCookie)
     }
 
     pub async fn decode_invite(
@@ -1487,16 +1584,23 @@ pub mod backend {
             .inspect_err(|err| error!("failed to run use_invite {err}"))
             .map_err(|err| ServerErr::ServerDbErr)?;
 
-        let (token, cookie) = create_cookie(&app_state.settings.auth.secret, &user.username, time)
-            .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
+        let token = encode_token(
+            &app_state.settings.auth.secret,
+            AuthToken::new(username, time.as_nanos()),
+        )
+        .inspect_err(|err| error!("jwt exploded {err}"))
+        .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
+
+        // let (token, cookie) = create_cookie(&app_state.settings.auth.secret, &user.username, time)
+        //     .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
 
         let _session = app_state
             .db
-            .add_session(time_ns, token, &user.username)
+            .add_session(time_ns, token.clone(), &user.username)
             .await
             .map_err(|err| ServerErr::ServerDbErr)?;
 
-        Ok(ServerRes::SetAuthCookie { cookie })
+        Ok(ServerRes::SetAuthCookie { token })
     }
 
     pub async fn get_post(
@@ -1997,18 +2101,24 @@ pub mod backend {
             .inspect_err(|err| trace!("passwords verification failed {err}"))
             .map_err(|_| ServerErr::ServerLoginErr(ServerLoginErr::WrongCredentials))?;
 
-        let (token, cookie) = create_cookie(&app_state.settings.auth.secret, &user.username, time)
-            .map_err(|err| {
-                ServerErr::ServerLoginErr(ServerLoginErr::ServerCreateCookieErr(err.to_string()))
-            })?;
+        let token = encode_token(
+            &app_state.settings.auth.secret,
+            AuthToken::new(&user.username, time.as_nanos()),
+        )
+        .inspect_err(|err| error!("jwt exploded {err}"))
+        .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
+        // let (token, cookie) = create_cookie(&app_state.settings.auth.secret, &user.username, time)
+        //     .map_err(|err| {
+        //         ServerErr::ServerLoginErr(ServerLoginErr::ServerCreateCookieErr(err.to_string()))
+        //     })?;
 
         let _session = app_state
             .db
-            .add_session(time_ns, token, &user.username)
+            .add_session(time_ns, token.clone(), &user.username)
             .await
             .map_err(|err| ServerErr::ServerDbErr)?;
 
-        Ok(ServerRes::SetAuthCookie { cookie })
+        Ok(ServerRes::SetAuthCookie { token })
     }
 
     pub async fn auth_middleware(
@@ -2018,8 +2128,8 @@ pub mod backend {
     ) -> axum::response::Response {
         let result = {
             let headers = req.headers();
-            let jar = CookieJar::from_headers(headers);
-            check_auth(&app_state, &jar).await
+            // let jar = CookieJar::from_headers(headers);
+            check_auth(&app_state, &headers).await
         };
         match result {
             Ok(token) => {
@@ -2036,15 +2146,24 @@ pub mod backend {
         }
     }
 
-    pub async fn check_auth(app_state: &AppState, jar: &CookieJar) -> Result<AuthToken, ServerErr>
+    pub async fn check_auth(
+        app_state: &AppState,
+        headers: &HeaderMap,
+    ) -> Result<AuthToken, ServerErr>
     where
         ServerErr: std::error::Error + 'static,
     {
-        let token = jar
-            .get(AUTHORIZATION.as_str())
-            .ok_or(ServerAuthErr::ServerUnauthorizedNoCookie)
-            .map(|v| cut_cookie_value_decoded(v.value()).to_string())?;
+        trace!("CHECKING AUTH");
+        let token = auth_token_get(headers, COOKIE).ok_or(ServerErr::ServerAuthErr(
+            ServerAuthErr::ServerUnauthorizedNoCookie,
+        ))?;
+        // let token = jar
+        //     .get(AUTHORIZATION.as_str())
+        //     .ok_or(ServerAuthErr::ServerUnauthorizedNoCookie)
+        //     .inspect(|v| trace!("CHECK_AUTH COOKIE: {v:?}"))
+        //     .map(|v| cut_cookie(v.value(), COOKIE_PREFIX, "").to_string())?;
 
+        trace!("CHECKING AUTH SESSION");
         let _session = app_state
             .db
             .get_session(&token)
@@ -2096,9 +2215,23 @@ mod tests {
         ServerReqImg, ServerRes, encode_token,
     };
     use crate::server::create_api_router;
+    use tracing_appender::rolling;
 
-    #[test(tokio::test)]
+    // #[test(tokio::test)]
+    #[tokio::test]
     async fn full_api_test() {
+        let file = rolling::daily("./logs", "log");
+        tracing_subscriber::fmt()
+            .event_format(
+                tracing_subscriber::fmt::format()
+                    .with_file(true)
+                    .with_line_number(true),
+            )
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            // .with_writer(file)
+            .try_init()
+            .unwrap();
+
         let current_time = Duration::from_nanos(1);
         let time_mut = Arc::new(Mutex::new(current_time));
         let app_state = AppState::new_testng(time_mut.clone()).await;
@@ -2223,8 +2356,12 @@ mod tests {
         }
 
         let all_users = app_state.db.get_all_user().await.unwrap();
+        let all_sessions = app_state.db.get_all_session().await.unwrap();
 
         trace!("ALL USERS {all_users:#?}");
+        assert!(all_users.len() == 1);
+
+        trace!("ALL SESSIONS {all_sessions:#?}");
         assert!(all_users.len() == 1);
 
         trace!("{token_raw:#?}");
@@ -2479,7 +2616,11 @@ mod tests {
             .await
             .unwrap();
 
-        let result = api.get_user_posts_newer(2, 10, "hey2").send_native().await.unwrap();
+        let result = api
+            .get_user_posts_newer(2, 10, "hey2")
+            .send_native()
+            .await
+            .unwrap();
         match result {
             crate::api::ServerRes::Posts(posts) => {
                 assert_eq!(posts.len(), 1);
@@ -2489,7 +2630,11 @@ mod tests {
             }
         }
 
-        let result = api.get_user_posts_older(7, 10, "hey2").send_native().await.unwrap();
+        let result = api
+            .get_user_posts_older(7, 10, "hey2")
+            .send_native()
+            .await
+            .unwrap();
         match result {
             crate::api::ServerRes::Posts(posts) => {
                 assert_eq!(posts.len(), 1);
