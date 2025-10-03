@@ -186,6 +186,10 @@ pub enum ServerReq {
         email: String,
         password: String,
     },
+    ChangeUsername {
+        username: String,
+        password: String,
+    },
     GetUser {
         username: String,
     },
@@ -603,7 +607,7 @@ pub fn auth_token_get(
     header_name: http::header::HeaderName,
 ) -> Option<String> {
     let rex = Regex::new(r"[a-zA-Z\d\-_]+\.[a-zA-Z\d\-_]+\.[a-zA-Z\d\-_]+").unwrap();
-    
+
     headers
         .get(header_name)
         .inspect(|v| trace!("extract auth value raw {v:?}"))
@@ -819,6 +823,16 @@ pub trait Api {
             result: result_signal,
             busy: busy_signal,
         }
+    }
+
+    fn change_username(&self, password: impl Into<String>, username: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_CHANGE_USERNAME,
+            ServerReq::ChangeUsername {
+                username: username.into(),
+                password: password.into(),
+            },
+        )
     }
 
     fn get_user_posts_newer(&self, time: u128, limit: u32, username: impl Into<String>) -> ApiReq {
@@ -1375,16 +1389,15 @@ pub async fn send(
 pub mod backend {
     use crate::api::app_state::AppState;
     use crate::api::{
-        AuthToken, InviteToken, ServerAddPostErr, ServerAuthErr,
-        ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta,
-        ServerGetErr, ServerInviteErr, ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes,
-        UserPost, UserPostFile, auth_token_get, decode_token, encode_token,
-        hash_password, verify_password,
+        AuthToken, InviteToken, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr,
+        ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerGetErr, ServerInviteErr,
+        ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes, User, UserPost, UserPostFile,
+        auth_token_get, decode_token, encode_token, hash_password, verify_password,
     };
-    use crate::db::AddInviteErr;
     use crate::db::AddUserErr;
     use crate::db::DB404Err;
     use crate::db::DBUserPostFile;
+    use crate::db::{AddInviteErr, DBUser};
     use crate::valid::auth::{
         proccess_password, proccess_post_description, proccess_post_title, proccess_username,
     };
@@ -1489,6 +1502,39 @@ pub mod backend {
             .map_err(|err| ServerDecodeInviteErr::JWT(err.to_string()))?;
 
         Ok(ServerRes::InviteToken(token.claims))
+    }
+
+    pub async fn change_username(
+        State(app_state): State<AppState>,
+        auth_token: Extension<AuthToken>,
+        db_user: Extension<DBUser>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::ChangeUsername { username, password } = req else {
+            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                "expected ChangeUsername, received: {req:?}"
+            ))));
+        };
+        let time = app_state.clock.now().await.as_nanos();
+        debug!("step 1");
+
+        verify_password(password, db_user.password.clone())
+            .inspect_err(|err| trace!("passwords verification failed {err}"))
+            .map_err(|_| ServerErr::ServerLoginErr(ServerLoginErr::WrongCredentials))?;
+        debug!("step 2");
+
+        let result = app_state
+            .db
+            .change_username(db_user.id.clone(), username, time)
+            .await
+            .map_err(|err| match err {
+                DB404Err::DB(err) => ServerErr::ServerDbErr,
+                DB404Err::NotFound => ServerErr::ServerGetErr(ServerGetErr::NotFound),
+            })?;
+
+        Ok(ServerRes::User {
+            username: result.username,
+        })
     }
 
     pub async fn profile(
@@ -2132,10 +2178,11 @@ pub mod backend {
             check_auth(&app_state, &headers).await
         };
         match result {
-            Ok(token) => {
+            Ok((token, user)) => {
                 {
                     let extensions = req.extensions_mut();
                     extensions.insert(token);
+                    extensions.insert(user);
                 }
                 let response = next.run(req).await;
                 return response;
@@ -2149,7 +2196,7 @@ pub mod backend {
     pub async fn check_auth(
         app_state: &AppState,
         headers: &HeaderMap,
-    ) -> Result<AuthToken, ServerErr>
+    ) -> Result<(AuthToken, DBUser), ServerErr>
     where
         ServerErr: std::error::Error + 'static,
     {
@@ -2164,7 +2211,7 @@ pub mod backend {
         //     .map(|v| cut_cookie(v.value(), COOKIE_PREFIX, "").to_string())?;
 
         trace!("CHECKING AUTH SESSION");
-        let _session = app_state
+        let session = app_state
             .db
             .get_session(&token)
             .await
@@ -2191,7 +2238,7 @@ pub mod backend {
             }
         };
 
-        Ok(token.claims)
+        Ok((token.claims, session.user))
     }
 }
 
@@ -2221,7 +2268,7 @@ mod tests {
     #[tokio::test]
     async fn full_api_test() {
         let file = rolling::daily("./logs", "log");
-        tracing_subscriber::fmt()
+        let _ = tracing_subscriber::fmt()
             .event_format(
                 tracing_subscriber::fmt::format()
                     .with_file(true)
@@ -2229,8 +2276,7 @@ mod tests {
             )
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             // .with_writer(file)
-            .try_init()
-            .unwrap();
+            .try_init();
 
         let current_time = Duration::from_nanos(1);
         let time_mut = Arc::new(Mutex::new(current_time));
@@ -2658,5 +2704,19 @@ mod tests {
             result,
             Err(ServerErr::ServerGetErr(ServerGetErr::NotFound))
         ));
+
+        let result = api
+            .change_username("wowowowwoW12222pp*", "bye")
+            .send_native_with_token(token_raw.clone())
+            .await
+            .unwrap();
+        match result {
+            crate::api::ServerRes::User { username } => {
+                assert_eq!(username, "bye");
+            }
+            wrong => {
+                panic!("{}", format!("expected User, got {:?}", wrong));
+            }
+        }
     }
 }

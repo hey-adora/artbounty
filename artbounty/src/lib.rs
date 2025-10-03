@@ -15,24 +15,27 @@ pub mod valid {
         use super::Validator;
         use tracing::trace;
 
-        pub fn proccess_username<S: AsRef<str>>(username: S) -> Result<String, String> {
+        pub fn proccess_username(username: impl AsRef<str>) -> Result<String, String> {
             let mut errors = String::new();
-            let username = username.as_ref().trim().to_string();
-            if !username.is_first_char_alphabetic() {
-                errors += "username must start with alphabetic character\n";
+            let username = username.as_ref().trim();
+            match username.len() {
+                len if len < 3 => errors += "username must be at least 3 characters length\n",
+                len if len > 32 => errors += "username must be shorter than 33 characters length\n",
+                _ => {},
             }
-            if !username.is_alphanumerc() {
-                errors += "username must be alphanumeric\n";
+            let mut username_chars = username.chars();
+            match username_chars.next() {
+                Some(c) if c.is_alphabetic() => {},
+                _ => errors += "username must start with alphabetic character\n",
             }
-            if username.is_smaller_than(3) {
-                errors += "username must be at least 3 characters length\n";
-            }
-            if username.is_bigger_than(32) {
-                errors += "username must be shorter than 33 characters length\n";
+            for c in username_chars {
+                if !(c.is_alphanumeric() || c == '_') {
+                    errors += "username must be alphanumeric\n";
+                }
             }
 
             if errors.is_empty() {
-                Ok(username)
+                Ok(username.to_string())
             } else {
                 let _ = errors.pop();
                 trace!("errors {errors}");
@@ -328,6 +331,7 @@ pub mod path {
     pub const PATH_API_INVITE: &'static str = "/invite";
     pub const PATH_API_REGISTER: &'static str = "/register";
     pub const PATH_API_LOGIN: &'static str = "/login";
+    pub const PATH_API_CHANGE_USERNAME: &'static str = "/change_username";
     pub const PATH_API_POST_ADD: &'static str = "/post/add";
     pub const PATH_API_POST_GET: &'static str = "/post/get";
     pub const PATH_API_POST_GET_OLDER: &'static str = "/post/get_older";
@@ -345,6 +349,7 @@ pub mod path {
     pub const PATH_LOGIN_BS: (StaticSegment<&'static str>,) = path!("/login");
     pub const PATH_REGISTER: &'static str = "/register";
     pub const PATH_UPLOAD: &'static str = "/upload";
+    pub const PATH_SETTINGS: &'static str = "/settings";
 
     #[derive(Debug, Clone, PartialEq, strum::EnumString, strum::Display)]
     #[strum(serialize_all = "lowercase")]
@@ -374,6 +379,11 @@ pub mod path {
     pub fn link_user(user: impl AsRef<str>) -> String {
         format!("/u/{}", user.as_ref())
     }
+
+    pub fn link_settings() -> String {
+        PATH_SETTINGS.to_string()
+    }
+
 
     pub fn link_check_email<Email: AsRef<str>>(email: Email) -> String {
         format!(
