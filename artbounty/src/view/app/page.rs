@@ -197,6 +197,125 @@ pub mod post {
         }
     }
 }
+pub mod settings {
+    use std::rc::Rc;
+
+    use crate::api::{Api, ApiWeb, ServerAddPostErr, ServerErr, ServerReqImg};
+    use crate::path::link_post;
+    use crate::valid::auth::{proccess_post_description, proccess_post_title, proccess_username};
+    use crate::view::app::components::nav::Nav;
+    use crate::view::app::GlobalState;
+    use crate::view::toolbox::prelude::*;
+    use leptos::prelude::*;
+    use leptos::{Params, task::spawn_local};
+    use leptos_router::{hooks::use_params, params::Params};
+
+    use leptos_router::hooks::use_query;
+    use tracing::{error, trace};
+    use web_sys::{HtmlInputElement, HtmlTextAreaElement, MouseEvent, SubmitEvent};
+
+    #[derive(Clone, Debug, PartialEq, PartialOrd)]
+    pub enum SelectedForm {
+        None,
+        ChangeUsername,
+    }
+
+    #[component]
+    pub fn Page() -> impl IntoView {
+        let main_ref = NodeRef::new();
+        let global_state = expect_context::<GlobalState>();
+        let selected_form = RwSignal::new(SelectedForm::None);
+        let api = ApiWeb::new();
+        let change_username_username_general_err = RwSignal::new(String::new());
+        let change_username_username = NodeRef::new();
+        let change_username_username_err = RwSignal::new(String::new());
+        let change_username_password = NodeRef::new();
+        // let change_username_password_err = RwSignal::new(String::new());
+
+        let on_change_username = move |e: SubmitEvent| {
+            e.prevent_default();
+            let ( Some(username), Some(password)) = (
+                change_username_username.get_untracked() as Option<HtmlInputElement>,
+                change_username_password.get_untracked() as Option<HtmlInputElement>,
+            ) else {
+                return;
+            };
+
+            let username = proccess_username(username.value());
+            let password = password.value();
+
+            change_username_username_err.set(username.clone().err().unwrap_or_default());
+
+            let (Ok(username),) = (username,) else {
+                return;
+            };
+            api.change_username(password, username).send_web(move |result| async move {
+                match result {
+                    Ok(crate::api::ServerRes::User { username }) => {
+                        global_state.change_username(username);
+                    },
+                    Ok(err) => {
+                        error!("expected Post, received {err:?}");
+                        let _ = change_username_username_general_err
+                            .try_set("SERVER ERROR, wrong response.".to_string());
+                    }
+                    Err(err) => {
+                        let _ = change_username_username_general_err.try_set(err.to_string());
+                    }
+                }
+            });
+        };
+
+        let on_open_change_username = move |_e: MouseEvent| selected_form.set(SelectedForm::ChangeUsername);
+        let on_close = move |e: MouseEvent| {
+            e.prevent_default();
+            selected_form.set(SelectedForm::None);
+        };
+
+        // let should_disable = move || api.is_pending_tracked();
+        //top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2
+        view! {
+            <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen relative">
+                <Nav/>
+                <div class="flex flex-col px-[2rem] mx-auto gap-2">
+                    <h1 class="text-[1.5rem] text-center my-[4rem]">"Settings"</h1>
+                    <button on:click=on_open_change_username class="border-2 border-white text-[1.3rem] font-bold px-4 py-1 hover:bg-white hover:text-gray-950">"Change Username"</button>
+                    
+                </div>
+                <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-main-dark/80 {}", if selected_form.get() == SelectedForm::ChangeUsername { "flex" } else { "hidden" } )>
+                    <form method="POST" on:submit=on_change_username action="" class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full border-2 border-white bg-main-dark">
+                        <h2 class="text-[1.5rem]  text-center my-[4rem]">"Change Username"</h2>
+                        <div class=move||format!("text-red-600 text-center {}", if change_username_username_general_err.with(|v| v.is_empty()) { "hidden" } else { "" } )>{move || { change_username_username_general_err.get() }}</div>
+                        <div class="flex flex-col gap-6">
+                            <div class="flex flex-col gap-0">
+                                <label for="username" class="text-[1.2rem] ">"New Username"</label>
+                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if false {"text-[0rem]"} else {"text-[1rem]"}) >
+                                    <ul class="list-disc ml-[1rem]">
+                                        {move || change_username_username_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                    </ul>
+                                </div>
+                                <input placeholder="kaiju" id="username" name="username" node_ref=change_username_username type="text" class="border-b-2 border-white w-full mt-1 " />
+                            </div>
+                            <div class="flex flex-col gap-0">
+                                <label for="password" class="text-[1.2rem] ">"Password"</label>
+                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if false {"text-[0rem]"} else {"text-[1rem]"}) >
+                                    <ul class="list-disc ml-[1rem]">
+                                        // {move || upload_title_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                    </ul>
+                                </div>
+                                <input placeholder="current password" id="password" name="password" node_ref=change_username_password type="password" class="border-b-2 border-white w-full mt-1 " />
+                            </div>
+                        </div>
+                        <div class="flex flex-row gap-[1.3rem] mx-auto my-[4rem] text-center">
+                            <button on:click=on_close disabled=move || api.is_pending_tracked() class="border-2 border-white text-[1.3rem] font-bold px-4 py-1 hover:bg-white hover:text-gray-950">"Cancel"</button>
+                            <input type="submit" value=move || if api.is_pending_tracked() {"Saving..."} else {"Confirm"} disabled=move || api.is_pending_tracked() class="border-2 border-white text-[1.3rem] font-bold px-4 py-1 hover:bg-white hover:text-gray-950"/>
+                        </div>
+                    </form>
+                </div>
+            </main>
+        }
+    }
+}
 pub mod upload {
     use std::rc::Rc;
 

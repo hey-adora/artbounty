@@ -14,6 +14,8 @@ use surrealdb::{Surreal, opt::IntoEndpoint};
 use thiserror::Error;
 use tracing::{error, trace};
 
+use crate::api::User;
+
 // pub static DB: LazyLock<Db<local::Db>> = LazyLock::new(Db::init);
 derive_alias! {
     #[derive(Save!)] = #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)];
@@ -630,6 +632,24 @@ impl<C: Connection> Db<C> {
             .and_then_take_all(0)
     }
 
+    pub async fn change_username(
+        &self,
+        user: RecordId,
+        new_username: impl Into<String>,
+        time: u128,
+    ) -> Result<DBUser, DB404Err> {
+        self.db
+            .query(
+                "UPDATE $user_id SET modified_at = $time, username = $new_username;",
+            )
+            .bind(("user_id", user))
+            .bind(("new_username", new_username.into()))
+            .bind(("time", time))
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_or(0, DB404Err::NotFound)
+    }
+
     pub async fn use_invite<TokenRaw: Into<String>>(
         &self,
         token_raw: TokenRaw,
@@ -963,8 +983,8 @@ mod tests {
         trace!("found {user:#?}");
         assert!(matches!(user, Err(DB404Err::NotFound)));
 
-        let user = db.get_user_by_email("hey@hey.com").await.unwrap();
-        trace!("found {user:#?}");
+        let user1 = db.get_user_by_email("hey@hey.com").await.unwrap();
+        trace!("found {user1:#?}");
 
         let user = db.get_user_by_email("hey2@hey.com").await;
         trace!("found {user:#?}");
@@ -976,6 +996,13 @@ mod tests {
 
         let result = db.get_user_password("hey2@hey.com").await;
         assert!(matches!(result, Err(DB404Err::NotFound)));
+
+        let result = db.change_username(user1.id, "hey5", time).await.unwrap();
+        assert_eq!(result.username, "hey5");
+
+        let result = db.get_user_by_username("hey").await;
+        assert!(matches!(result, Err(DB404Err::NotFound)));
+
     }
 
     #[test(tokio::test)]

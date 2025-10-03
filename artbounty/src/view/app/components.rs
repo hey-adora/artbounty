@@ -1,7 +1,7 @@
 pub mod nav {
     use crate::{
         api::{Api, ApiWeb},
-        path::{PATH_LOGIN, PATH_UPLOAD},
+        path::{link_settings, link_user, PATH_LOGIN, PATH_UPLOAD},
         view::{app::GlobalState, toolbox::prelude::*},
     };
     use leptos::prelude::*;
@@ -46,7 +46,8 @@ pub mod nav {
                 </div>
                 <div class=move||format!("flex gap-2 {}", if global_state.is_logged_in() { "" } else { "hidden" })>
                     <a href=PATH_UPLOAD>"U"</a>
-                    <a href=move||format!("/u/{}", acc_username())>{acc_username}</a>
+                    <a href=move|| link_user(acc_username())>{acc_username}</a>
+                    <a href=move|| link_settings()>"Settings"</a>
                     <form method="POST" action="" on:submit=on_logout >
                         <input type="submit" value=logout_or_loading class="transition-all duration-300 ease-in hover:font-bold"/>
                     </form>
