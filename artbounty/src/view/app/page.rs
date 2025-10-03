@@ -55,7 +55,16 @@ pub mod post {
                 author
             }
         };
-        let fn_description = move || description.get();
+        let fn_description_is_empty = move || description.with(|v| v.is_empty());
+        let fn_description = move || {
+            let description = description.get();
+
+            if description.is_empty() {
+                return "No description.".to_string();
+            }
+
+            description
+        };
         let fn_favorites = move || favorites.get();
 
         Effect::new(move || {
@@ -105,7 +114,7 @@ pub mod post {
             let (selected_url, selected_ratio) = imgs_links.get(selected_n).cloned().unwrap_or_else(|| imgs_links.first().cloned().unwrap_or(("/404.webp".to_string(), 1920.0 / 1080.0)));
 
             view! { 
-                // <div style:aspect-ratio=selected_ratio.to_string() class="w-full grid place-items-center bg-main-half">
+                // <div style:aspect-ratio=selected_ratio.to_string() class="w-full grid place-items-center bg-base02">
                 // </div>
                 <img id=move || format!("id{selected_n}") class="max-h-full" src=selected_url />
             }
@@ -117,7 +126,7 @@ pub mod post {
                 .into_iter()
                 .enumerate()
                 .map(|(i, (url, ratio))| view! { 
-                    <div style:aspect-ratio=ratio.to_string() class="w-full grid place-items-center bg-main-half">
+                    <div style:aspect-ratio=ratio.to_string() class="w-full grid place-items-center bg-base02">
                         <img id=move || format!("id{i}") class="" src=url />
                     </div>
                 })
@@ -139,7 +148,7 @@ pub mod post {
                         class=move ||  {
                             let hash = location.hash.get();
                             trace!("hash: {hash}");
-                            format!("h-[5rem] w-[5rem] bg-main-light bg-cover bg-center {}", if id == hash || (hash.is_empty() && i == 0) {"border-2 border-main-highlight"} else {""})
+                            format!("h-[5rem] w-[5rem] bg-base05 bg-cover bg-center {}", if id == hash || (hash.is_empty() && i == 0) {"border-2 border-base08"} else {""})
                         }
                         style:background-image=move || format!("url(\"{url}\")") ></a> }
                 })
@@ -147,49 +156,52 @@ pub mod post {
         };
 
         view! {
-            <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen">
+            <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen text-base05">
                 <Nav/>
 
                 <div class=move || format!("place-items-center text-[1.5rem] {}", if not_found.get() {"grid"} else {"hidden"})>
                     "Not Found"
                 </div>
 
-                <div class=move || format!("flex flex-col lg:grid grid-cols-[2fr_1fr] grid-cols-[2fr_1fr] lg:max-h-[calc(100vh-3rem)]  gap-2 px-2 {}", if not_found.get() {"hidden"} else {"flex"})>
-                    <div class="lg:hidden h-[50vh] flex justify-center place-items-center bg-main-half" >
+                <div class=move || format!("flex flex-col lg:grid grid-cols-[2fr_1fr] grid-cols-[2fr_1fr] lg:max-h-[calc(100vh-3rem)] gap-2 px-2 md:gap-6 md:px-6 {}", if not_found.get() {"hidden"} else {"flex"})>
+                    <div class="lg:hidden h-[50vh] flex justify-center place-items-center bg-base02" >
                         { selected_img }
                     </div>
                     <div class="hidden lg:flex flex-col gap-2 lg:overflow-y-scroll" >
                         { imgs }
                     </div>
-                    <div class="flex flex-col gap-2 lg:overflow-y-scroll">
+                    <div class="flex flex-col gap-2 md:gap-6 lg:overflow-y-scroll">
                         <div class="flex justify-start gap-2 flex flex-wrap">
                             { previews }
-                            // <div class="h-[5rem] bg-main-light"></div>
-                            // <div class="h-[5rem] bg-main-light"></div>
-                            // <div class="h-[5rem] bg-main-light"></div>
-                            // <div class="h-[5rem] bg-main-light"></div>
-                            // <div class="h-[5rem] bg-main-light"></div>
+                            // <div class="h-[5rem] bg-base05"></div>
+                            // <div class="h-[5rem] bg-base05"></div>
+                            // <div class="h-[5rem] bg-base05"></div>
+                            // <div class="h-[5rem] bg-base05"></div>
+                            // <div class="h-[5rem] bg-base05"></div>
                         </div>
-                        <div class="flex justify-between">
-                            <h1 class="text-[1.5rem] text-ellipsis">{ fn_title }</h1>
-                            <div>"X"</div>
-                        </div>
-                        <div class="flex justify-between">
-                            <div class="flex gap-1">
-                                <p class="text-[1rem] rounded-full h-[3rem] w-[3rem] bg-main-light"></p>
-                                <div class="flex flex-col gap-1">
-                                    <div class="flex gap-1">
-                                        <p class="text-[1rem]">"by"</p>
-                                        <a href=fn_link class="text-[1rem] font-bold">{ fn_author }</a>
-                                    </div>
-                                    <p class="text-[1rem]">"9999 followers"</p>
-                                </div>
+
+                        <div class="flex flex-col gap-2">
+                            <div class="flex justify-between">
+                                <h1 class="text-[1.5rem] text-ellipsis text-base0F">{ fn_title }</h1>
+                                <div>"X"</div>
                             </div>
-                            <div>{fn_favorites}" favorites"</div>
+                            <div class="flex justify-between">
+                                <div class="flex gap-2">
+                                    <p class="text-[1rem] rounded-full h-[3rem] w-[3rem] bg-base05"></p>
+                                    <div class="flex flex-col gap-1">
+                                        <div class="flex gap-1">
+                                            <p class="text-[1rem] text-base03">"by"</p>
+                                            <a href=fn_link class="text-[1rem] font-bold text-base0B">{ fn_author }</a>
+                                        </div>
+                                        <p class="text-[1rem]">"9999 followers"</p>
+                                    </div>
+                                </div>
+                                <div>{fn_favorites}" favorites"</div>
+                            </div>
                         </div>
-                        <div class="flex flex-col justify-between">
-                            <h1 class="text-[1.2rem] ">"Description"</h1>
-                            <div class="text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)]">{fn_description}</div>
+                        <div class="flex flex-col gap-2 md:gap-4 justify-between mt-4">
+                            <h1 class="text-[1.2rem] text-base0F">"Description"</h1>
+                            <div class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}", if fn_description_is_empty() {"text-base03"} else {"text-base05"} )>{fn_description}</div>
                         </div>
                     </div>
                 </div>
@@ -279,11 +291,11 @@ pub mod settings {
                 <Nav/>
                 <div class="flex flex-col px-[2rem] mx-auto gap-2">
                     <h1 class="text-[1.5rem] text-center my-[4rem]">"Settings"</h1>
-                    <button on:click=on_open_change_username class="border-2 border-white text-[1.3rem] font-bold px-4 py-1 hover:bg-white hover:text-gray-950">"Change Username"</button>
+                    <button on:click=on_open_change_username class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Change Username"</button>
                     
                 </div>
-                <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-main-dark/80 {}", if selected_form.get() == SelectedForm::ChangeUsername { "flex" } else { "hidden" } )>
-                    <form method="POST" on:submit=on_change_username action="" class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full border-2 border-white bg-main-dark">
+                <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if selected_form.get() == SelectedForm::ChangeUsername { "flex" } else { "hidden" } )>
+                    <form method="POST" on:submit=on_change_username action="" class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full border-2 border-base05 bg-base00">
                         <h2 class="text-[1.5rem]  text-center my-[4rem]">"Change Username"</h2>
                         <div class=move||format!("text-red-600 text-center {}", if change_username_username_general_err.with(|v| v.is_empty()) { "hidden" } else { "" } )>{move || { change_username_username_general_err.get() }}</div>
                         <div class="flex flex-col gap-6">
@@ -294,21 +306,21 @@ pub mod settings {
                                         {move || change_username_username_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
-                                <input placeholder="kaiju" id="username" name="username" node_ref=change_username_username type="text" class="border-b-2 border-white w-full mt-1 " />
+                                <input placeholder="kaiju" id="username" name="username" node_ref=change_username_username type="text" class="border-b-2 border-base05 w-full mt-1 " />
                             </div>
                             <div class="flex flex-col gap-0">
-                                <label for="password" class="text-[1.2rem] ">"Password"</label>
+                                <label for="password" class="text-[1.2rem]">"Password"</label>
                                 <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if false {"text-[0rem]"} else {"text-[1rem]"}) >
                                     <ul class="list-disc ml-[1rem]">
                                         // {move || upload_title_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
-                                <input placeholder="current password" id="password" name="password" node_ref=change_username_password type="password" class="border-b-2 border-white w-full mt-1 " />
+                                <input placeholder="current password" id="password" name="password" node_ref=change_username_password type="password" class="border-b-2 border-base05 w-full mt-1 " />
                             </div>
                         </div>
                         <div class="flex flex-row gap-[1.3rem] mx-auto my-[4rem] text-center">
-                            <button on:click=on_close disabled=move || api.is_pending_tracked() class="border-2 border-white text-[1.3rem] font-bold px-4 py-1 hover:bg-white hover:text-gray-950">"Cancel"</button>
-                            <input type="submit" value=move || if api.is_pending_tracked() {"Saving..."} else {"Confirm"} disabled=move || api.is_pending_tracked() class="border-2 border-white text-[1.3rem] font-bold px-4 py-1 hover:bg-white hover:text-gray-950"/>
+                            <button on:click=on_close disabled=move || api.is_pending_tracked() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Cancel"</button>
+                            <input type="submit" value=move || if api.is_pending_tracked() {"Saving..."} else {"Confirm"} disabled=move || api.is_pending_tracked() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
                         </div>
                     </form>
                 </div>
@@ -467,7 +479,7 @@ pub mod upload {
                                         {move || upload_title_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
-                                <input placeholder="Funny looking cat" id="title" name="name" node_ref=upload_title type="text" class="border-b-2 border-white w-full mt-1 " />
+                                <input placeholder="Funny looking cat" id="title" name="name" node_ref=upload_title type="text" class="border-b-2 border-base05 w-full mt-1 " />
                             </div>
                             <div class="flex flex-col gap-0">
                                 <label for="image" class="text-[1.2rem] ">"Images"</label>
@@ -485,7 +497,7 @@ pub mod upload {
                                         {move || upload_description_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
-                                <textarea class="border-l-2 border-white pl-2 bg-main-light" node_ref=upload_description id="description" name="description" rows="4" cols="50">""</textarea>
+                                <textarea class="border-l-2 border-base05 pl-2 bg-base05" node_ref=upload_description id="description" name="description" rows="4" cols="50">""</textarea>
                             </div>
                             <div class="flex flex-col gap-0">
                                 <label for="tags" class="text-[1.2rem] ">"Tags"</label>
@@ -494,11 +506,11 @@ pub mod upload {
                                         {move || upload_tags_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
-                                <textarea class="border-l-2 border-white pl-2 bg-main-light" node_ref=upload_tags id="tags" name="tags" rows="1" cols="50">""</textarea>
+                                <textarea class="border-l-2 border-base05 pl-2 bg-base05" node_ref=upload_tags id="tags" name="tags" rows="1" cols="50">""</textarea>
                             </div>
                         </div>
                         <div class="flex flex-col gap-[1.3rem] mx-auto my-[4rem] text-center">
-                            <input type="submit" value="Post" class="border-2 border-white text-[1.3rem] font-bold px-4 py-1 hover:bg-white hover:text-gray-950"/>
+                            <input type="submit" value="Post" class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
                         </div>
                     </form>
                 </div>
@@ -869,8 +881,8 @@ pub mod register {
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] min-h-[100dvh]">
                 <Nav/>
-                // <div class=move || format!("grid  text-white {}", if api_register.is_pending() || api_register.is_complete() || api_invite.is_complete() || api_invite.is_pending() || get_query_token().is_some() || get_query_email().is_some() {"items-center"} else {"justify-stretch"})>
-                <div class=move || format!("grid  text-white {}", if api.is_pending_tracked() {"items-center"} else {"justify-stretch"})>
+                // <div class=move || format!("grid  text-base05 {}", if api_register.is_pending() || api_register.is_complete() || api_invite.is_complete() || api_invite.is_pending() || get_query_token().is_some() || get_query_email().is_some() {"items-center"} else {"justify-stretch"})>
+                <div class=move || format!("grid  text-base05 {}", if api.is_pending_tracked() {"items-center"} else {"justify-stretch"})>
                     <div class=move||format!("mx-auto text-[1.5rem] {}", if api.is_pending_tracked() {""} else {"hidden"})>
                         <h1>"LOADING..."</h1>
                     </div>
@@ -890,10 +902,10 @@ pub mod register {
                                     {move || invite_email_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                 </ul>
                             </div>
-                            <input placeholder="alice@mail.com" id="email" node_ref=invite_email type="text" class="border-b-2 border-white w-full mt-1 " />
+                            <input placeholder="alice@mail.com" id="email" node_ref=invite_email type="text" class="border-b-2 border-base05 w-full mt-1 " />
                         </div>
                         <div class="flex flex-col gap-[1.3rem] mx-auto my-[4rem] text-center">
-                            <input type="submit" value="Register" class="border-2 border-white text-[1.3rem] font-bold px-4 py-1 hover:bg-white hover:text-gray-950"/>
+                            <input type="submit" value="Register" class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
                         </div>
                     </form>
                     <form method="POST" action="" on:submit=on_register class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if query_kind_is_reg() && !api.is_pending_tracked() {""} else {"hidden"})>
@@ -907,7 +919,7 @@ pub mod register {
                                         {move || register_username_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
-                                <input placeholder="Alice" id="username" node_ref=register_username type="text" class="border-b-2 border-white w-full mt-1 " />
+                                <input placeholder="Alice" id="username" node_ref=register_username type="text" class="border-b-2 border-base05 w-full mt-1 " />
                             </div>
                             <div class="flex flex-col gap-0">
                                 <label for="email" class="text-[1.2rem] ">"Email"</label>
@@ -916,7 +928,7 @@ pub mod register {
                                         {move || register_email_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
-                                <input value=move|| register_email_decoded.get() readonly placeholder="loading..." id="email" node_ref=register_email type="text" class="border-b-2 border-white w-full mt-1 " />
+                                <input value=move|| register_email_decoded.get() readonly placeholder="loading..." id="email" node_ref=register_email type="text" class="border-b-2 border-base05 w-full mt-1 " />
                             </div>
                             <div class="flex flex-col gap-0">
                                 <label for="password" class="text-[1.2rem] ">"Password"</label>
@@ -925,15 +937,15 @@ pub mod register {
                                         {move || register_password_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
-                                <input id="password" node_ref=register_password type="password" class="border-b-2 border-white w-full mt-1 " />
+                                <input id="password" node_ref=register_password type="password" class="border-b-2 border-base05 w-full mt-1 " />
                             </div>
                             <div class="flex flex-col gap-0">
                                 <label for="password_confirmation" class="text-[1.3rem] ">"Password Confirmation"</label>
-                                <input id="password_confirmation" node_ref=register_password_confirmation type="password" class="border-b-2 border-white w-full mt-1 " />
+                                <input id="password_confirmation" node_ref=register_password_confirmation type="password" class="border-b-2 border-base05 w-full mt-1 " />
                             </div>
                         </div>
                         <div class="flex flex-col gap-[1.3rem] mx-auto my-[4rem] text-center">
-                            <input type="submit" value="Register" class="border-2 border-white text-[1.3rem] font-bold px-4 py-1 hover:bg-white hover:text-gray-950"/>
+                            <input type="submit" value="Register" class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
                             // <a href="/login" class="underline">"or Login"</a>
                         </div>
                     </form>
@@ -1072,7 +1084,7 @@ pub mod login {
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] min-h-[100dvh]">
                 <Nav/>
-                <div class=move || format!("grid  text-white {}", if api.is_pending_tracked() {"items-center"} else {"justify-stretch"})>
+                <div class=move || format!("grid  text-base05 {}", if api.is_pending_tracked() {"items-center"} else {"justify-stretch"})>
                     <div class=move||format!("mx-auto text-[1.5rem] {}", if api.is_pending_tracked() {""} else {"hidden"})>
                         <h1>"LOADING..."</h1>
                     </div>
@@ -1087,7 +1099,7 @@ pub mod login {
                                         {move || email_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
-                                <input placeholder="alice@mail.com" id="email" node_ref=input_email type="email" class="border-b-2 border-white" />
+                                <input placeholder="alice@mail.com" id="email" node_ref=input_email type="email" class="border-b-2 border-base05" />
                             </div>
                             <div class="flex flex-col gap-0">
                                 <label for="password" class="text-[1.2rem] ">"Password"</label>
@@ -1096,11 +1108,11 @@ pub mod login {
                                 //         {move || password_err.get().trim().split("\n").filter(|v| v.len() > 1).into_iter().map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                 //     </ul>
                                 // </div>
-                                <input id="password" node_ref=input_password type="password" class="border-b-2 border-white" />
+                                <input id="password" node_ref=input_password type="password" class="border-b-2 border-base05" />
                             </div>
                         </div>
                         <div class="flex flex-col gap-[1.3rem] mx-auto my-[4rem] text-center">
-                            <input type="submit" value="Login" class="border-2 border-white text-[1.3rem] font-bold px-4 py-1 hover:bg-white hover:text-gray-950"/>
+                            <input type="submit" value="Login" class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
                             <a href="/register" class="underline">"or Register"</a>
                         </div>
                     </form>

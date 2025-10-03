@@ -193,7 +193,7 @@ pub mod fe_router {
                     <link rel="shortcut icon" type="image/ico" href="/favicon.ico" />
                     <link rel="stylesheet" id="leptos" href="/pkg/artbounty_1.css" />
                 </head>
-                <body class="bg-main-dark">
+                <body class="bg-base00">
                     <App />
                 </body>
             </html>

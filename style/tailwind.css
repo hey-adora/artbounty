@@ -16,8 +16,20 @@
     --color-first-one: #41355E;
     --color-space-one: #000017;
 
-    --color-main-dark: #0C0016;
-    --color-main-half: #ADADAD;
-    --color-main-light: #362E3D;
-    --color-main-highlight: #FB00FF;
+    --color-base00: #1E1E2E;
+    --color-base01: #181825;
+    --color-base02: #313244;
+    --color-base03: #45475A;
+    --color-base04: #585B70;
+    --color-base05: #CDD6F4;
+    --color-base06: #F5E0DC;
+    --color-base07: #B4BEFE;
+    --color-base08: #F38BA8;
+    --color-base09: #FAB387;
+    --color-base0A: #F9E2AF;
+    --color-base0B: #A6E3A1;
+    --color-base0C: #94E2D5;
+    --color-base0D: #89B4FA;
+    --color-base0E: #CBA6F7;
+    --color-base0F: #F2CDCD;
 }
