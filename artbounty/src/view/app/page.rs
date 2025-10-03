@@ -230,6 +230,7 @@ pub mod settings {
     pub enum SelectedForm {
         None,
         ChangeUsername,
+        ChangePassword,
     }
 
     #[component]
@@ -257,6 +258,7 @@ pub mod settings {
             let password = password.value();
 
             change_username_username_err.set(username.clone().err().unwrap_or_default());
+            change_username_username_general_err.set(String::new());
 
             let (Ok(username),) = (username,) else {
                 return;
@@ -265,12 +267,16 @@ pub mod settings {
                 match result {
                     Ok(crate::api::ServerRes::User { username }) => {
                         global_state.change_username(username);
+                        selected_form.try_set(SelectedForm::None);
                     },
                     Ok(err) => {
                         error!("expected Post, received {err:?}");
                         let _ = change_username_username_general_err
                             .try_set("SERVER ERROR, wrong response.".to_string());
                     }
+                    Err(ServerErr::ChangeUsernameErr(crate::api::ChangeUsernameErr::UsernameIsTaken(_))) => {
+                        change_username_username_err.set("Username is taken".to_string());
+                    },
                     Err(err) => {
                         let _ = change_username_username_general_err.try_set(err.to_string());
                     }
@@ -296,8 +302,8 @@ pub mod settings {
                 </div>
                 <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if selected_form.get() == SelectedForm::ChangeUsername { "flex" } else { "hidden" } )>
                     <form method="POST" on:submit=on_change_username action="" class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full border-2 border-base05 bg-base00">
-                        <h2 class="text-[1.5rem]  text-center my-[4rem]">"Change Username"</h2>
-                        <div class=move||format!("text-red-600 text-center {}", if change_username_username_general_err.with(|v| v.is_empty()) { "hidden" } else { "" } )>{move || { change_username_username_general_err.get() }}</div>
+                        <h2 class="text-[1.5rem]  text-center mt-[4rem]">"Change Username"</h2>
+                        <div class=move||format!("text-red-600 text-center my-[2rem] {}", if change_username_username_general_err.with(|v| v.is_empty()) { "invisible" } else { "" } )>{move || { change_username_username_general_err.get() }}</div>
                         <div class="flex flex-col gap-6">
                             <div class="flex flex-col gap-0">
                                 <label for="username" class="text-[1.2rem] ">"New Username"</label>
