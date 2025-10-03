@@ -283,6 +283,18 @@ pub enum DB404Err {
     NotFound,
 }
 
+#[derive(Debug, Error)]
+pub enum DBChangeUsernameErr {
+    #[error("DB error {0}")]
+    DB(#[from] surrealdb::Error),
+
+    #[error("username {0} is taken")]
+    UsernameIsTaken(String),
+
+    #[error("user not found")]
+    NotFound,
+}
+
 impl Db<local::Db> {
     pub async fn connect(&self) {
         // TODO make path as env
@@ -637,17 +649,21 @@ impl<C: Connection> Db<C> {
         user: RecordId,
         new_username: impl Into<String>,
         time: u128,
-    ) -> Result<DBUser, DB404Err> {
+    ) -> Result<DBUser, DBChangeUsernameErr> {
+        let username = new_username.into();
         self.db
             .query(
-                "UPDATE $user_id SET modified_at = $time, username = $new_username;",
+                "UPDATE user SET modified_at = $time, username = $new_username WHERE id = $user_id;",
             )
             .bind(("user_id", user))
-            .bind(("new_username", new_username.into()))
+            .bind(("new_username", username.clone()))
             .bind(("time", time))
             .await
-            .check_good(DB404Err::from)
-            .and_then_take_or(0, DB404Err::NotFound)
+            .check_good(|err| match err {
+                err if err.index_exists("idx_user_username") => DBChangeUsernameErr::UsernameIsTaken(username),
+                err => err.into(),
+            })
+            .and_then_take_or(0, DBChangeUsernameErr::NotFound)
     }
 
     pub async fn use_invite<TokenRaw: Into<String>>(
@@ -803,20 +819,14 @@ mod tests {
     use test_log::test;
     use tracing::trace;
 
-    use crate::db::{AddInviteErr, AddSessionErr, AddUserErr, DB404Err, DBUserPostFile, Db};
+    use crate::db::{AddInviteErr, AddSessionErr, AddUserErr, DBChangeUsernameErr, DB404Err, DBUserPostFile, Db};
 
     #[test(tokio::test)]
     async fn db_post() {
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate(0).await.unwrap();
-        let user = db
-            .add_user(0, "hey", "hey@hey.com", "123")
-            .await
-            .unwrap();
-        let user2 = db
-            .add_user(0, "hey2", "hey2@hey.com", "123")
-            .await
-            .unwrap();
+        let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
+        let user2 = db.add_user(0, "hey2", "hey2@hey.com", "123").await.unwrap();
 
         let post = db
             .add_post(
@@ -997,12 +1007,16 @@ mod tests {
         let result = db.get_user_password("hey2@hey.com").await;
         assert!(matches!(result, Err(DB404Err::NotFound)));
 
-        let result = db.change_username(user1.id, "hey5", time).await.unwrap();
+        let result = db.change_username(user1.id.clone(), "hey5", time).await.unwrap();
         assert_eq!(result.username, "hey5");
 
         let result = db.get_user_by_username("hey").await;
         assert!(matches!(result, Err(DB404Err::NotFound)));
 
+        let user2 = db.add_user(time, "hey2", "hey2@hey.com", "hey").await.unwrap();
+
+        let result = db.change_username(user1.id, "hey2", time).await;
+        assert!(matches!(result, Err(DBChangeUsernameErr::UsernameIsTaken(_))));
     }
 
     #[test(tokio::test)]

@@ -282,6 +282,9 @@ pub enum ServerErr {
     #[error("registration err {0}")]
     ServerRegistrationErr(#[from] ServerRegistrationErr),
 
+    #[error("change username err {0}")]
+    ChangeUsernameErr(#[from] ChangeUsernameErr),
+
     #[error("add deserialization err {0}")]
     ServerDesErr(#[from] ServerDesErr),
 
@@ -425,6 +428,15 @@ pub enum ServerRegistrationErr {
 
     // #[error("invite token not found")]
     // ServerInviteTokenNotFound,
+}
+
+#[derive(Error, Com!)]
+pub enum ChangeUsernameErr {
+    #[error("username \"{0}\" is taken")]
+    UsernameIsTaken(String),
+
+    #[error("user not found")]
+    NotFound,
 }
 
 #[derive(Com!)]
@@ -1248,6 +1260,7 @@ impl axum::response::IntoResponse for ServerErr {
             | ServerErr::ServerAddPostErr(ServerAddPostErr::ServerImgErr(_))
             | ServerErr::ServerAddPostErr(ServerAddPostErr::ServerFSErr(_))
             | ServerErr::ServerAddPostErr(ServerAddPostErr::ServerDirCreationFailed(_))
+            | ServerErr::ChangeUsernameErr(ChangeUsernameErr::UsernameIsTaken(_))
             | ServerErr::ServerRegistrationErr(
                 ServerRegistrationErr::ServerRegistrationInvalidInput { .. },
             ) => axum::http::StatusCode::BAD_REQUEST,
@@ -1258,7 +1271,10 @@ impl axum::response::IntoResponse for ServerErr {
             | ServerErr::ServerLoginErr(ServerLoginErr::WrongCredentials) => {
                 axum::http::StatusCode::UNAUTHORIZED
             }
-            ServerErr::ServerGetErr(ServerGetErr::NotFound) => axum::http::StatusCode::NOT_FOUND,
+            ServerErr::ServerGetErr(ServerGetErr::NotFound)
+            | ServerErr::ChangeUsernameErr(ChangeUsernameErr::NotFound) => {
+                axum::http::StatusCode::NOT_FOUND
+            }
             ServerErr::ClientErr(_) => unreachable!(),
         };
 
@@ -1389,15 +1405,16 @@ pub async fn send(
 pub mod backend {
     use crate::api::app_state::AppState;
     use crate::api::{
-        AuthToken, InviteToken, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr,
-        ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerGetErr, ServerInviteErr,
-        ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes, User, UserPost, UserPostFile,
-        auth_token_get, decode_token, encode_token, hash_password, verify_password,
+        AuthToken, ChangeUsernameErr, InviteToken, ServerAddPostErr, ServerAuthErr,
+        ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta,
+        ServerGetErr, ServerInviteErr, ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes,
+        User, UserPost, UserPostFile, auth_token_get, decode_token, encode_token, hash_password,
+        verify_password,
     };
-    use crate::db::AddUserErr;
-    use crate::db::DB404Err;
+    use crate::db::{DB404Err, DBChangeUsernameErr};
     use crate::db::DBUserPostFile;
     use crate::db::{AddInviteErr, DBUser};
+    use crate::db::{AddUserErr};
     use crate::valid::auth::{
         proccess_password, proccess_post_description, proccess_post_title, proccess_username,
     };
@@ -1528,8 +1545,13 @@ pub mod backend {
             .change_username(db_user.id.clone(), username, time)
             .await
             .map_err(|err| match err {
-                DB404Err::DB(err) => ServerErr::ServerDbErr,
-                DB404Err::NotFound => ServerErr::ServerGetErr(ServerGetErr::NotFound),
+                DBChangeUsernameErr::DB(err) => ServerErr::ServerDbErr,
+                DBChangeUsernameErr::UsernameIsTaken(username) => {
+                    ServerErr::ChangeUsernameErr(ChangeUsernameErr::UsernameIsTaken(username))
+                }
+                DBChangeUsernameErr::NotFound => {
+                    ServerErr::ChangeUsernameErr(ChangeUsernameErr::NotFound)
+                }
             })?;
 
         Ok(ServerRes::User {
@@ -1540,9 +1562,10 @@ pub mod backend {
     pub async fn profile(
         State(app_state): State<AppState>,
         auth_token: Extension<AuthToken>,
+        db_user: Extension<DBUser>,
     ) -> Result<ServerRes, ServerErr> {
         Ok(ServerRes::User {
-            username: auth_token.username.clone(),
+            username: db_user.username.clone(),
         })
     }
 
@@ -2710,6 +2733,21 @@ mod tests {
             .send_native_with_token(token_raw.clone())
             .await
             .unwrap();
+        match result {
+            crate::api::ServerRes::User { username } => {
+                assert_eq!(username, "bye");
+            }
+            wrong => {
+                panic!("{}", format!("expected User, got {:?}", wrong));
+            }
+        }
+
+        let result = api
+            .profile()
+            .send_native_with_token(token_raw.clone())
+            .await
+            .unwrap();
+
         match result {
             crate::api::ServerRes::User { username } => {
                 assert_eq!(username, "bye");
