@@ -1,7 +1,7 @@
 pub mod nav {
     use crate::{
         api::{Api, ApiWeb},
-        path::{link_settings, link_user, PATH_LOGIN, PATH_UPLOAD},
+        path::{PATH_LOGIN, PATH_UPLOAD, link_settings, link_user},
         view::{app::GlobalState, toolbox::prelude::*},
     };
     use leptos::prelude::*;
@@ -41,10 +41,10 @@ pub mod nav {
                 <div class=move||format!("{}", if global_state.acc_pending() { "" } else { "hidden" })>
                     <p>"loading..."</p>
                 </div>
-                <div class=move||format!("{}", if global_state.is_logged_in() || global_state.acc_pending() { "hidden" } else { "" })>
+                <div class=move||format!("{}", if global_state.is_logged_in().unwrap_or_default() || global_state.acc_pending() { "hidden" } else { "" })>
                     <a href=PATH_LOGIN>"Login"</a>
                 </div>
-                <div class=move||format!("flex gap-2 {}", if global_state.is_logged_in() { "" } else { "hidden" })>
+                <div class=move||format!("flex gap-2 {}", if global_state.is_logged_in().unwrap_or_default() { "" } else { "hidden" })>
                     <a href=PATH_UPLOAD>"U"</a>
                     <a href=move|| link_user(acc_username())>{acc_username}</a>
                     <a href=move|| link_settings()>"Settings"</a>
@@ -242,7 +242,14 @@ pub mod gallery {
             let Some(img) = gallery.first() else {
                 return;
             };
-            set_gallery(false, width, height * 8.0, img.created_at, count, user_username);
+            set_gallery(
+                false,
+                width,
+                height * 8.0,
+                img.created_at,
+                count,
+                user_username,
+            );
         };
 
         let run_fetch_bottom = move || {
@@ -273,7 +280,14 @@ pub mod gallery {
             let Some(img) = gallery.last() else {
                 return;
             };
-            set_gallery(true, width, height * 8.0, img.created_at, count, user_username);
+            set_gallery(
+                true,
+                width,
+                height * 8.0,
+                img.created_at,
+                count,
+                user_username,
+            );
         };
 
         let run_on_click = move |e: MouseEvent, img: Img| {

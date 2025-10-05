@@ -3,7 +3,7 @@ use leptos_router::components::*;
 use leptos_router::path;
 use log::error;
 use log::trace;
-use page::{home, login, post, profile, register, upload, settings};
+use page::{home, login, post, profile, register, settings, upload};
 use tracing::info;
 
 use crate::api::Api;
@@ -30,6 +30,18 @@ impl GlobalState {
             ..Default::default()
         }
     }
+    pub fn get_email_tracked(&self) -> Option<String> {
+        self.acc
+            .with(|acc| acc.as_ref().map(|acc| acc.email.clone()))
+    }
+    pub fn get_email_untracked(&self) -> Option<String> {
+        self.acc
+            .with_untracked(|acc| acc.as_ref().map(|acc| acc.email.clone()))
+    }
+    pub fn get_username_tracked(&self) -> Option<String> {
+        self.acc
+            .with(|acc| acc.as_ref().map(|acc| acc.username.clone()))
+    }
     pub fn get_username_untracked(&self) -> Option<String> {
         self.acc
             .with_untracked(|acc| acc.as_ref().map(|acc| acc.username.clone()))
@@ -43,7 +55,6 @@ impl GlobalState {
             };
             acc.username = username;
         });
-
     }
     pub fn update_auth(&self) {
         let this = self.clone();
@@ -60,9 +71,9 @@ impl GlobalState {
     }
     pub fn set_auth_from_res(&self, result: Result<ServerRes, ServerErr>) {
         match result {
-            Ok(ServerRes::User { username }) => {
+            Ok(ServerRes::Acc { username, email }) => {
                 info!("logged in as {username}");
-                let r = self.acc.try_set(Some(Acc { username: username }));
+                let r = self.acc.try_set(Some(Acc { username, email }));
                 if r.is_some() {
                     error!("global state acc was disposed somehow");
                 }
@@ -79,10 +90,13 @@ impl GlobalState {
             error!("global state acc was disposed somehow");
         }
     }
-    pub fn is_logged_in(&self) -> bool {
+    pub fn is_logged_in(&self) -> Option<bool> {
         let pending = self.acc_pending.get();
         let has_data = self.acc.with(|v| v.is_some());
-        (pending && !has_data) || (!pending && has_data)
+        if pending {
+            return None;
+        }
+        Some(has_data)
     }
     pub fn acc_pending(&self) -> bool {
         self.acc_pending.get()
@@ -107,6 +121,7 @@ impl GlobalState {
 #[derive(Clone, Default, Debug)]
 pub struct Acc {
     pub username: String,
+    pub email: String,
 }
 
 #[component]
@@ -150,10 +165,10 @@ pub fn App() -> impl IntoView {
                 <Route path=path!("") view=home::Page />
                 <Route path=path!("/u/:username/:post") view=post::Page />
                 <Route path=path!("/u/:username") view=profile::Page />
-                <ProtectedRoute path=path!("/settings") condition=move||Some(global_state.is_logged_in()) redirect_path view=settings::Page />
-                <ProtectedRoute path=path!("/upload") condition=move||Some(global_state.is_logged_in()) redirect_path view=upload::Page />
-                <ProtectedRoute path=path!("/login") condition=move||Some(!global_state.is_logged_in()) redirect_path view=login::Page />
-                <ProtectedRoute path=path!("/register") condition=move||Some(!global_state.is_logged_in()) redirect_path view=register::Page />
+                <ProtectedRoute path=path!("/settings") condition=move||global_state.is_logged_in() redirect_path view=settings::Page />
+                <ProtectedRoute path=path!("/upload") condition=move||global_state.is_logged_in() redirect_path view=upload::Page />
+                <ProtectedRoute path=path!("/login") condition=move||global_state.is_logged_in().map(|v| !v) redirect_path view=login::Page />
+                <ProtectedRoute path=path!("/register") condition=move||global_state.is_logged_in().map(|v| !v) redirect_path view=register::Page />
             </Routes>
         </Router>
     }

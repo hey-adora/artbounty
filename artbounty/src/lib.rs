@@ -21,11 +21,11 @@ pub mod valid {
             match username.len() {
                 len if len < 3 => errors += "username must be at least 3 characters length\n",
                 len if len > 32 => errors += "username must be shorter than 33 characters length\n",
-                _ => {},
+                _ => {}
             }
             let mut username_chars = username.chars();
             match username_chars.next() {
-                Some(c) if c.is_alphabetic() => {},
+                Some(c) if c.is_alphabetic() => {}
                 _ => errors += "username must start with alphabetic character\n",
             }
             for c in username_chars {
@@ -323,15 +323,19 @@ pub mod path {
     use leptos::prelude::*;
     use leptos_router::{OptionalParamSegment, ParamSegment, StaticSegment, WildcardSegment, path};
 
+    use crate::view::app::page::settings::{EmailChangeStage, SelectedForm, UsernameChangeStage};
+
     pub const PATH_API: &'static str = "/api";
     pub const PATH_API_LOGOUT: &'static str = "/logout";
     pub const PATH_API_USER: &'static str = "/user";
     pub const PATH_API_PROFILE: &'static str = "/profile";
     pub const PATH_API_INVITE_DECODE: &'static str = "/invite_decode";
-    pub const PATH_API_INVITE: &'static str = "/invite";
+    pub const PATH_API_EMAIL_INVITE: &'static str = "/email_invite";
+    pub const PATH_API_EMAIL_CONFIRMATION: &'static str = "/email_confirmation";
     pub const PATH_API_REGISTER: &'static str = "/register";
     pub const PATH_API_LOGIN: &'static str = "/login";
     pub const PATH_API_CHANGE_USERNAME: &'static str = "/change_username";
+    pub const PATH_API_CHANGE_EMAIL: &'static str = "/change_email";
     pub const PATH_API_POST_ADD: &'static str = "/post/add";
     pub const PATH_API_POST_GET: &'static str = "/post/get";
     pub const PATH_API_POST_GET_OLDER: &'static str = "/post/get_older";
@@ -384,6 +388,55 @@ pub mod path {
         PATH_SETTINGS.to_string()
     }
 
+    pub fn link_settings_form_email(
+        stage: EmailChangeStage,
+        new_email: Option<String>,
+        confirm_token: Option<String>,
+    ) -> String {
+        format!(
+            "{}?selected_form={}&email_stage={}{}{}{}{}",
+            PATH_SETTINGS,
+            SelectedForm::ChangeEmail,
+            stage,
+            if new_email.is_some() {
+                "&new_email="
+            } else {
+                ""
+            },
+            new_email.unwrap_or_default(),
+            if confirm_token.is_some() {
+                "&confirm_token="
+            } else {
+                ""
+            },
+            confirm_token.unwrap_or_default(),
+        )
+    }
+
+    pub fn link_settings_form_username(
+        stage: UsernameChangeStage,
+        old_username: Option<impl Into<String>>,
+        new_username: Option<impl Into<String>>,
+        // current_email: impl AsRef<str>,
+    ) -> String {
+        format!(
+            "{}?selected_form={}{}{}{}{}",
+            PATH_SETTINGS,
+            SelectedForm::UsernameChanged,
+            if old_username.is_some() {
+                "&old_username="
+            } else {
+                ""
+            },
+            old_username.map(|v| v.into()).unwrap_or_default(),
+            if new_username.is_some() {
+                "&new_username="
+            } else {
+                ""
+            },
+            new_username.map(|v| v.into()).unwrap_or_default(),
+        )
+    }
 
     pub fn link_check_email<Email: AsRef<str>>(email: Email) -> String {
         format!(
