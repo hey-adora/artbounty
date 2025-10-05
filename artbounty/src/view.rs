@@ -20,6 +20,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <HydrationScripts options />
                 <MetaTags/>
 
+                <meta name="darkreader-lock" />
                 <meta name="color-scheme" content="dark light" />
                 <link rel="shortcut icon" type="image/ico" href="/favicon.ico" />
                 <link rel="stylesheet" id="leptos" href="/pkg/artbounty_1.css" />

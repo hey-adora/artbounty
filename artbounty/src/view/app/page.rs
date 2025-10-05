@@ -29,7 +29,6 @@ pub mod post {
         let favorites = RwSignal::new(0_u64);
         let not_found = RwSignal::new(false);
         let location = use_location();
-        
 
         let fn_link = move || {
             let author = author.get();
@@ -82,7 +81,12 @@ pub mod post {
                         imgs_links.set(
                             post.file
                                 .into_iter()
-                                .map(|file| (link_img(file.hash, file.extension), file.width as f64 / file.height as f64))
+                                .map(|file| {
+                                    (
+                                        link_img(file.hash, file.extension),
+                                        file.width as f64 / file.height as f64,
+                                    )
+                                })
                                 .collect(),
                         );
 
@@ -110,10 +114,18 @@ pub mod post {
             let imgs_links = imgs_links.get();
             let selected_n = if hash.len() > 3 {
                 usize::from_str_radix(&hash[3..], 10).unwrap_or_default()
-            } else { 0 };
-            let (selected_url, selected_ratio) = imgs_links.get(selected_n).cloned().unwrap_or_else(|| imgs_links.first().cloned().unwrap_or(("/404.webp".to_string(), 1920.0 / 1080.0)));
+            } else {
+                0
+            };
+            let (selected_url, selected_ratio) =
+                imgs_links.get(selected_n).cloned().unwrap_or_else(|| {
+                    imgs_links
+                        .first()
+                        .cloned()
+                        .unwrap_or(("/404.webp".to_string(), 1920.0 / 1080.0))
+                });
 
-            view! { 
+            view! {
                 // <div style:aspect-ratio=selected_ratio.to_string() class="w-full grid place-items-center bg-base02">
                 // </div>
                 <img id=move || format!("id{selected_n}") class="max-h-full" src=selected_url />
@@ -125,7 +137,7 @@ pub mod post {
                 .get()
                 .into_iter()
                 .enumerate()
-                .map(|(i, (url, ratio))| view! { 
+                .map(|(i, (url, ratio))| view! {
                     <div style:aspect-ratio=ratio.to_string() class="w-full grid place-items-center bg-base02">
                         <img id=move || format!("id{i}") class="" src=url />
                     </div>
@@ -143,7 +155,7 @@ pub mod post {
                     let id2 = id.clone();
                     // let location = location.clone();
 
-                    view! { <a 
+                    view! { <a
                         href=id2
                         class=move ||  {
                             let hash = location.hash.get();
@@ -212,95 +224,383 @@ pub mod post {
 pub mod settings {
     use std::rc::Rc;
 
-    use crate::api::{Api, ApiWeb, ServerAddPostErr, ServerErr, ServerReqImg};
-    use crate::path::link_post;
+    use crate::api::{
+        Api, ApiWeb, EmailConfirmTokenKind, ServerAddPostErr, ServerErr, ServerReqImg, ServerRes,
+    };
+    use crate::path::{
+        link_post, link_reg, link_settings, link_settings_form_email, link_settings_form_username,
+    };
     use crate::valid::auth::{proccess_post_description, proccess_post_title, proccess_username};
-    use crate::view::app::components::nav::Nav;
     use crate::view::app::GlobalState;
+    use crate::view::app::components::nav::Nav;
     use crate::view::toolbox::prelude::*;
     use leptos::prelude::*;
     use leptos::{Params, task::spawn_local};
+    use leptos_router::NavigateOptions;
     use leptos_router::{hooks::use_params, params::Params};
 
     use leptos_router::hooks::use_query;
     use tracing::{error, trace};
     use web_sys::{HtmlInputElement, HtmlTextAreaElement, MouseEvent, SubmitEvent};
 
-    #[derive(Clone, Debug, PartialEq, PartialOrd)]
+    #[derive(
+        Clone,
+        Debug,
+        PartialEq,
+        PartialOrd,
+        serde::Serialize,
+        serde::Deserialize,
+        strum::EnumString,
+        strum::Display,
+    )]
+    #[strum(serialize_all = "lowercase")]
     pub enum SelectedForm {
         None,
         ChangeUsername,
+        ChangeEmail,
+        UsernameChanged,
         ChangePassword,
+    }
+
+    #[derive(
+        Clone,
+        Debug,
+        PartialEq,
+        PartialOrd,
+        serde::Serialize,
+        serde::Deserialize,
+        strum::EnumString,
+        strum::EnumIter,
+        strum::Display,
+    )]
+    #[strum(serialize_all = "lowercase")]
+    pub enum EmailChangeStage {
+        SendConfirm,
+        ClickConfirm,
+        EnterNewEmail,
+        ConfirmNewEmail,
+        Finish,
+    }
+
+    #[derive(
+        Clone,
+        Debug,
+        PartialEq,
+        PartialOrd,
+        serde::Serialize,
+        serde::Deserialize,
+        strum::EnumString,
+        strum::EnumIter,
+        strum::Display,
+    )]
+    #[strum(serialize_all = "lowercase")]
+    pub enum UsernameChangeStage {
+        SendConfirm,
+        ClickConfirm,
+        EnterNewUsername,
+        Finish,
+    }
+
+    #[derive(Params, PartialEq, Clone, Default)]
+    pub struct PageParams {
+        pub selected_form: Option<SelectedForm>,
+        pub new_email: Option<String>,
+        pub new_username: Option<String>,
+        pub old_username: Option<String>,
+        pub confirm_token: Option<String>,
+        pub email_stage: Option<EmailChangeStage>,
+        pub username_stage: Option<UsernameChangeStage>,
+        // pub current_email: Option<String>,
     }
 
     #[component]
     pub fn Page() -> impl IntoView {
         let main_ref = NodeRef::new();
         let global_state = expect_context::<GlobalState>();
-        let selected_form = RwSignal::new(SelectedForm::None);
+        // let selected_form = RwSignal::new(SelectedForm::None);
+
+        let navigate = leptos_router::hooks::use_navigate();
+        let query = use_query::<PageParams>();
+        let get_query_selected_form = move || {
+            query
+                .read()
+                .as_ref()
+                .ok()
+                .and_then(|v| v.selected_form.clone())
+                .unwrap_or(SelectedForm::None)
+        };
+        let get_query = move || {
+            query
+                .read()
+                .as_ref()
+                .ok()
+                .map(|v| v.clone())
+                .unwrap_or_default()
+        };
+        let get_query_untracked = move || {
+            query
+                .read_untracked()
+                .as_ref()
+                .ok()
+                .map(|v| v.clone())
+                .unwrap_or_default()
+        };
+        let get_query_new_username = move || {
+            query
+                .read()
+                .as_ref()
+                .ok()
+                .and_then(|v| v.new_username.clone())
+        };
+        let get_query_old_username = move || {
+            query
+                .read()
+                .as_ref()
+                .ok()
+                .and_then(|v| v.old_username.clone())
+        };
+
+        let get_query_email_stage = move || {
+            query
+                .read()
+                .as_ref()
+                .ok()
+                .and_then(|v| v.email_stage.clone())
+                .unwrap_or(EmailChangeStage::SendConfirm)
+        };
+
+        // let is_current_stage = move |stage: usize| -> bool {
+        //
+        //     let current_stage = get_query_form_stage();
+        // };
+
+        let view_current_stage_label = move |stage: EmailChangeStage| {
+            let current_stage = get_query_email_stage();
+            let (text, style) = if current_stage == stage {
+                ("Current", "text-base0C")
+            } else if current_stage > stage {
+                ("Done", "text-base0B")
+            } else {
+                ("Next", "text-base03")
+            };
+
+            view! {
+                <span class=style>{text}</span>
+            }
+        };
+
         let api = ApiWeb::new();
         let change_username_username_general_err = RwSignal::new(String::new());
         let change_username_username = NodeRef::new();
         let change_username_username_err = RwSignal::new(String::new());
         let change_username_password = NodeRef::new();
+
+        let change_email_send_confirm_err = RwSignal::new(String::new());
+
+        let change_email_enter_new_email_input = NodeRef::new();
+        let change_email_enter_new_email_err = RwSignal::new(String::new());
         // let change_username_password_err = RwSignal::new(String::new());
 
-        let on_change_username = move |e: SubmitEvent| {
-            e.prevent_default();
-            let ( Some(username), Some(password)) = (
-                change_username_username.get_untracked() as Option<HtmlInputElement>,
-                change_username_password.get_untracked() as Option<HtmlInputElement>,
-            ) else {
-                return;
-            };
+        let on_change_username = {
+            let navigate = navigate.clone();
+            move |e: SubmitEvent| {
+                e.prevent_default();
+                let navigate = navigate.clone();
+                let (Some(username), Some(password)) = (
+                    change_username_username.get_untracked() as Option<HtmlInputElement>,
+                    change_username_password.get_untracked() as Option<HtmlInputElement>,
+                ) else {
+                    return;
+                };
 
-            let username = proccess_username(username.value());
-            let password = password.value();
+                let username = proccess_username(username.value());
+                let password = password.value();
 
-            change_username_username_err.set(username.clone().err().unwrap_or_default());
-            change_username_username_general_err.set(String::new());
+                change_username_username_err.set(username.clone().err().unwrap_or_default());
+                change_username_username_general_err.set(String::new());
 
-            let (Ok(username),) = (username,) else {
-                return;
-            };
-            api.change_username(password, username).send_web(move |result| async move {
-                match result {
-                    Ok(crate::api::ServerRes::User { username }) => {
-                        global_state.change_username(username);
-                        selected_form.try_set(SelectedForm::None);
-                    },
-                    Ok(err) => {
-                        error!("expected Post, received {err:?}");
-                        let _ = change_username_username_general_err
-                            .try_set("SERVER ERROR, wrong response.".to_string());
+                let (Ok(username),) = (username,) else {
+                    return;
+                };
+                api.change_username(password, username)
+                    .send_web(move |result| {
+                        let navigate = navigate.clone();
+                        async move {
+                            match result {
+                                Ok(crate::api::ServerRes::User {
+                                    username: new_username,
+                                }) => {
+                                    let old_username = global_state
+                                        .get_username_untracked()
+                                        .unwrap_or("404".to_string());
+                                    // let current_email = global_state.get_email_untracked().unwrap_or("404".to_string());
+                                    global_state.change_username(new_username.clone());
+                                    navigate(
+                                        &link_settings_form_username(
+                                            UsernameChangeStage::Finish,
+                                            Some(old_username),
+                                            Some(new_username),
+                                        ),
+                                        NavigateOptions::default(),
+                                    );
+                                    // selected_form.try_set(SelectedForm::None);
+                                }
+                                Ok(err) => {
+                                    error!("expected Post, received {err:?}");
+                                    let _ = change_username_username_general_err
+                                        .try_set("SERVER ERROR, wrong response.".to_string());
+                                }
+                                Err(ServerErr::ChangeUsernameErr(
+                                    crate::api::ChangeUsernameErr::UsernameIsTaken(_),
+                                )) => {
+                                    change_username_username_err
+                                        .set("Username is taken".to_string());
+                                }
+                                Err(err) => {
+                                    let _ = change_username_username_general_err
+                                        .try_set(err.to_string());
+                                }
+                            }
+                        }
+                    });
+            }
+        };
+
+        let on_email_change_send_confirm = {
+            let navigate = navigate.clone();
+            move |e: SubmitEvent| {
+                e.prevent_default();
+                let navigate = navigate.clone();
+
+                api.send_email_confirmation(EmailConfirmTokenKind::ChangeEmail)
+                    .send_web(move |result| {
+                        let navigate = navigate.clone();
+                        async move {
+                            match result {
+                                Ok(ServerRes::Ok) => {
+                                    navigate(
+                                        &link_settings_form_email(
+                                            EmailChangeStage::ClickConfirm,
+                                            None,
+                                            None,
+                                        ),
+                                        NavigateOptions::default(),
+                                    );
+                                }
+                                Ok(err) => {
+                                    error!("expected Post, received {err:?}");
+                                    let _ = change_email_send_confirm_err
+                                        .try_set("SERVER ERROR, wrong response.".to_string());
+                                }
+                                Err(err) => {
+                                    let _ = change_email_send_confirm_err.try_set(err.to_string());
+                                }
+                            }
+                        }
+                    });
+
+                //
+            }
+        };
+
+        let on_email_change_enter_new_email = {
+            let navigate = navigate.clone();
+            move |e: SubmitEvent| {
+                e.prevent_default();
+                let navigate = navigate.clone();
+
+                let confirm_token = get_query_untracked().confirm_token;
+                let confirm_token_is_none = confirm_token.is_none();
+                let (Some(confirm_token), Some(new_email)) = (
+                    confirm_token,
+                    change_email_enter_new_email_input.get() as Option<HtmlInputElement>,
+                ) else {
+                    if confirm_token_is_none {
+                        change_email_enter_new_email_err
+                            .set("missing confirm_token query field".to_string());
                     }
-                    Err(ServerErr::ChangeUsernameErr(crate::api::ChangeUsernameErr::UsernameIsTaken(_))) => {
-                        change_username_username_err.set("Username is taken".to_string());
-                    },
-                    Err(err) => {
-                        let _ = change_username_username_general_err.try_set(err.to_string());
-                    }
+
+                    return;
+                };
+
+                let new_email = new_email.value();
+
+                if new_email.is_empty() {
+                    change_email_enter_new_email_err
+                        .set("new_email field cant be empty".to_string());
+                    return;
                 }
-            });
+
+                api.change_email(confirm_token, new_email.clone())
+                    .send_web(move |result| {
+                        let navigate = navigate.clone();
+                        let new_email = new_email.clone();
+                        async move {
+                            match result {
+                                Ok(ServerRes::Ok) => {
+                                    navigate(
+                                        &link_settings_form_email(
+                                            EmailChangeStage::ConfirmNewEmail,
+                                            Some(new_email),
+                                            None,
+                                        ),
+                                        NavigateOptions::default(),
+                                    );
+                                }
+                                Ok(err) => {
+                                    error!("expected Ok, received {err:?}");
+                                    let _ = change_email_enter_new_email_err
+                                        .try_set("SERVER ERROR, wrong response.".to_string());
+                                }
+                                Err(err) => {
+                                    let _ =
+                                        change_email_enter_new_email_err.try_set(err.to_string());
+                                }
+                            }
+                        }
+                    });
+
+                //
+            }
         };
 
-        let on_open_change_username = move |_e: MouseEvent| selected_form.set(SelectedForm::ChangeUsername);
-        let on_close = move |e: MouseEvent| {
-            e.prevent_default();
-            selected_form.set(SelectedForm::None);
-        };
+        // let on_open_change_username = move |_e: MouseEvent| selected_form.set(SelectedForm::ChangeUsername);
+        // let on_close = move |e: MouseEvent| {
+        //     e.prevent_default();
+        //     navigate(&link_settings(), NavigateOptions::default());
+        // };
 
         // let should_disable = move || api.is_pending_tracked();
         //top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2
         view! {
-            <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen relative">
+            <main node_ref=main_ref class="text-base05 grid grid-rows-[auto_1fr] h-screen relative">
                 <Nav/>
-                <div class="flex flex-col px-[2rem] mx-auto gap-2">
-                    <h1 class="text-[1.5rem] text-center my-[4rem]">"Settings"</h1>
-                    <button on:click=on_open_change_username class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Change Username"</button>
-                    
+                <div class="flex flex-col px-[2rem] mx-auto gap-[2rem]">
+                    <h1 class="text-[1.5rem] text-base0A text-center mt-[4rem] mb-[2rem]">"Settings"</h1>
+                    <h2 class="text-[1.3rem] text-base0A mt-[4rem] mb-[2rem]">"Profile"</h2>
+                    <form class="flex flex-col gap-2">
+                        <label for="current_username" class="text-[1.2rem] ">"Username"</label>
+                        <div class="flex">
+                            <input value=move || global_state.get_username_tracked() id="current_username" name="current_username" disabled type="text" class="bg-base01 text-base0B w-full pl-2 " />
+                            <a href=link_settings_form_username(UsernameChangeStage::SendConfirm, None::<String>, None::<String>) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
+                            // <a href=link_settings_form(SelectedForm::ChangeUsername) class="border-2 border-base0E text-[1rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Change Username"</a>
+                        </div>
+                    </form>
+                    <form class="flex flex-col gap-2">
+                        <label for="current_email" class="text-[1.2rem] ">"Email"</label>
+                        <div class="flex">
+                            <input value=move || global_state.get_email_tracked() id="current_email" name="current_email" disabled type="text" class="bg-base01 text-base0B w-full pl-2 " />
+                            <a href=link_settings_form_email(EmailChangeStage::SendConfirm, None, None) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
+                            // <a href=link_settings_form(SelectedForm::ChangeUsername) class="border-2 border-base0E text-[1rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Change Username"</a>
+                        </div>
+                    </form>
+                    // <button on:click=on_open_change_username class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Change Username"</button>
+
                 </div>
-                <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if selected_form.get() == SelectedForm::ChangeUsername { "flex" } else { "hidden" } )>
+
+                // username change
+                // step 1
+                <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if get_query_selected_form() == SelectedForm::ChangeUsername { "flex" } else { "hidden" } )>
                     <form method="POST" on:submit=on_change_username action="" class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full border-2 border-base05 bg-base00">
                         <h2 class="text-[1.5rem]  text-center mt-[4rem]">"Change Username"</h2>
                         <div class=move||format!("text-red-600 text-center my-[2rem] {}", if change_username_username_general_err.with(|v| v.is_empty()) { "invisible" } else { "" } )>{move || { change_username_username_general_err.get() }}</div>
@@ -325,11 +625,116 @@ pub mod settings {
                             </div>
                         </div>
                         <div class="flex flex-row gap-[1.3rem] mx-auto my-[4rem] text-center">
-                            <button on:click=on_close disabled=move || api.is_pending_tracked() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Cancel"</button>
+                            // <button on:click=on_close disabled=move || api.is_pending_tracked() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Cancel"</button>
+                            <a href=link_settings() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Cancel"</a>
                             <input type="submit" value=move || if api.is_pending_tracked() {"Saving..."} else {"Confirm"} disabled=move || api.is_pending_tracked() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
                         </div>
                     </form>
                 </div>
+
+                // step 4
+                <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if get_query_selected_form() == SelectedForm::UsernameChanged { "flex" } else { "hidden" } )>
+                    <div class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full gap-[2rem] py-[2rem] border-0 border-base05 bg-base01">
+                        <h2 class="text-[1.5rem] text-base0F text-center ">"Username Changed"</h2>
+                        <ol class="text-[1.2rem] list-decimal">
+                            <li>"Send confirmation email to "
+                                <span class="text-base0E">{move || format!("{}.", global_state.get_email_tracked().unwrap_or("404".to_string()))}</span>
+                                <span class="text-base0B">" Done"</span>
+                            </li>
+                            <li>"Click on confirmation link that was sent to ."<span class="text-base0B">" Done"</span></li>
+                            <li>"Enter new username."<span class="text-base0B">" Done"</span></li>
+                            <li>
+                                <div>"Finish."<span class="text-base0B">" Done"</span></div>
+                                <div class="text-[1rem] text-base09">
+                                    "Username changed from "
+                                    <span class="text-base0B">" "{move || get_query_old_username().unwrap_or("404".to_string())}" "</span>
+                                    <span>" to "</span>
+                                    <span class="text-base0B">" "{move || get_query_new_username().unwrap_or("404".to_string())}" "</span>
+                                </div>
+                            </li>
+                        </ol>
+                        // <p class="text-[1.2rem] text-base0B text-center ">{move || get_query_new_username().unwrap_or("404".to_string())}</p>
+                        <div class="w-full flex justify-end">
+                            <a href=link_settings() class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Close"</a>
+                        </div>
+                    </div>
+                </div>
+
+                // email change
+                // step 1
+                <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if get_query_selected_form() == SelectedForm::ChangeEmail { "flex" } else { "hidden" } )>
+                    <div class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full gap-[2rem] py-[2rem] border-0 border-base05 bg-base01">
+                        <h2 class="text-[1.5rem] text-base0F text-center ">"Email Change"</h2>
+                        <ol class="text-[1.2rem] list-decimal grid gap-2">
+                            <li>"Send confirmation email to "
+                                <span class="text-base0E">{move || format!("{}. ", global_state.get_email_tracked().unwrap_or("404".to_string()))}</span>
+                                {move || view_current_stage_label(EmailChangeStage::SendConfirm) }
+                                <div class=move || format!("text-[1rem] text-base08 {}", if get_query_email_stage() >= EmailChangeStage::SendConfirm { "visible" } else {"hidden"} )>
+                                    <ul class="list-disc ml-[1rem]">
+                                        {move || change_email_send_confirm_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                    </ul>
+                                </div>
+                            </li>
+                            <li>"Click on confirmation link that was sent to "
+                                <span class="text-base0E">{move || format!("{}. ", global_state.get_email_tracked().unwrap_or("404".to_string()))}</span>
+                                {move || view_current_stage_label(EmailChangeStage::ClickConfirm) }
+                            </li>
+                            <li>"Enter new email. "
+                                {move || view_current_stage_label(EmailChangeStage::EnterNewEmail) }
+                                <div class=move || format!(" {}", if get_query_email_stage() >= EmailChangeStage::EnterNewEmail { "visible" } else {"hidden"} )>
+                                    <input node_ref=change_email_enter_new_email_input placeholder="email@example.com" class="bg-base02 mt-2 pl-2" type="email" />
+                                </div>
+                                <div class=move || format!("text-[1rem] text-base08 {}", if get_query_email_stage() >= EmailChangeStage::EnterNewEmail { "visible" } else {"hidden"} )>
+                                    <ul class="list-disc ml-[1rem]">
+                                        {move || change_email_enter_new_email_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                    </ul>
+                                </div>
+                            </li>
+                            <li>
+                                <div>"Finish. "
+                                    {move || view_current_stage_label(EmailChangeStage::Finish) }
+                                </div>
+                                <div class=move || format!("text-[1rem] text-base09 {}", if get_query_email_stage() >= EmailChangeStage::Finish { "visible" } else {"hidden"} )>
+                                    "Username changed from "
+                                    <span class="text-base0B">" "{move || get_query_old_username().unwrap_or("404".to_string())}" "</span>
+                                    <span>" to "</span>
+                                    <span class="text-base0B">" "{move || get_query_new_username().unwrap_or("404".to_string())}" "</span>
+                                </div>
+                            </li>
+                        </ol>
+                        // <p class="text-[1.2rem] text-base0B text-center ">{move || get_query_new_username().unwrap_or("404".to_string())}</p>
+                        <div class=move || format!("w-full flex gap-4 justify-center {}", if api.is_pending_tracked() {"visible"} else {"hidden"})>
+                            "loading..."
+                        </div>
+                        <div class=move || format!("w-full flex gap-4 justify-end {}", if api.is_pending_tracked() {"hidden"} else {"visible"})>
+                            // { move || {
+                            //     match get_query_email_stage() {
+                            //         EmailChangeStage::SendConfirm => view! {
+                            //             <div>
+                            //                 <a href=link_settings() class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Close"</a>
+                            //                 <a href=link_settings() class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Send"</a>
+                            //             </div>
+                            //         },
+                            //         _ => view! {
+                            //             <div>
+                            //                 <a href=link_settings() class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Close"</a>
+                            //             </div>
+                            //
+                            //         }}
+                            // } }
+                            // <a href=link_settings() class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Send"</a>
+                            <a href=link_settings() class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Close"</a>
+                            <form method="POST" action="" on:submit=on_email_change_send_confirm class=move || format!(" {}", if get_query_email_stage() == EmailChangeStage::SendConfirm { "visible" } else { "hidden" })>
+                                <input type="submit" value="Send" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
+                            </form>
+                            <form method="POST" action="" on:submit=on_email_change_enter_new_email class=move || format!(" {}", if get_query_email_stage() == EmailChangeStage::EnterNewEmail { "visible" } else { "hidden" })>
+                                <input type="submit" value="Confirm" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+
             </main>
         }
     }
@@ -756,7 +1161,7 @@ pub mod register {
                 };
                 let email_clone = email.clone();
 
-                api.get_invite(email_clone).send_web(move |result| {
+                api.send_email_invite(email_clone).send_web(move |result| {
                     let email = email.clone();
                     let navigate = navigate.clone();
 

@@ -849,8 +849,8 @@ pub mod mutation_observer {
 
     #[derive(Clone, Debug, Copy, Default)]
     pub struct MutationObserverOptions {
-        pub child_list: bool, 
-        pub attributes: bool, 
+        pub child_list: bool,
+        pub attributes: bool,
         pub subtree: bool,
     }
 
@@ -892,7 +892,6 @@ pub mod mutation_observer {
             }
 
             options
-            
         }
     }
 

@@ -4,6 +4,7 @@ use leptos::prelude::*;
 use regex::Regex;
 use reqwest::RequestBuilder;
 use rkyv::result::ArchivedResult;
+use std::fmt::Display;
 use std::str::FromStr;
 use thiserror::Error;
 use tracing::{debug, error, trace};
@@ -186,6 +187,10 @@ pub enum ServerReq {
         email: String,
         password: String,
     },
+    ChangeEmail {
+        new_email: String,
+        token: String,
+    },
     ChangeUsername {
         username: String,
         password: String,
@@ -196,7 +201,10 @@ pub enum ServerReq {
     DecodeInvite {
         token: String,
     },
-    GetInvite {
+    SendEmailConfirm {
+        kind: EmailConfirmTokenKind,
+    },
+    GetEmailInvite {
         email: String,
     },
     Register {
@@ -251,7 +259,8 @@ pub enum ServerRes {
     SetAuthCookie { token: String },
     DeleteAuthCookie,
     User { username: String },
-    InviteToken(InviteToken),
+    Acc { username: String, email: String },
+    InviteToken(EmailToken),
     Posts(Vec<UserPost>),
     Post(UserPost),
     Ok,
@@ -274,7 +283,7 @@ pub enum ServerErr {
     ServerDecodeInviteErr(#[from] ServerDecodeInviteErr),
 
     #[error("get invite err {0}")]
-    ServerInviteErr(#[from] ServerInviteErr),
+    ServerInviteErr(#[from] ServerTokenErr),
 
     #[error("add post err {0}")]
     ServerAddPostErr(#[from] ServerAddPostErr),
@@ -284,6 +293,9 @@ pub enum ServerErr {
 
     #[error("change username err {0}")]
     ChangeUsernameErr(#[from] ChangeUsernameErr),
+
+    #[error("change email err {0}")]
+    ChangeEmailErr(#[from] ChangeEmailErr),
 
     #[error("add deserialization err {0}")]
     ServerDesErr(#[from] ServerDesErr),
@@ -356,7 +368,7 @@ pub enum ServerAuthErr {
 }
 
 #[derive(Error, Com!)]
-pub enum ServerInviteErr {
+pub enum ServerTokenErr {
     #[error("jwt error")]
     ServerJWT,
 }
@@ -435,8 +447,28 @@ pub enum ChangeUsernameErr {
     #[error("username \"{0}\" is taken")]
     UsernameIsTaken(String),
 
+    #[error("wrong credentials")]
+    WrongCredentials,
+
     #[error("user not found")]
     NotFound,
+}
+
+#[derive(Error, Com!)]
+pub enum ChangeEmailErr {
+    #[error("username \"{0}\" is taken")]
+    EmailIsTaken(String),
+
+    #[error("invalid or expired token")]
+    InvalidToken,
+
+    #[error("user not found")]
+    NotFound,
+}
+
+#[derive(Com!)]
+pub enum EmailConfirmTokenKind {
+    ChangeEmail,
 }
 
 #[derive(Com!)]
@@ -548,13 +580,13 @@ impl AuthToken {
 }
 
 #[derive(Com!)]
-pub struct InviteToken {
+pub struct EmailToken {
     pub email: String,
     pub created_at: u128,
     pub exp: u64,
 }
 
-impl InviteToken {
+impl EmailToken {
     pub fn new<S: Into<String>>(email: S, created_at: u128) -> Self {
         Self {
             email: email.into(),
@@ -837,12 +869,30 @@ pub trait Api {
         }
     }
 
-    fn change_username(&self, password: impl Into<String>, username: impl Into<String>) -> ApiReq {
+    fn change_username(
+        &self,
+        password: impl Into<String>,
+        new_username: impl Into<String>,
+    ) -> ApiReq {
         self.into_req(
             crate::path::PATH_API_CHANGE_USERNAME,
             ServerReq::ChangeUsername {
-                username: username.into(),
+                username: new_username.into(),
                 password: password.into(),
+            },
+        )
+    }
+
+    fn change_email(
+        &self,
+        confirm_token: impl Into<String>,
+        new_email: impl Into<String>,
+    ) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_CHANGE_EMAIL,
+            ServerReq::ChangeEmail {
+                new_email: new_email.into(),
+                token: confirm_token.into(),
             },
         )
     }
@@ -971,18 +1021,20 @@ pub trait Api {
         }
     }
 
-    fn get_invite(&self, email: impl Into<String>) -> ApiReq {
-        let email = email.into();
-        let builder = self.provide_builder(crate::path::PATH_API_INVITE);
-        let server_req = ServerReq::GetInvite { email };
-        let result_signal = self.provide_signal_result();
-        let busy_signal = self.provide_signal_busy();
-        ApiReq {
-            builder,
-            server_req,
-            result: result_signal,
-            busy: busy_signal,
-        }
+    fn send_email_confirmation(&self, kind: impl Into<EmailConfirmTokenKind>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_EMAIL_CONFIRMATION,
+            ServerReq::SendEmailConfirm { kind: kind.into() },
+        )
+    }
+
+    fn send_email_invite(&self, email: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_EMAIL_INVITE,
+            ServerReq::GetEmailInvite {
+                email: email.into(),
+            },
+        )
     }
 
     fn register(
@@ -1067,11 +1119,11 @@ impl ApiReq {
 
     pub async fn send_native_with_token(
         self,
-        token: impl AsRef<str>,
+        auth_token: impl AsRef<str>,
     ) -> Result<ServerRes, ServerErr> {
         let req = self.server_req;
         let builder = self.builder;
-        let (_, result) = send(builder, req, Some(token)).await;
+        let (_, result) = send(builder, req, Some(auth_token)).await;
         result
     }
 
@@ -1101,20 +1153,19 @@ impl ApiReq {
 }
 
 #[cfg(test)]
-#[derive(Clone, Copy)]
-pub struct ApiTest<'a> {
-    pub server: &'a axum_test::TestServer,
+pub struct ApiTest {
+    pub server: axum_test::TestServer,
 }
 
 #[cfg(test)]
-impl<'a> ApiTest<'a> {
-    pub fn new(server: &'a axum_test::TestServer) -> Self {
+impl ApiTest {
+    pub fn new(server: axum_test::TestServer) -> Self {
         Self { server }
     }
 }
 
 #[cfg(test)]
-impl<'a> Api for ApiTest<'a> {
+impl Api for ApiTest {
     fn provide_builder(&self, path: impl AsRef<str>) -> RequestBuilder {
         let path = path.as_ref();
         let url = format!("{}{path}", crate::path::PATH_API);
@@ -1245,7 +1296,7 @@ impl axum::response::IntoResponse for ServerErr {
             ServerErr::ServerDbErr
             | ServerErr::ServerRegistrationErr(ServerRegistrationErr::ServerCreateCookieErr)
             | ServerErr::ServerLoginErr(ServerLoginErr::ServerCreateCookieErr(_))
-            | ServerErr::ServerInviteErr(ServerInviteErr::ServerJWT) => {
+            | ServerErr::ServerInviteErr(ServerTokenErr::ServerJWT) => {
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR
             }
             ServerErr::ServerDesErr(_)
@@ -1261,6 +1312,7 @@ impl axum::response::IntoResponse for ServerErr {
             | ServerErr::ServerAddPostErr(ServerAddPostErr::ServerFSErr(_))
             | ServerErr::ServerAddPostErr(ServerAddPostErr::ServerDirCreationFailed(_))
             | ServerErr::ChangeUsernameErr(ChangeUsernameErr::UsernameIsTaken(_))
+            | ServerErr::ChangeEmailErr(ChangeEmailErr::EmailIsTaken(_))
             | ServerErr::ServerRegistrationErr(
                 ServerRegistrationErr::ServerRegistrationInvalidInput { .. },
             ) => axum::http::StatusCode::BAD_REQUEST,
@@ -1268,10 +1320,13 @@ impl axum::response::IntoResponse for ServerErr {
                 axum::http::StatusCode::OK
             }
             ServerErr::ServerAuthErr(ServerAuthErr::ServerUnauthorizedInvalidCookie)
+            | ServerErr::ChangeUsernameErr(ChangeUsernameErr::WrongCredentials)
+            | ServerErr::ChangeEmailErr(ChangeEmailErr::InvalidToken)
             | ServerErr::ServerLoginErr(ServerLoginErr::WrongCredentials) => {
                 axum::http::StatusCode::UNAUTHORIZED
             }
             ServerErr::ServerGetErr(ServerGetErr::NotFound)
+            | ServerErr::ChangeEmailErr(ChangeEmailErr::NotFound)
             | ServerErr::ChangeUsernameErr(ChangeUsernameErr::NotFound) => {
                 axum::http::StatusCode::NOT_FOUND
             }
@@ -1405,19 +1460,20 @@ pub async fn send(
 pub mod backend {
     use crate::api::app_state::AppState;
     use crate::api::{
-        AuthToken, ChangeUsernameErr, InviteToken, ServerAddPostErr, ServerAuthErr,
-        ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta,
-        ServerGetErr, ServerInviteErr, ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes,
-        User, UserPost, UserPostFile, auth_token_get, decode_token, encode_token, hash_password,
-        verify_password,
+        AuthToken, ChangeEmailErr, ChangeUsernameErr, EmailConfirmTokenKind, EmailToken,
+        ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr, ServerDesErr, ServerErr,
+        ServerErrImg, ServerErrImgMeta, ServerGetErr, ServerLoginErr, ServerRegistrationErr,
+        ServerReq, ServerRes, ServerTokenErr, User, UserPost, UserPostFile, auth_token_get,
+        decode_token, encode_token, hash_password, verify_password,
     };
+    use crate::db::{AddEmailInviteTokenErr, DBUser};
+    use crate::db::{AddUserErr, DBChangeEmailErr};
     use crate::db::{DB404Err, DBChangeUsernameErr};
-    use crate::db::DBUserPostFile;
-    use crate::db::{AddInviteErr, DBUser};
-    use crate::db::{AddUserErr};
+    use crate::db::{DBEmailTokenKind, DBUserPostFile};
     use crate::valid::auth::{
         proccess_password, proccess_post_description, proccess_post_title, proccess_username,
     };
+    use crate::view::app::page::settings::EmailChangeStage;
     use axum::Extension;
     use axum::extract::State;
     use axum::response::IntoResponse;
@@ -1515,10 +1571,47 @@ pub mod backend {
             ))));
         };
 
-        let token = decode_token::<InviteToken>(&app_state.settings.auth.secret, token, false)
+        let token = decode_token::<EmailToken>(&app_state.settings.auth.secret, token, false)
             .map_err(|err| ServerDecodeInviteErr::JWT(err.to_string()))?;
 
         Ok(ServerRes::InviteToken(token.claims))
+    }
+
+    pub async fn change_email(
+        State(app_state): State<AppState>,
+        auth_token: Extension<AuthToken>,
+        db_user: Extension<DBUser>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::ChangeEmail { new_email, token } = req else {
+            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                "expected ChangeUsername, received: {req:?}"
+            ))));
+        };
+        let time = app_state.clock.now().await.as_nanos();
+
+        let _invite = app_state
+            .db
+            .use_email_token(time, EmailConfirmTokenKind::ChangeEmail, token)
+            .await
+            .map_err(|err| match err {
+                DB404Err::NotFound => ServerErr::ChangeEmailErr(ChangeEmailErr::NotFound),
+                DB404Err::DB(_) => ServerErr::ServerDbErr,
+            })?;
+
+        let _result = app_state
+            .db
+            .change_email(db_user.id.clone(), new_email, time)
+            .await
+            .map_err(|err| match err {
+                DBChangeEmailErr::EmailIsTaken(email) => {
+                    ServerErr::ChangeEmailErr(ChangeEmailErr::EmailIsTaken(email))
+                }
+                DBChangeEmailErr::NotFound => ServerErr::ChangeEmailErr(ChangeEmailErr::NotFound),
+                DBChangeEmailErr::DB(_) => ServerErr::ServerDbErr,
+            })?;
+
+        Ok(ServerRes::Ok)
     }
 
     pub async fn change_username(
@@ -1537,7 +1630,7 @@ pub mod backend {
 
         verify_password(password, db_user.password.clone())
             .inspect_err(|err| trace!("passwords verification failed {err}"))
-            .map_err(|_| ServerErr::ServerLoginErr(ServerLoginErr::WrongCredentials))?;
+            .map_err(|_| ServerErr::ChangeUsernameErr(ChangeUsernameErr::WrongCredentials))?;
         debug!("step 2");
 
         let result = app_state
@@ -1564,8 +1657,9 @@ pub mod backend {
         auth_token: Extension<AuthToken>,
         db_user: Extension<DBUser>,
     ) -> Result<ServerRes, ServerErr> {
-        Ok(ServerRes::User {
+        Ok(ServerRes::Acc {
             username: db_user.username.clone(),
+            email: db_user.email.clone(),
         })
     }
 
@@ -1589,7 +1683,7 @@ pub mod backend {
 
         let invite_token_decoded = app_state
             .db
-            .get_invite_by_token(&invite_token)
+            .get_invite_by_token(DBEmailTokenKind::Registration, &invite_token)
             .await
             .inspect_err(|err| error!("failed to run use_invite {err}"))
             .map_err(|err| match err {
@@ -1603,7 +1697,7 @@ pub mod backend {
                 if invite.used {
                     return Err(ServerRegistrationErr::TokenUsed.into());
                 }
-                decode_token::<InviteToken>(&app_state.settings.auth.secret, &invite_token, false)
+                decode_token::<EmailToken>(&app_state.settings.auth.secret, &invite_token, false)
                     .map_err(|err| ServerRegistrationErr::ServerJWT(err.to_string()).into())
             })?;
 
@@ -1648,7 +1742,11 @@ pub mod backend {
 
         let result = app_state
             .db
-            .use_invite(&invite_token, time.as_nanos())
+            .use_email_token(
+                time.as_nanos(),
+                DBEmailTokenKind::Registration,
+                &invite_token,
+            )
             .await
             .inspect_err(|err| error!("failed to run use_invite {err}"))
             .map_err(|err| ServerErr::ServerDbErr)?;
@@ -2107,11 +2205,13 @@ pub mod backend {
         Ok(ServerRes::Post(post.into()))
     }
 
-    pub async fn get_invite(
+    pub async fn send_email_confirm(
         State(app_state): State<AppState>,
+        auth_token: Extension<AuthToken>,
+        db_user: Extension<DBUser>,
         req: ServerReq,
     ) -> Result<ServerRes, ServerErr> {
-        let ServerReq::GetInvite { email } = req else {
+        let ServerReq::SendEmailConfirm { kind } = req else {
             return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
                 "expected AddPost, received: {req:?}"
             ))));
@@ -2119,18 +2219,58 @@ pub mod backend {
 
         let time = app_state.clock.now().await;
         let exp = time + Duration::from_secs(app_state.settings.auth.invite_exp_s);
-        let invite = InviteToken::new(email.clone(), time.as_nanos());
+        let invite = EmailToken::new(db_user.email.clone(), time.as_nanos());
         let invite_token = encode_token(&app_state.settings.auth.secret, invite)
-            .map_err(|_| ServerInviteErr::ServerJWT)?;
+            .map_err(|_| ServerTokenErr::ServerJWT)?;
 
-        trace!("invite token created: {invite_token}");
+        trace!("email token created: {invite_token}");
 
-        let invite = app_state
+        let email_token = app_state
             .db
-            .add_invite(time.clone().as_nanos(), invite_token, email, exp.as_nanos())
+            .add_email_confirmation_token(
+                time.clone().as_nanos(),
+                kind,
+                invite_token,
+                db_user.email.clone(),
+                exp.as_nanos(),
+            )
+            .await
+            .map_err(|_| ServerErr::ServerDbErr)?;
+
+        let link = format!(
+            "{}{}",
+            &app_state.settings.site.address,
+            crate::path::link_settings_form_email(EmailChangeStage::EnterNewEmail, None, Some(email_token.token_raw.clone())),
+        );
+        trace!("{link}");
+
+        Ok(ServerRes::Ok)
+    }
+
+    pub async fn send_email_invite(
+        State(app_state): State<AppState>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::GetEmailInvite { email } = req else {
+            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                "expected AddPost, received: {req:?}"
+            ))));
+        };
+
+        let time = app_state.clock.now().await;
+        let exp = time + Duration::from_secs(app_state.settings.auth.invite_exp_s);
+        let invite = EmailToken::new(email.clone(), time.as_nanos());
+        let invite_token = encode_token(&app_state.settings.auth.secret, invite)
+            .map_err(|_| ServerTokenErr::ServerJWT)?;
+
+        trace!("email token created: {invite_token}");
+
+        let email_token = app_state
+            .db
+            .add_email_invite_token(time.clone().as_nanos(), invite_token, email, exp.as_nanos())
             .await;
-        let invite = match invite {
-            Err(AddInviteErr::EmailIsTaken(_)) => {
+        let invite = match email_token {
+            Err(AddEmailInviteTokenErr::EmailIsTaken(_)) => {
                 return Ok(ServerRes::Ok);
             }
             invite => invite.map_err(|_| ServerErr::ServerDbErr),
@@ -2267,6 +2407,7 @@ pub mod backend {
 
 #[cfg(test)]
 mod tests {
+    use axum::Router;
     use std::path::Path;
     use std::sync::Arc;
     use std::time::Duration;
@@ -2281,11 +2422,135 @@ mod tests {
 
     use crate::api::app_state::AppState;
     use crate::api::{
-        Api, ApiTest, InviteToken, ServerErr, ServerGetErr, ServerLoginErr, ServerRegistrationErr,
-        ServerReqImg, ServerRes, encode_token,
+        Api, ApiTest, EmailConfirmTokenKind, EmailToken, ServerErr, ServerGetErr, ServerLoginErr,
+        ServerRegistrationErr, ServerReqImg, ServerRes, encode_token,
     };
+    use crate::db::DBEmailTokenKind;
     use crate::server::create_api_router;
     use tracing_appender::rolling;
+
+    struct ApiTestApp {
+        pub state: AppState,
+        // pub router: Router,
+        // pub server: TestServer,
+        pub time: Arc<Mutex<Duration>>,
+        pub api: ApiTest,
+    }
+
+    impl ApiTestApp {
+        pub async fn new() -> Self {
+            let current_time = Duration::from_nanos(1);
+            let time_mut = Arc::new(Mutex::new(current_time));
+            let app_state = AppState::new_testng(time_mut.clone()).await;
+            let my_app = create_api_router(app_state.clone()).with_state(app_state.clone());
+            let server = TestServer::builder()
+                .http_transport()
+                .build(my_app)
+                .unwrap();
+            let api = ApiTest::new(server);
+            Self {
+                state: app_state,
+                // router: my_app,
+                // server,
+                time: time_mut,
+                api,
+            }
+        }
+
+        pub async fn register(&self, username: impl Into<String>) -> String {
+            let username = username.into();
+            let email = format!("{username}@hey.com");
+            let password = "passworD1%%%";
+            let time = self.state.clock.now().await.as_nanos();
+
+            let result = self
+                .api
+                .send_email_invite(email.clone())
+                .send_native()
+                .await
+                .unwrap();
+
+            let all = self.state.db.get_all_invites().await.unwrap();
+            trace!("----- ALL INVITES ------\n{all:#?}");
+
+            let invite = self
+                .state
+                .db
+                .get_email_token(time, DBEmailTokenKind::Registration, email)
+                .await
+                .unwrap();
+
+            let (token, decoded_token, result) = self
+                .api
+                .register(username, &invite.token_raw, password)
+                .send_native_and_extract_auth(&self.state.settings.auth.secret)
+                .await;
+
+            token.unwrap()
+        }
+    }
+
+    // async fn register(
+    //     app_state: AppState,
+    //     api: &ApiTest<'_>,
+    //     username: impl Into<String>,
+    // ) -> String {
+    // }
+
+    #[test(tokio::test)]
+    async fn api_change_email_test() {
+        let app = ApiTestApp::new().await;
+        let auth_token = app.register("hey").await;
+
+        let result = app
+            .api
+            .send_email_confirmation(EmailConfirmTokenKind::ChangeEmail)
+            .send_native_with_token(auth_token.clone())
+            .await;
+
+        let confirm_token = app
+            .state
+            .db
+            .get_email_token(0, DBEmailTokenKind::ChangeEmail, "hey@hey.com")
+            .await
+            .unwrap();
+
+        // get new email confirmation token
+        // and then change email
+        // and check if email input is not empty, maybe add regex validation
+
+        let result = app
+            .api
+            .change_email(confirm_token.token_raw.clone(), "hey2@hey.com")
+            .send_native_with_token(auth_token)
+            .await
+            .unwrap();
+
+        let all_users = app.state.db.get_all_user().await.unwrap();
+        assert_eq!(all_users.len(), 1);
+
+        let user1 = app
+            .state
+            .db
+            .get_user_by_email("hey2@hey.com")
+            .await
+            .unwrap();
+        assert_eq!(user1.email, "hey2@hey.com");
+
+        // confirm_token
+
+        // let current_time = Duration::from_nanos(1);
+        // let time_mut = Arc::new(Mutex::new(current_time));
+        // let app_state = AppState::new_testng(time_mut.clone()).await;
+        // let my_app = create_api_router(app_state.clone()).with_state(app_state.clone());
+        //
+        // let server = TestServer::builder()
+        //     .http_transport()
+        //     .build(my_app)
+        //     .unwrap();
+
+        // let api = ApiTest::new(&server);
+    }
 
     // #[test(tokio::test)]
     #[tokio::test]
@@ -2313,7 +2578,7 @@ mod tests {
             .build(my_app)
             .unwrap();
 
-        let api = ApiTest::new(&server);
+        let api = ApiTest::new(server);
 
         let mut imgbuf = image::ImageBuffer::new(250, 250);
         // Iterate over the coordinates and pixels of the image
@@ -2327,12 +2592,20 @@ mod tests {
         imgbuf.save(path).unwrap();
         let img = tokio::fs::read(path).await.unwrap();
 
-        let result = api.get_invite("hey1@hey.com").send_native().await.unwrap();
+        let result = api
+            .send_email_invite("hey1@hey.com")
+            .send_native()
+            .await
+            .unwrap();
         trace!("{result:#?}");
 
         let invite = app_state
             .db
-            .get_invite("hey1@hey.com", current_time.as_nanos())
+            .get_email_token(
+                current_time.as_nanos(),
+                DBEmailTokenKind::Registration,
+                "hey1@hey.com",
+            )
             .await
             .unwrap();
 
@@ -2340,13 +2613,13 @@ mod tests {
 
         let bad_invite_token = encode_token(
             &app_state.settings.auth.secret,
-            InviteToken::new("hey1@hey.com", time),
+            EmailToken::new("hey1@hey.com", time),
         )
         .unwrap();
 
         let bad_invite = app_state
             .db
-            .add_invite(time, &bad_invite_token, "hey1@hey.com", time + 1)
+            .add_email_invite_token(time, &bad_invite_token, "hey1@hey.com", time + 1)
             .await
             .unwrap();
         trace!("bad invite added: {bad_invite:#?}");
@@ -2401,7 +2674,11 @@ mod tests {
             .send_native_and_extract_auth(&app_state.settings.auth.secret)
             .await;
 
-        let result = api.get_invite("hey1@hey.com").send_native().await.unwrap();
+        let result = api
+            .send_email_invite("hey1@hey.com")
+            .send_native()
+            .await
+            .unwrap();
         assert_eq!(result, ServerRes::Ok);
 
         let token_raw = token.unwrap();
@@ -2652,14 +2929,22 @@ mod tests {
             }
         }
 
-        let result = api.get_invite("hey2@hey.com").send_native().await.unwrap();
+        let result = api
+            .send_email_invite("hey2@hey.com")
+            .send_native()
+            .await
+            .unwrap();
         trace!("{result:#?}");
 
         *time_mut.lock().await = Duration::from_nanos(5);
 
         let invite2 = app_state
             .db
-            .get_invite("hey2@hey.com", current_time.as_nanos())
+            .get_email_token(
+                current_time.as_nanos(),
+                DBEmailTokenKind::Registration,
+                "hey2@hey.com",
+            )
             .await
             .unwrap();
 

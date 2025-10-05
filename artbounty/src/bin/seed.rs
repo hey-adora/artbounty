@@ -3,7 +3,9 @@ use std::{collections::HashMap, env, time::Duration};
 use ab_glyph::{FontRef, PxScale};
 use artbounty::{
     api::{Api, ApiNative, ServerReqImg},
-    path::{PATH_API_INVITE, PATH_API_LOGIN, PATH_API_POST_ADD, PATH_API_REGISTER, PATH_API_USER},
+    path::{
+        PATH_API_EMAIL_INVITE, PATH_API_LOGIN, PATH_API_POST_ADD, PATH_API_REGISTER, PATH_API_USER,
+    },
 };
 use clap::{Command, arg};
 use image::{Rgb, RgbImage};

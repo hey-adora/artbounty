@@ -2,7 +2,6 @@ use artbounty::server::server;
 use leptos::{logging, prelude::*};
 use tracing::trace;
 
-
 #[tokio::main]
 async fn main() {
     server().await;
