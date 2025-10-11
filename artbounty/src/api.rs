@@ -14,14 +14,17 @@ use wasm_bindgen_futures::spawn_local;
 pub mod app_state {
     use std::{sync::Arc, time::Duration};
 
+    use rand::distr::{Alphanumeric, SampleString};
     use tokio::sync::Mutex;
 
     use crate::{
         api::{
+            EmailToken, ServerErr, ServerTokenErr,
             clock::{Clock, get_timestamp},
+            encode_token,
             settings::Settings,
         },
-        db::{self, DbEngine},
+        db::{self, DBUser, DbEngine},
     };
 
     #[derive(Clone)]
@@ -62,6 +65,29 @@ pub mod app_state {
                 settings,
                 clock,
             }
+        }
+
+        pub async fn new_confirm_token(
+            &self,
+            email: impl Into<String>,
+        ) -> Result<(String, u128), ServerErr> {
+            let app_state = self;
+            let time = app_state.clock.now().await;
+            let exp = time + Duration::from_secs(app_state.settings.auth.invite_exp_s);
+            let key = self.gen_key().await;
+            let confirm_token = EmailToken::new(key, email.into(), time.as_nanos());
+            let confirm_token = encode_token(&app_state.settings.auth.secret, confirm_token)
+                .map_err(|_| ServerErr::from(ServerTokenErr::ServerJWT))?;
+
+            Ok((confirm_token, exp.as_nanos()))
+        }
+
+        pub async fn time(&self) -> u128 {
+            self.clock.now().await.as_nanos()
+        }
+
+        pub async fn gen_key(&self) -> String {
+            rand::distr::Alphanumeric.sample_string(&mut rand::rng(), 16)
         }
     }
 }
@@ -189,7 +215,7 @@ pub enum ServerReq {
     },
     ChangeEmail {
         new_email: String,
-        token: String,
+        confirm_token: String,
     },
     ChangeUsername {
         username: String,
@@ -198,14 +224,20 @@ pub enum ServerReq {
     GetUser {
         username: String,
     },
-    DecodeInvite {
+    ConfirmToken {
         token: String,
     },
-    SendEmailConfirm {
-        kind: EmailConfirmTokenKind,
-    },
-    GetEmailInvite {
+    // ConfirmKind {
+    //     kind: EmailConfirmTokenKind,
+    // },
+    // ConfirmToken {
+    //     confirm_token: String,
+    // },
+    SendEmailInvite {
         email: String,
+    },
+    SendEmailChange {
+        new_email: String,
     },
     Register {
         username: String,
@@ -263,6 +295,7 @@ pub enum ServerRes {
     InviteToken(EmailToken),
     Posts(Vec<UserPost>),
     Post(UserPost),
+    EmailChangeStage(EmailChangeStage),
     Ok,
 }
 
@@ -272,24 +305,24 @@ pub enum ServerErr {
     ClientErr(#[from] ClientErr),
 
     #[error("auth err {0}")]
-    ServerAuthErr(#[from] ServerAuthErr),
+    AuthErr(#[from] ServerAuthErr),
 
     #[error("login err {0}")]
-    ServerLoginErr(#[from] ServerLoginErr),
+    LoginErr(#[from] ServerLoginErr),
 
     // #[error("get user err {0}")]
     // ServerGetUserErr(#[from] ServerGetErr),
     #[error("decode invite err {0}")]
-    ServerDecodeInviteErr(#[from] ServerDecodeInviteErr),
+    DecodeInviteErr(#[from] ServerDecodeInviteErr),
 
     #[error("get invite err {0}")]
-    ServerInviteErr(#[from] ServerTokenErr),
+    TokenErr(#[from] ServerTokenErr),
 
     #[error("add post err {0}")]
-    ServerAddPostErr(#[from] ServerAddPostErr),
+    AddPostErr(#[from] ServerAddPostErr),
 
     #[error("registration err {0}")]
-    ServerRegistrationErr(#[from] ServerRegistrationErr),
+    RegistrationErr(#[from] ServerRegistrationErr),
 
     #[error("change username err {0}")]
     ChangeUsernameErr(#[from] ChangeUsernameErr),
@@ -297,14 +330,20 @@ pub enum ServerErr {
     #[error("change email err {0}")]
     ChangeEmailErr(#[from] ChangeEmailErr),
 
+    #[error("change email err {0}")]
+    SendEmailChange(#[from] SendEmailChangeErr),
+
     #[error("add deserialization err {0}")]
-    ServerDesErr(#[from] ServerDesErr),
+    DesErr(#[from] ServerDesErr),
 
     #[error("failed to get {0}")]
-    ServerGetErr(#[from] ServerGetErr),
+    GetErr(#[from] ServerGetErr),
+
+    #[error("confirm action err {0}")]
+    ConfirmActionErr(#[from] ConfirmActionErr),
 
     #[error("database err")]
-    ServerDbErr,
+    DbErr,
 }
 
 #[derive(Error, Com!)]
@@ -456,7 +495,7 @@ pub enum ChangeUsernameErr {
 
 #[derive(Error, Com!)]
 pub enum ChangeEmailErr {
-    #[error("username \"{0}\" is taken")]
+    #[error("email \"{0}\" is taken")]
     EmailIsTaken(String),
 
     #[error("invalid or expired token")]
@@ -464,6 +503,29 @@ pub enum ChangeEmailErr {
 
     #[error("user not found")]
     NotFound,
+}
+
+#[derive(Error, Com!)]
+pub enum SendEmailChangeErr {
+    #[error("email \"{0}\" is taken")]
+    EmailIsTaken(String),
+
+    #[error("aaa")]
+    ConfirmTokenNotFound,
+
+    #[error("invalid or expired token")]
+    ConfirmTokenNotUsed,
+    // #[error("user not found")]
+    // NotFound,
+}
+
+#[derive(Error, Com!)]
+pub enum ConfirmActionErr {
+    #[error("token not found")]
+    NotFound,
+
+    #[error("token already confirmed")]
+    AlreadyConfirmed,
 }
 
 #[derive(Com!)]
@@ -498,6 +560,14 @@ pub struct UserPost {
     pub file: Vec<UserPostFile>,
     pub modified_at: u128,
     pub created_at: u128,
+}
+
+#[derive(Com!)]
+pub enum EmailChangeStage {
+    ConfirmEmail,
+    EnterNewEmail,
+    ConfirmNewEmail { new_email: String },
+    ReadyToComplete { new_email: String },
 }
 
 #[cfg(feature = "ssr")]
@@ -581,14 +651,16 @@ impl AuthToken {
 
 #[derive(Com!)]
 pub struct EmailToken {
+    pub key: String,
     pub email: String,
     pub created_at: u128,
     pub exp: u64,
 }
 
 impl EmailToken {
-    pub fn new<S: Into<String>>(email: S, created_at: u128) -> Self {
+    pub fn new(key: impl Into<String>, email: impl Into<String>, created_at: u128) -> Self {
         Self {
+            key: key.into(),
             email: email.into(),
             created_at,
             exp: 0,
@@ -828,7 +900,7 @@ pub trait Api {
     }
 
     fn profile(&self) -> ApiReq {
-        let builder = self.provide_builder(crate::path::PATH_API_PROFILE);
+        let builder = self.provide_builder(crate::path::PATH_API_ACC);
         let server_req = ServerReq::None;
         let result_signal = self.provide_signal_result();
         let busy_signal = self.provide_signal_busy();
@@ -843,7 +915,7 @@ pub trait Api {
     fn decode_invite(&self, token: impl Into<String>) -> ApiReq {
         let token = token.into();
         let builder = self.provide_builder(crate::path::PATH_API_INVITE_DECODE);
-        let server_req = ServerReq::DecodeInvite { token };
+        let server_req = ServerReq::ConfirmToken { token };
         let result_signal = self.provide_signal_result();
         let busy_signal = self.provide_signal_busy();
         ApiReq {
@@ -883,19 +955,28 @@ pub trait Api {
         )
     }
 
-    fn change_email(
-        &self,
-        confirm_token: impl Into<String>,
-        new_email: impl Into<String>,
-    ) -> ApiReq {
-        self.into_req(
-            crate::path::PATH_API_CHANGE_EMAIL,
-            ServerReq::ChangeEmail {
-                new_email: new_email.into(),
-                token: confirm_token.into(),
-            },
-        )
-    }
+    // fn change_email(
+    //     &self,
+    //     confirm_token: impl Into<String>,
+    //     new_email: impl Into<String>,
+    // ) -> ApiReq {
+    //     self.into_req(
+    //         crate::path::PATH_API_CONFIRM_EMAIL_CHANGE,
+    //         ServerReq::ChangeEmail {
+    //             new_email: new_email.into(),
+    //             confirm_token: confirm_token.into(),
+    //         },
+    //     )
+    // }
+
+    // fn confirm_email_change(&self, confirm_token: impl Into<String>) -> ApiReq {
+    //     self.into_req(
+    //         crate::path::PATH_API_CONFIRM_EMAIL_CHANGE,
+    //         ServerReq::ConfirmToken {
+    //             token: confirm_token.into(),
+    //         },
+    //     )
+    // }
 
     fn get_user_posts_newer(&self, time: u128, limit: u32, username: impl Into<String>) -> ApiReq {
         self.into_req(
@@ -1021,21 +1102,27 @@ pub trait Api {
         }
     }
 
-    fn send_email_confirmation(&self, kind: impl Into<EmailConfirmTokenKind>) -> ApiReq {
-        self.into_req(
-            crate::path::PATH_API_EMAIL_CONFIRMATION,
-            ServerReq::SendEmailConfirm { kind: kind.into() },
-        )
+    fn send_email_change(&self) -> ApiReq {
+        self.into_req(crate::path::PATH_API_SEND_EMAIL_CHANGE, ServerReq::None)
     }
 
     fn send_email_invite(&self, email: impl Into<String>) -> ApiReq {
         self.into_req(
-            crate::path::PATH_API_EMAIL_INVITE,
-            ServerReq::GetEmailInvite {
+            crate::path::PATH_API_SEND_EMAIL_INVITE,
+            ServerReq::SendEmailInvite {
                 email: email.into(),
             },
         )
     }
+
+    // fn send_email_new(&self, email: impl Into<String>) -> ApiReq {
+    //     self.into_req(
+    //         crate::path::PATH_API_EMAIL_NEW,
+    //         ServerReq::SendEmailChange {
+    //             new_email: email.into(),
+    //         },
+    //     )
+    // }
 
     fn register(
         &self,
@@ -1292,49 +1379,50 @@ impl axum::response::IntoResponse for ServerErr {
     fn into_response(self) -> axum::response::Response {
         use axum_extra::extract::{CookieJar, cookie::Cookie};
 
-        let status = match self {
-            ServerErr::ServerDbErr
-            | ServerErr::ServerRegistrationErr(ServerRegistrationErr::ServerCreateCookieErr)
-            | ServerErr::ServerLoginErr(ServerLoginErr::ServerCreateCookieErr(_))
-            | ServerErr::ServerInviteErr(ServerTokenErr::ServerJWT) => {
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR
-            }
-            ServerErr::ServerDesErr(_)
-            | ServerErr::ServerAddPostErr(ServerAddPostErr::InvalidTitle(_))
-            | ServerErr::ServerAddPostErr(ServerAddPostErr::InvalidDescription(_))
-            | ServerErr::ServerRegistrationErr(ServerRegistrationErr::TokenExpired)
-            | ServerErr::ServerRegistrationErr(ServerRegistrationErr::TokenUsed)
-            | ServerErr::ServerRegistrationErr(ServerRegistrationErr::TokenNotFound)
-            | ServerErr::ServerRegistrationErr(ServerRegistrationErr::ServerJWT(_))
-            | ServerErr::ServerDecodeInviteErr(ServerDecodeInviteErr::InviteNotFound)
-            | ServerErr::ServerDecodeInviteErr(ServerDecodeInviteErr::JWT(_))
-            | ServerErr::ServerAddPostErr(ServerAddPostErr::ServerImgErr(_))
-            | ServerErr::ServerAddPostErr(ServerAddPostErr::ServerFSErr(_))
-            | ServerErr::ServerAddPostErr(ServerAddPostErr::ServerDirCreationFailed(_))
-            | ServerErr::ChangeUsernameErr(ChangeUsernameErr::UsernameIsTaken(_))
-            | ServerErr::ChangeEmailErr(ChangeEmailErr::EmailIsTaken(_))
-            | ServerErr::ServerRegistrationErr(
-                ServerRegistrationErr::ServerRegistrationInvalidInput { .. },
-            ) => axum::http::StatusCode::BAD_REQUEST,
-            ServerErr::ServerAuthErr(ServerAuthErr::ServerUnauthorizedNoCookie) => {
-                axum::http::StatusCode::OK
-            }
-            ServerErr::ServerAuthErr(ServerAuthErr::ServerUnauthorizedInvalidCookie)
-            | ServerErr::ChangeUsernameErr(ChangeUsernameErr::WrongCredentials)
-            | ServerErr::ChangeEmailErr(ChangeEmailErr::InvalidToken)
-            | ServerErr::ServerLoginErr(ServerLoginErr::WrongCredentials) => {
-                axum::http::StatusCode::UNAUTHORIZED
-            }
-            ServerErr::ServerGetErr(ServerGetErr::NotFound)
-            | ServerErr::ChangeEmailErr(ChangeEmailErr::NotFound)
-            | ServerErr::ChangeUsernameErr(ChangeUsernameErr::NotFound) => {
-                axum::http::StatusCode::NOT_FOUND
-            }
-            ServerErr::ClientErr(_) => unreachable!(),
-        };
+        let status = axum::http::StatusCode::INTERNAL_SERVER_ERROR;
+        // let status = match self {
+        //     ServerErr::ServerDbErr
+        //     | ServerErr::ServerRegistrationErr(ServerRegistrationErr::ServerCreateCookieErr)
+        //     | ServerErr::ServerLoginErr(ServerLoginErr::ServerCreateCookieErr(_))
+        //     | ServerErr::ServerTokenErr(ServerTokenErr::ServerJWT) => {
+        //         axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        //     }
+        //     ServerErr::ServerDesErr(_)
+        //     | ServerErr::ServerAddPostErr(ServerAddPostErr::InvalidTitle(_))
+        //     | ServerErr::ServerAddPostErr(ServerAddPostErr::InvalidDescription(_))
+        //     | ServerErr::ServerRegistrationErr(ServerRegistrationErr::TokenExpired)
+        //     | ServerErr::ServerRegistrationErr(ServerRegistrationErr::TokenUsed)
+        //     | ServerErr::ServerRegistrationErr(ServerRegistrationErr::TokenNotFound)
+        //     | ServerErr::ServerRegistrationErr(ServerRegistrationErr::ServerJWT(_))
+        //     | ServerErr::ServerDecodeInviteErr(ServerDecodeInviteErr::InviteNotFound)
+        //     | ServerErr::ServerDecodeInviteErr(ServerDecodeInviteErr::JWT(_))
+        //     | ServerErr::ServerAddPostErr(ServerAddPostErr::ServerImgErr(_))
+        //     | ServerErr::ServerAddPostErr(ServerAddPostErr::ServerFSErr(_))
+        //     | ServerErr::ServerAddPostErr(ServerAddPostErr::ServerDirCreationFailed(_))
+        //     | ServerErr::ChangeUsernameErr(ChangeUsernameErr::UsernameIsTaken(_))
+        //     | ServerErr::ChangeEmailErr(ChangeEmailErr::EmailIsTaken(_))
+        //     | ServerErr::ServerRegistrationErr(
+        //         ServerRegistrationErr::ServerRegistrationInvalidInput { .. },
+        //     ) => axum::http::StatusCode::BAD_REQUEST,
+        //     ServerErr::ServerAuthErr(ServerAuthErr::ServerUnauthorizedNoCookie) => {
+        //         axum::http::StatusCode::OK
+        //     }
+        //     ServerErr::ServerAuthErr(ServerAuthErr::ServerUnauthorizedInvalidCookie)
+        //     | ServerErr::ChangeUsernameErr(ChangeUsernameErr::WrongCredentials)
+        //     | ServerErr::ChangeEmailErr(ChangeEmailErr::InvalidToken)
+        //     | ServerErr::ServerLoginErr(ServerLoginErr::WrongCredentials) => {
+        //         axum::http::StatusCode::UNAUTHORIZED
+        //     }
+        //     ServerErr::ServerGetErr(ServerGetErr::NotFound)
+        //     | ServerErr::ChangeEmailErr(ChangeEmailErr::NotFound)
+        //     | ServerErr::ChangeUsernameErr(ChangeUsernameErr::NotFound) => {
+        //         axum::http::StatusCode::NOT_FOUND
+        //     }
+        //     ServerErr::ClientErr(_) => unreachable!(),
+        // };
 
         match self {
-            ServerErr::ServerAuthErr(ServerAuthErr::ServerUnauthorizedInvalidCookie) => {
+            ServerErr::AuthErr(ServerAuthErr::ServerUnauthorizedInvalidCookie) => {
                 let result: Result<ServerRes, ServerErr> = Err(self);
                 let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&result).unwrap();
                 let bytes = bytes.to_vec();
@@ -1460,20 +1548,20 @@ pub async fn send(
 pub mod backend {
     use crate::api::app_state::AppState;
     use crate::api::{
-        AuthToken, ChangeEmailErr, ChangeUsernameErr, EmailConfirmTokenKind, EmailToken,
-        ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr, ServerDesErr, ServerErr,
-        ServerErrImg, ServerErrImgMeta, ServerGetErr, ServerLoginErr, ServerRegistrationErr,
-        ServerReq, ServerRes, ServerTokenErr, User, UserPost, UserPostFile, auth_token_get,
-        decode_token, encode_token, hash_password, verify_password,
+        AuthToken, ChangeEmailErr, ChangeUsernameErr, ConfirmActionErr, EmailChangeStage,
+        EmailConfirmTokenKind, EmailToken, SendEmailChangeErr, ServerAddPostErr, ServerAuthErr,
+        ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta,
+        ServerGetErr, ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes, ServerTokenErr,
+        User, UserPost, UserPostFile, auth_token_get, decode_token, encode_token, hash_password,
+        verify_password,
     };
-    use crate::db::{AddEmailInviteTokenErr, DBUser};
+    use crate::db::DBUserPostFile;
+    use crate::db::{AddInviteErr, DBUser};
     use crate::db::{AddUserErr, DBChangeEmailErr};
     use crate::db::{DB404Err, DBChangeUsernameErr};
-    use crate::db::{DBEmailTokenKind, DBUserPostFile};
     use crate::valid::auth::{
         proccess_password, proccess_post_description, proccess_post_title, proccess_username,
     };
-    use crate::view::app::page::settings::EmailChangeStage;
     use axum::Extension;
     use axum::extract::State;
     use axum::response::IntoResponse;
@@ -1488,180 +1576,6 @@ pub mod backend {
     use std::{io::Cursor, path::Path, str::FromStr};
     use tokio::fs;
     use tracing::{debug, error, info, trace};
-
-    pub async fn get_user(
-        State(app_state): State<AppState>,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        let ServerReq::GetUser { username } = req else {
-            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected GetUser, received: {req:?}"
-            ))));
-        };
-
-        let user = app_state
-            .db
-            .get_user_by_username(username)
-            .await
-            .map_err(|err| match err {
-                DB404Err::NotFound => ServerGetErr::NotFound.into(),
-                _ => ServerErr::ServerDbErr,
-            })?;
-
-        Ok(ServerRes::User {
-            username: user.username,
-        })
-    }
-
-    pub async fn logout(
-        State(app_state): State<AppState>,
-        mut parts: http::request::Parts,
-        jar: CookieJar,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        let ServerReq::None = req else {
-            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected None, received: {req:?}"
-            ))));
-        };
-
-        let token = auth_token_get(&mut parts.headers, COOKIE).ok_or(ServerErr::ServerAuthErr(
-            ServerAuthErr::ServerUnauthorizedNoCookie,
-        ))?;
-        // {
-        //     let r = parts.headers;
-        //     let r2 = jar.get(AUTHORIZATION.as_str());
-        //     trace!("headers comparison {r:?}");
-        // }
-        // trace!("headers comparison 1111 {jar:?} 222222 {headers:?}");
-        // let token = auth_token_get(&mut parts.headers);
-        // let token = jar
-        //     .get(AUTHORIZATION.as_str())
-        //     // .map(|v| v.value().to_string())
-        //     .inspect(|v| trace!("logout token raw {v:?}"))
-        //     .ok_or(ServerErr::ServerAuthErr(
-        //         ServerAuthErr::ServerUnauthorizedNoCookie,
-        //     ))
-        //     .map(|v| cut_cookie(v.value(), COOKIE_PREFIX, "").to_string())?;
-
-        trace!("logout token {token}");
-
-        app_state
-            .db
-            .get_session(&token)
-            .await
-            .map_err(|_err| ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie))?;
-
-        app_state
-            .db
-            .delete_session(token)
-            .await
-            .map_err(|_err| ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie))?;
-
-        Ok(ServerRes::DeleteAuthCookie)
-    }
-
-    pub async fn decode_invite(
-        State(app_state): State<AppState>,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        let ServerReq::DecodeInvite { token } = req else {
-            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected Register, received: {req:?}"
-            ))));
-        };
-
-        let token = decode_token::<EmailToken>(&app_state.settings.auth.secret, token, false)
-            .map_err(|err| ServerDecodeInviteErr::JWT(err.to_string()))?;
-
-        Ok(ServerRes::InviteToken(token.claims))
-    }
-
-    pub async fn change_email(
-        State(app_state): State<AppState>,
-        auth_token: Extension<AuthToken>,
-        db_user: Extension<DBUser>,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        let ServerReq::ChangeEmail { new_email, token } = req else {
-            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected ChangeUsername, received: {req:?}"
-            ))));
-        };
-        let time = app_state.clock.now().await.as_nanos();
-
-        let _invite = app_state
-            .db
-            .use_email_token(time, EmailConfirmTokenKind::ChangeEmail, token)
-            .await
-            .map_err(|err| match err {
-                DB404Err::NotFound => ServerErr::ChangeEmailErr(ChangeEmailErr::NotFound),
-                DB404Err::DB(_) => ServerErr::ServerDbErr,
-            })?;
-
-        let _result = app_state
-            .db
-            .change_email(db_user.id.clone(), new_email, time)
-            .await
-            .map_err(|err| match err {
-                DBChangeEmailErr::EmailIsTaken(email) => {
-                    ServerErr::ChangeEmailErr(ChangeEmailErr::EmailIsTaken(email))
-                }
-                DBChangeEmailErr::NotFound => ServerErr::ChangeEmailErr(ChangeEmailErr::NotFound),
-                DBChangeEmailErr::DB(_) => ServerErr::ServerDbErr,
-            })?;
-
-        Ok(ServerRes::Ok)
-    }
-
-    pub async fn change_username(
-        State(app_state): State<AppState>,
-        auth_token: Extension<AuthToken>,
-        db_user: Extension<DBUser>,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        let ServerReq::ChangeUsername { username, password } = req else {
-            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected ChangeUsername, received: {req:?}"
-            ))));
-        };
-        let time = app_state.clock.now().await.as_nanos();
-        debug!("step 1");
-
-        verify_password(password, db_user.password.clone())
-            .inspect_err(|err| trace!("passwords verification failed {err}"))
-            .map_err(|_| ServerErr::ChangeUsernameErr(ChangeUsernameErr::WrongCredentials))?;
-        debug!("step 2");
-
-        let result = app_state
-            .db
-            .change_username(db_user.id.clone(), username, time)
-            .await
-            .map_err(|err| match err {
-                DBChangeUsernameErr::DB(err) => ServerErr::ServerDbErr,
-                DBChangeUsernameErr::UsernameIsTaken(username) => {
-                    ServerErr::ChangeUsernameErr(ChangeUsernameErr::UsernameIsTaken(username))
-                }
-                DBChangeUsernameErr::NotFound => {
-                    ServerErr::ChangeUsernameErr(ChangeUsernameErr::NotFound)
-                }
-            })?;
-
-        Ok(ServerRes::User {
-            username: result.username,
-        })
-    }
-
-    pub async fn profile(
-        State(app_state): State<AppState>,
-        auth_token: Extension<AuthToken>,
-        db_user: Extension<DBUser>,
-    ) -> Result<ServerRes, ServerErr> {
-        Ok(ServerRes::Acc {
-            username: db_user.username.clone(),
-            email: db_user.email.clone(),
-        })
-    }
 
     pub async fn register(
         State(app_state): State<AppState>,
@@ -1683,11 +1597,14 @@ pub mod backend {
 
         let invite_token_decoded = app_state
             .db
-            .get_invite_by_token(DBEmailTokenKind::Registration, &invite_token)
+            .get_invite_any_by_token(
+                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
+                &invite_token,
+            )
             .await
             .inspect_err(|err| error!("failed to run use_invite {err}"))
             .map_err(|err| match err {
-                DB404Err::DB(_) => ServerErr::ServerDbErr,
+                DB404Err::DB(_) => ServerErr::DbErr,
                 DB404Err::NotFound => ServerRegistrationErr::TokenNotFound.into(),
             })
             .and_then(|invite| {
@@ -1737,19 +1654,15 @@ pub mod backend {
                     }
                     .into()
                 }
-                _ => ServerErr::ServerDbErr,
+                _ => ServerErr::DbErr,
             })?;
 
         let result = app_state
             .db
-            .use_email_token(
-                time.as_nanos(),
-                DBEmailTokenKind::Registration,
-                &invite_token,
-            )
+            .update_invite_used(time.as_nanos(), &invite_token)
             .await
             .inspect_err(|err| error!("failed to run use_invite {err}"))
-            .map_err(|err| ServerErr::ServerDbErr)?;
+            .map_err(|err| ServerErr::DbErr)?;
 
         let token = encode_token(
             &app_state.settings.auth.secret,
@@ -1765,9 +1678,230 @@ pub mod backend {
             .db
             .add_session(time_ns, token.clone(), &user.username)
             .await
-            .map_err(|err| ServerErr::ServerDbErr)?;
+            .map_err(|err| ServerErr::DbErr)?;
 
         Ok(ServerRes::SetAuthCookie { token })
+    }
+
+    pub async fn login(
+        State(app_state): State<AppState>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::Login { email, password } = req else {
+            return Err(ServerDesErr::ServerWrongInput(format!(
+                "expected Login, received: {req:?}"
+            ))
+            .into());
+        };
+        let time = app_state.clock.now().await;
+        let time_ns = time.as_nanos();
+        let user = app_state
+            .db
+            .get_user_by_email(email)
+            .await
+            .inspect_err(|err| trace!("user not found - {err}"))
+            .map_err(|_| ServerErr::LoginErr(ServerLoginErr::WrongCredentials))?;
+
+        verify_password(password, user.password)
+            .inspect_err(|err| trace!("passwords verification failed {err}"))
+            .map_err(|_| ServerErr::LoginErr(ServerLoginErr::WrongCredentials))?;
+
+        let token = encode_token(
+            &app_state.settings.auth.secret,
+            AuthToken::new(&user.username, time.as_nanos()),
+        )
+        .inspect_err(|err| error!("jwt exploded {err}"))
+        .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
+        // let (token, cookie) = create_cookie(&app_state.settings.auth.secret, &user.username, time)
+        //     .map_err(|err| {
+        //         ServerErr::ServerLoginErr(ServerLoginErr::ServerCreateCookieErr(err.to_string()))
+        //     })?;
+
+        let _session = app_state
+            .db
+            .add_session(time_ns, token.clone(), &user.username)
+            .await
+            .map_err(|err| ServerErr::DbErr)?;
+
+        Ok(ServerRes::SetAuthCookie { token })
+    }
+
+    pub async fn logout(
+        State(app_state): State<AppState>,
+        mut parts: http::request::Parts,
+        jar: CookieJar,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::None = req else {
+            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                "expected None, received: {req:?}"
+            ))));
+        };
+
+        let token = auth_token_get(&mut parts.headers, COOKIE).ok_or(ServerErr::AuthErr(
+            ServerAuthErr::ServerUnauthorizedNoCookie,
+        ))?;
+        // {
+        //     let r = parts.headers;
+        //     let r2 = jar.get(AUTHORIZATION.as_str());
+        //     trace!("headers comparison {r:?}");
+        // }
+        // trace!("headers comparison 1111 {jar:?} 222222 {headers:?}");
+        // let token = auth_token_get(&mut parts.headers);
+        // let token = jar
+        //     .get(AUTHORIZATION.as_str())
+        //     // .map(|v| v.value().to_string())
+        //     .inspect(|v| trace!("logout token raw {v:?}"))
+        //     .ok_or(ServerErr::ServerAuthErr(
+        //         ServerAuthErr::ServerUnauthorizedNoCookie,
+        //     ))
+        //     .map(|v| cut_cookie(v.value(), COOKIE_PREFIX, "").to_string())?;
+
+        trace!("logout token {token}");
+
+        app_state
+            .db
+            .get_session(&token)
+            .await
+            .map_err(|_err| ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie))?;
+
+        app_state
+            .db
+            .delete_session(token)
+            .await
+            .map_err(|_err| ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie))?;
+
+        Ok(ServerRes::DeleteAuthCookie)
+    }
+
+    pub async fn decode_email_token(
+        State(app_state): State<AppState>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::ConfirmToken { token } = req else {
+            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                "expected Register, received: {req:?}"
+            ))));
+        };
+
+        let token = decode_token::<EmailToken>(&app_state.settings.auth.secret, token, false)
+            .map_err(|err| ServerDecodeInviteErr::JWT(err.to_string()))?;
+
+        Ok(ServerRes::InviteToken(token.claims))
+    }
+
+    pub async fn get_user(
+        State(app_state): State<AppState>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::GetUser { username } = req else {
+            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                "expected GetUser, received: {req:?}"
+            ))));
+        };
+
+        let user = app_state
+            .db
+            .get_user_by_username(username)
+            .await
+            .map_err(|err| match err {
+                DB404Err::NotFound => ServerGetErr::NotFound.into(),
+                _ => ServerErr::DbErr,
+            })?;
+
+        Ok(ServerRes::User {
+            username: user.username,
+        })
+    }
+
+    pub async fn get_account(
+        State(app_state): State<AppState>,
+        auth_token: Extension<AuthToken>,
+        db_user: Extension<DBUser>,
+    ) -> Result<ServerRes, ServerErr> {
+        Ok(ServerRes::Acc {
+            username: db_user.username.clone(),
+            email: db_user.email.clone(),
+        })
+    }
+
+    pub async fn change_email(
+        State(app_state): State<AppState>,
+        auth_token: Extension<AuthToken>,
+        db_user: Extension<DBUser>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::ChangeEmail {
+            new_email,
+            confirm_token: token,
+        } = req
+        else {
+            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                "expected ChangeUsername, received: {req:?}"
+            ))));
+        };
+        let time = app_state.clock.now().await.as_nanos();
+
+        // let _confirm_token = app_state
+        //     .db
+        //     .update_invite_used(time, token)
+        //     .await
+        //     .map_err(|err| match err {
+        //         DB404Err::NotFound => ServerErr::ChangeEmailErr(ChangeEmailErr::NotFound),
+        //         DB404Err::DB(_) => ServerErr::DbErr,
+        //     })?;
+        //
+        // let _result = app_state
+        //     .db
+        //     .update_user_email(db_user.id.clone(), new_email, time)
+        //     .await
+        //     .map_err(|err| match err {
+        //         DBChangeEmailErr::EmailIsTaken(email) => {
+        //             ServerErr::ChangeEmailErr(ChangeEmailErr::EmailIsTaken(email))
+        //         }
+        //         DBChangeEmailErr::NotFound => ServerErr::ChangeEmailErr(ChangeEmailErr::NotFound),
+        //         DBChangeEmailErr::DB(_) => ServerErr::DbErr,
+        //     })?;
+
+        Ok(ServerRes::Ok)
+    }
+
+    pub async fn change_username(
+        State(app_state): State<AppState>,
+        auth_token: Extension<AuthToken>,
+        db_user: Extension<DBUser>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::ChangeUsername { username, password } = req else {
+            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                "expected ChangeUsername, received: {req:?}"
+            ))));
+        };
+        let time = app_state.clock.now().await.as_nanos();
+        debug!("step 1");
+
+        verify_password(password, db_user.password.clone())
+            .inspect_err(|err| trace!("passwords verification failed {err}"))
+            .map_err(|_| ServerErr::ChangeUsernameErr(ChangeUsernameErr::WrongCredentials))?;
+        debug!("step 2");
+
+        let result = app_state
+            .db
+            .update_user_username(db_user.id.clone(), username, time)
+            .await
+            .map_err(|err| match err {
+                DBChangeUsernameErr::DB(err) => ServerErr::DbErr,
+                DBChangeUsernameErr::UsernameIsTaken(username) => {
+                    ServerErr::ChangeUsernameErr(ChangeUsernameErr::UsernameIsTaken(username))
+                }
+                DBChangeUsernameErr::NotFound => {
+                    ServerErr::ChangeUsernameErr(ChangeUsernameErr::NotFound)
+                }
+            })?;
+
+        Ok(ServerRes::User {
+            username: result.username,
+        })
     }
 
     pub async fn get_post(
@@ -1785,8 +1919,8 @@ pub mod backend {
             .get_post_str(post_id)
             .await
             .map_err(|err| match err {
-                DB404Err::NotFound => ServerErr::ServerGetErr(ServerGetErr::NotFound),
-                _ => ServerErr::ServerDbErr,
+                DB404Err::NotFound => ServerErr::GetErr(ServerGetErr::NotFound),
+                _ => ServerErr::DbErr,
             })?;
 
         Ok(ServerRes::Post(post.into()))
@@ -1814,14 +1948,14 @@ pub mod backend {
             .await
             .map_err(|err| match err {
                 DB404Err::NotFound => ServerGetErr::NotFound.into(),
-                DB404Err::DB(_) => ServerErr::ServerDbErr,
+                DB404Err::DB(_) => ServerErr::DbErr,
             })?;
 
         let posts = app_state
             .db
             .get_post_newer_or_equal_for_user(time, limit, user.id.clone())
             .await
-            .map_err(|_| ServerErr::ServerDbErr)?
+            .map_err(|_| ServerErr::DbErr)?
             .into_iter()
             .map(UserPost::from)
             .collect::<Vec<UserPost>>();
@@ -1851,14 +1985,14 @@ pub mod backend {
             .await
             .map_err(|err| match err {
                 DB404Err::NotFound => ServerGetErr::NotFound.into(),
-                DB404Err::DB(_) => ServerErr::ServerDbErr,
+                DB404Err::DB(_) => ServerErr::DbErr,
             })?;
 
         let posts = app_state
             .db
             .get_post_older_or_equal_for_user(time, limit, user.id.clone())
             .await
-            .map_err(|_| ServerErr::ServerDbErr)?
+            .map_err(|_| ServerErr::DbErr)?
             .into_iter()
             .map(UserPost::from)
             .collect::<Vec<UserPost>>();
@@ -1888,14 +2022,14 @@ pub mod backend {
             .await
             .map_err(|err| match err {
                 DB404Err::NotFound => ServerGetErr::NotFound.into(),
-                DB404Err::DB(_) => ServerErr::ServerDbErr,
+                DB404Err::DB(_) => ServerErr::DbErr,
             })?;
 
         let posts = app_state
             .db
             .get_post_older_for_user(time, limit, user.id.clone())
             .await
-            .map_err(|_| ServerErr::ServerDbErr)?
+            .map_err(|_| ServerErr::DbErr)?
             .into_iter()
             .map(UserPost::from)
             .collect::<Vec<UserPost>>();
@@ -1925,14 +2059,14 @@ pub mod backend {
             .await
             .map_err(|err| match err {
                 DB404Err::NotFound => ServerGetErr::NotFound.into(),
-                DB404Err::DB(_) => ServerErr::ServerDbErr,
+                DB404Err::DB(_) => ServerErr::DbErr,
             })?;
 
         let posts = app_state
             .db
             .get_post_newer_for_user(time, limit, user.id.clone())
             .await
-            .map_err(|_| ServerErr::ServerDbErr)?
+            .map_err(|_| ServerErr::DbErr)?
             .into_iter()
             .map(UserPost::from)
             .collect::<Vec<UserPost>>();
@@ -1954,7 +2088,7 @@ pub mod backend {
             .db
             .get_post_newer_or_equal(time, limit)
             .await
-            .map_err(|_| ServerErr::ServerDbErr)?
+            .map_err(|_| ServerErr::DbErr)?
             .into_iter()
             .map(UserPost::from)
             .collect::<Vec<UserPost>>();
@@ -1977,7 +2111,7 @@ pub mod backend {
             .db
             .get_post_older_or_equal(time, limit)
             .await
-            .map_err(|_| ServerErr::ServerDbErr)?
+            .map_err(|_| ServerErr::DbErr)?
             .into_iter()
             .map(UserPost::from)
             .collect::<Vec<UserPost>>();
@@ -1999,7 +2133,7 @@ pub mod backend {
             .db
             .get_post_newer(time, limit)
             .await
-            .map_err(|_| ServerErr::ServerDbErr)?
+            .map_err(|_| ServerErr::DbErr)?
             .into_iter()
             .map(UserPost::from)
             .collect::<Vec<UserPost>>();
@@ -2022,7 +2156,7 @@ pub mod backend {
             .db
             .get_post_older(time, limit)
             .await
-            .map_err(|_| ServerErr::ServerDbErr)?
+            .map_err(|_| ServerErr::DbErr)?
             .into_iter()
             .map(UserPost::from)
             .collect::<Vec<UserPost>>();
@@ -2200,134 +2334,282 @@ pub mod backend {
             )
             .await
             .inspect_err(|err| error!("failed to save images {err:?}"))
-            .map_err(|_| ServerErr::ServerDbErr)?;
+            .map_err(|_| ServerErr::DbErr)?;
 
         Ok(ServerRes::Post(post.into()))
     }
 
-    pub async fn send_email_confirm(
+    pub async fn confirm_email_change(
         State(app_state): State<AppState>,
         auth_token: Extension<AuthToken>,
         db_user: Extension<DBUser>,
         req: ServerReq,
     ) -> Result<ServerRes, ServerErr> {
-        let ServerReq::SendEmailConfirm { kind } = req else {
+        let ServerReq::ConfirmToken { token } = req else {
             return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected AddPost, received: {req:?}"
+                "expected ConfirmKind, received: {req:?}"
             ))));
         };
+        let time = app_state.clock.now().await.as_nanos();
 
-        let time = app_state.clock.now().await;
-        let exp = time + Duration::from_secs(app_state.settings.auth.invite_exp_s);
-        let invite = EmailToken::new(db_user.email.clone(), time.as_nanos());
-        let invite_token = encode_token(&app_state.settings.auth.secret, invite)
-            .map_err(|_| ServerTokenErr::ServerJWT)?;
-
-        trace!("email token created: {invite_token}");
-
-        let email_token = app_state
-            .db
-            .add_email_confirmation_token(
-                time.clone().as_nanos(),
-                kind,
-                invite_token,
-                db_user.email.clone(),
-                exp.as_nanos(),
-            )
-            .await
-            .map_err(|_| ServerErr::ServerDbErr)?;
-
-        let link = format!(
-            "{}{}",
-            &app_state.settings.site.address,
-            crate::path::link_settings_form_email(EmailChangeStage::EnterNewEmail, None, Some(email_token.token_raw.clone())),
-        );
-        trace!("{link}");
+        // let _confirm_token = app_state
+        //     .db
+        //     .update_invite_used(time, token, 0, 1)
+        //     .await
+        //     .map_err(|err| match err {
+        //         DB404Err::NotFound => ServerErr::ConfirmActionErr(ConfirmActionErr::NotFound),
+        //         DB404Err::DB(_) => ServerErr::DbErr,
+        //     })?;
 
         Ok(ServerRes::Ok)
     }
+
+    // pub async fn confirm_action(
+    //     State(app_state): State<AppState>,
+    //     auth_token: Extension<AuthToken>,
+    //     db_user: Extension<DBUser>,
+    //     req: ServerReq,
+    // ) -> Result<ServerRes, ServerErr> {
+    //     let ServerReq::ConfirmToken { token } = req else {
+    //         return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+    //             "expected ConfirmKind, received: {req:?}"
+    //         ))));
+    //     };
+    //     let time = app_state.clock.now().await.as_nanos();
+    //
+    //
+    //     Ok(ServerRes::Ok)
+    // }
+
+    pub async fn send_email_change(
+        State(app_state): State<AppState>,
+        auth_token: Extension<AuthToken>,
+        db_user: Extension<DBUser>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::None = req else {
+            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                "expected None, received: {req:?}"
+            ))));
+        };
+
+        let time = app_state.time().await;
+        let (confirm_token, exp) = app_state.new_confirm_token(&db_user.email).await?;
+
+        let result = app_state
+            .db
+            .add_email_change(
+                time,
+                db_user.id.clone(),
+                db_user.email.clone(),
+                confirm_token,
+                exp,
+            )
+            .await
+            .map_err(|_| ServerErr::DbErr)?;
+
+        if let Some(new) = &result.new
+            && new.token_used
+        {
+            return Ok(ServerRes::EmailChangeStage(
+                EmailChangeStage::ReadyToComplete {
+                    new_email: new.email.clone(),
+                },
+            ));
+        }
+
+        if let Some(new) = &result.new {
+            return Ok(ServerRes::EmailChangeStage(
+                EmailChangeStage::ConfirmNewEmail {
+                    new_email: new.email.clone(),
+                },
+            ));
+        }
+
+        if result.current.token_used {
+            return Ok(ServerRes::EmailChangeStage(EmailChangeStage::EnterNewEmail));
+        }
+
+        Ok(ServerRes::EmailChangeStage(EmailChangeStage::ConfirmEmail))
+    }
+
+    // pub async fn send_email_request_action(
+    //     State(app_state): State<AppState>,
+    //     auth_token: Extension<AuthToken>,
+    //     db_user: Extension<DBUser>,
+    //     req: ServerReq,
+    // ) -> Result<ServerRes, ServerErr> {
+    //     let ServerReq::ConfirmKind { kind } = req else {
+    //         return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+    //             "expected AddPost, received: {req:?}"
+    //         ))));
+    //     };
+    //
+    //     let time = app_state.time().await;
+    //     let (confirm_token, exp) = app_state.new_confirm_token(&db_user.email).await?;
+    //
+    //     trace!("email confirm token created: {confirm_token}");
+    //
+    //     let email_token = app_state
+    //         .db
+    //         .add_email_confirm(time, kind, confirm_token, &db_user.email, exp)
+    //         .await
+    //         .map_err(|_| ServerErr::DbErr)?;
+    //
+    //     let link = format!(
+    //         "{}{}",
+    //         &app_state.settings.site.address,
+    //         crate::path::link_settings_form_email(
+    //             EmailChangeStage::EnterNewEmail,
+    //             None,
+    //             Some(email_token.token_raw.clone())
+    //         ),
+    //     );
+    //     trace!("{link}");
+    //
+    //     Ok(ServerRes::Ok)
+    // }
 
     pub async fn send_email_invite(
         State(app_state): State<AppState>,
         req: ServerReq,
     ) -> Result<ServerRes, ServerErr> {
-        let ServerReq::GetEmailInvite { email } = req else {
+        let ServerReq::SendEmailInvite { email } = req else {
             return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
                 "expected AddPost, received: {req:?}"
             ))));
         };
 
-        let time = app_state.clock.now().await;
-        let exp = time + Duration::from_secs(app_state.settings.auth.invite_exp_s);
-        let invite = EmailToken::new(email.clone(), time.as_nanos());
-        let invite_token = encode_token(&app_state.settings.auth.secret, invite)
-            .map_err(|_| ServerTokenErr::ServerJWT)?;
-
-        trace!("email token created: {invite_token}");
+        let time = app_state.time().await;
+        let (confirm_token, exp) = app_state.new_confirm_token(&email).await?;
+        trace!("email token created: {confirm_token}");
 
         let email_token = app_state
             .db
-            .add_email_invite_token(time.clone().as_nanos(), invite_token, email, exp.as_nanos())
+            .add_invite(time, confirm_token, email, exp)
             .await;
-        let invite = match email_token {
-            Err(AddEmailInviteTokenErr::EmailIsTaken(_)) => {
+        let confirm_token = match email_token {
+            Err(AddInviteErr::EmailIsTaken(_)) => {
                 return Ok(ServerRes::Ok);
             }
-            invite => invite.map_err(|_| ServerErr::ServerDbErr),
+            invite => invite.map_err(|_| ServerErr::DbErr),
         }?;
-        trace!("result {invite:?}");
+        trace!("result {confirm_token:?}");
 
         let link = format!(
             "{}{}",
             &app_state.settings.site.address,
-            crate::path::link_reg(&invite.token_raw),
+            crate::path::link_reg(&confirm_token.token_raw),
         );
         trace!("{link}");
 
         Ok(ServerRes::Ok)
     }
 
-    pub async fn login(
+    pub async fn send_email_new(
         State(app_state): State<AppState>,
+        auth_token: Extension<AuthToken>,
+        db_user: Extension<DBUser>,
         req: ServerReq,
     ) -> Result<ServerRes, ServerErr> {
-        let ServerReq::Login { email, password } = req else {
-            return Err(ServerDesErr::ServerWrongInput(format!(
-                "expected Login, received: {req:?}"
-            ))
-            .into());
+        let ServerReq::SendEmailChange { new_email } = req else {
+            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                "expected AddPost, received: {req:?}"
+            ))));
         };
-        let time = app_state.clock.now().await;
-        let time_ns = time.as_nanos();
-        let user = app_state
-            .db
-            .get_user_by_email(email)
-            .await
-            .inspect_err(|err| trace!("user not found - {err}"))
-            .map_err(|_| ServerErr::ServerLoginErr(ServerLoginErr::WrongCredentials))?;
 
-        verify_password(password, user.password)
-            .inspect_err(|err| trace!("passwords verification failed {err}"))
-            .map_err(|_| ServerErr::ServerLoginErr(ServerLoginErr::WrongCredentials))?;
+        let time = app_state.time().await;
 
-        let token = encode_token(
-            &app_state.settings.auth.secret,
-            AuthToken::new(&user.username, time.as_nanos()),
-        )
-        .inspect_err(|err| error!("jwt exploded {err}"))
-        .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
-        // let (token, cookie) = create_cookie(&app_state.settings.auth.secret, &user.username, time)
-        //     .map_err(|err| {
-        //         ServerErr::ServerLoginErr(ServerLoginErr::ServerCreateCookieErr(err.to_string()))
+        // let result = app_state
+        //     .db
+        //     .get_email_confirm(time, DBEmailTokenKind::RequestChangeEmail, &new_email, 1)
+        //     .await
+        //     .map_err(|err| match err {
+        //         DB404Err::NotFound => ServerErr::from(RequestEmailChangeErr),
+        //     });
+
+        // let email_confirm = app_state
+        //     .db
+        //     .get_invite_valid(
+        //         time,
+        //         // DBEmailTokenKind::RequestChangeEmail,
+        //         &db_user.email,
+        //         // 1,
+        //     )
+        //     // .get_email_confirm_by_token(DBEmailTokenKind::RequestChangeEmail, confirm_token)
+        //     .await
+        //     .map_err(move |err| match err {
+        //         DB404Err::NotFound => ServerErr::from(RequestEmailChangeErr::ConfirmTokenNotFound),
+        //         DB404Err::DB(_err) => ServerErr::DbErr,
+        //     })
+        //     .and_then(|v| {
+        //         // rewrite this nonsense
+        //         if v.used {
+        //             Ok(v)
+        //         } else {
+        //             Err(ServerErr::from(RequestEmailChangeErr::ConfirmTokenNotUsed))
+        //         }
         //     })?;
+        //
+        // let (confirm_token, exp) = app_state.new_confirm_token(&new_email).await?;
+        //
+        // let result = app_state
+        //     .db
+        //     .add_invite(
+        //         time,
+        //         DBEmailTokenKind::RequestConfirmNewEmail,
+        //         confirm_token,
+        //         &new_email,
+        //         exp,
+        //     )
+        //     .await
+        //     .map_err(|err| match err {
+        //         AddInviteErr::EmailIsTaken(email) => {
+        //             ServerErr::RequestEmailChange(RequestEmailChangeErr::EmailIsTaken(email))
+        //         }
+        //         _ => ServerErr::DbErr,
+        //     });
+        //
+        // let result = app_state
+        //     .db
+        //     .update_invite_used(time, email_confirm.token_raw, 2)
+        //     .await
+        //     .map_err(|_| ServerErr::DbErr)?;
 
-        let _session = app_state
-            .db
-            .add_session(time_ns, token.clone(), &user.username)
-            .await
-            .map_err(|err| ServerErr::ServerDbErr)?;
+        // let (confirm_token, exp) = app_state.new_confirm_token(&new_email).await?;
+        // trace!("email token created: {confirm_token}");
+        //
+        // let result = app_state
+        //     .db
+        //     .add_email_confirm(
+        //         time,
+        //         DBEmailTokenKind::RequestConfirmNewEmail,
+        //         confirm_token,
+        //         new_email,
+        //         exp,
+        //     )
+        //     .await;
 
-        Ok(ServerRes::SetAuthCookie { token })
+        // let email_token = app_state
+        //     .db
+        //     .add_email_invite_token(time, confirm_token, email, exp)
+        //     .await;
+        // let confirm_token = match email_token {
+        //     Err(AddEmailInviteTokenErr::EmailIsTaken(_)) => {
+        //         return Ok(ServerRes::Ok);
+        //     }
+        //     invite => invite.map_err(|_| ServerErr::ServerDbErr),
+        // }?;
+        // trace!("result {confirm_token:?}");
+        //
+        // let link = format!(
+        //     "{}{}",
+        //     &app_state.settings.site.address,
+        //     crate::path::link_reg(&confirm_token.token_raw),
+        // );
+        // trace!("{link}");
+
+        Ok(ServerRes::Ok)
     }
 
     pub async fn auth_middleware(
@@ -2364,7 +2646,7 @@ pub mod backend {
         ServerErr: std::error::Error + 'static,
     {
         trace!("CHECKING AUTH");
-        let token = auth_token_get(headers, COOKIE).ok_or(ServerErr::ServerAuthErr(
+        let token = auth_token_get(headers, COOKIE).ok_or(ServerErr::AuthErr(
             ServerAuthErr::ServerUnauthorizedNoCookie,
         ))?;
         // let token = jar
@@ -2382,7 +2664,7 @@ pub mod backend {
                 DB404Err::NotFound => {
                     ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie)
                 }
-                _ => ServerErr::ServerDbErr,
+                _ => ServerErr::DbErr,
             })?;
 
         let token = match decode_token::<AuthToken>(&app_state.settings.auth.secret, &token, false)
@@ -2394,7 +2676,7 @@ pub mod backend {
                     .db
                     .delete_session(token)
                     .await
-                    .map_err(|err| ServerErr::ServerDbErr)?;
+                    .map_err(|err| ServerErr::DbErr)?;
                 return Err(ServerErr::from(
                     ServerAuthErr::ServerUnauthorizedInvalidCookie,
                 ));
@@ -2422,10 +2704,10 @@ mod tests {
 
     use crate::api::app_state::AppState;
     use crate::api::{
-        Api, ApiTest, EmailConfirmTokenKind, EmailToken, ServerErr, ServerGetErr, ServerLoginErr,
-        ServerRegistrationErr, ServerReqImg, ServerRes, encode_token,
+        Api, ApiTest, EmailChangeStage, EmailConfirmTokenKind, EmailToken, ServerErr, ServerGetErr,
+        ServerLoginErr, ServerRegistrationErr, ServerReqImg, ServerRes, encode_token,
     };
-    use crate::db::DBEmailTokenKind;
+    // use crate::db::DBEmailTokenKind;
     use crate::server::create_api_router;
     use tracing_appender::rolling;
 
@@ -2470,13 +2752,18 @@ mod tests {
                 .await
                 .unwrap();
 
-            let all = self.state.db.get_all_invites().await.unwrap();
+            let all = self.state.db.get_invite_all().await.unwrap();
             trace!("----- ALL INVITES ------\n{all:#?}");
 
             let invite = self
                 .state
                 .db
-                .get_email_token(time, DBEmailTokenKind::Registration, email)
+                .get_invite_valid(
+                    time,
+                    // DBEmailTokenKind::RequestConfirmRegistrationEmail,
+                    email,
+                    // 0,
+                )
                 .await
                 .unwrap();
 
@@ -2498,44 +2785,126 @@ mod tests {
     // }
 
     #[test(tokio::test)]
-    async fn api_change_email_test() {
+    async fn api_email_change_test() {
         let app = ApiTestApp::new().await;
         let auth_token = app.register("hey").await;
+        let user = app.state.db.get_user_by_username("hey").await.unwrap();
 
         let result = app
             .api
-            .send_email_confirmation(EmailConfirmTokenKind::ChangeEmail)
-            .send_native_with_token(auth_token.clone())
+            .send_email_change()
+            .send_native_with_token(auth_token)
             .await;
+        assert!(matches!(
+            result,
+            Ok(ServerRes::EmailChangeStage(EmailChangeStage::ConfirmEmail))
+        ));
 
-        let confirm_token = app
-            .state
-            .db
-            .get_email_token(0, DBEmailTokenKind::ChangeEmail, "hey@hey.com")
-            .await
-            .unwrap();
+        // CONFIRM ACTION
+        {
+            // let confirm_token = app
+            //     .state
+            //     .db
+            //     .get_email_change(0, user.id.clone())
+            //     .await
+            //     .unwrap();
+
+            // let result = app
+            //     .api
+            //     .confirm_email_change(confirm_token)
+            //     .send_native_with_token(auth_token.clone())
+            //     .await
+            //     .unwrap();
+            // match result {
+            //     ServerRes::Ok => (),
+            //     res => panic!("expected Ok, received {res:?}"),
+            // }
+        }
+
+        // SEND CONFIRMATION TO CURRENT EMAIL
+        // let result = app
+        //     .api
+        //     .send_email_change()
+        //     .send_native_with_token(auth_token.clone())
+        //     .await
+        //     .unwrap();
+        //
+        // // SEND CONFIRMATION TO NEW EMAIL
+        // {
+        //     let result = app
+        //         .api
+        //         .send_email_new("hey2@hey.com")
+        //         .send_native_with_token(auth_token.clone())
+        //         .await
+        //         .unwrap();
+        //
+        //     match result {
+        //         ServerRes::Ok => (),
+        //         res => panic!("expected Ok, received {res:?}"),
+        //     }
+        // }
+        //
+        // // CONFIRM ACTION
+        // {
+        //     let confirm_token = app
+        //         .state
+        //         .db
+        //         .get_invite_valid(
+        //             0,
+        //             DBEmailTokenKind::RequestConfirmNewEmail,
+        //             "hey2@hey.com",
+        //             0,
+        //         )
+        //         .await
+        //         .unwrap()
+        //         .token_raw;
+        //
+        //     let result = app
+        //         .api
+        //         .confirm_email_change(confirm_token)
+        //         .send_native_with_token(auth_token.clone())
+        //         .await
+        //         .unwrap();
+        //     match result {
+        //         ServerRes::Ok => (),
+        //         res => panic!("expected Ok, received {res:?}"),
+        //     }
+        // }
+
+        // REQUEST NEW EMAIL CONFIRM
+
+        // let result = app.api.ac
+
+        // let result = app.
+
+        // let confirm_token = app
+        //     .state
+        //     .db
+        //     .get_email_confirm(0, DBEmailTokenKind::RequestChangeEmail, "hey@hey.com", 0)
+        //     .await
+        //     .unwrap();
 
         // get new email confirmation token
         // and then change email
         // and check if email input is not empty, maybe add regex validation
 
-        let result = app
-            .api
-            .change_email(confirm_token.token_raw.clone(), "hey2@hey.com")
-            .send_native_with_token(auth_token)
-            .await
-            .unwrap();
-
-        let all_users = app.state.db.get_all_user().await.unwrap();
-        assert_eq!(all_users.len(), 1);
-
-        let user1 = app
-            .state
-            .db
-            .get_user_by_email("hey2@hey.com")
-            .await
-            .unwrap();
-        assert_eq!(user1.email, "hey2@hey.com");
+        // let result = app
+        //     .api
+        //     .change_email(confirm_token.token_raw.clone(), "hey2@hey.com")
+        //     .send_native_with_token(auth_token)
+        //     .await
+        //     .unwrap();
+        //
+        // let all_users = app.state.db.get_all_user().await.unwrap();
+        // assert_eq!(all_users.len(), 1);
+        //
+        // let user1 = app
+        //     .state
+        //     .db
+        //     .get_user_by_email("hey2@hey.com")
+        //     .await
+        //     .unwrap();
+        // assert_eq!(user1.email, "hey2@hey.com");
 
         // confirm_token
 
@@ -2601,10 +2970,11 @@ mod tests {
 
         let invite = app_state
             .db
-            .get_email_token(
+            .get_invite_valid(
                 current_time.as_nanos(),
-                DBEmailTokenKind::Registration,
+                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
                 "hey1@hey.com",
+                // 0,
             )
             .await
             .unwrap();
@@ -2613,13 +2983,19 @@ mod tests {
 
         let bad_invite_token = encode_token(
             &app_state.settings.auth.secret,
-            EmailToken::new("hey1@hey.com", time),
+            EmailToken::new("123", "hey1@hey.com", time),
         )
         .unwrap();
 
         let bad_invite = app_state
             .db
-            .add_email_invite_token(time, &bad_invite_token, "hey1@hey.com", time + 1)
+            .add_invite(
+                time,
+                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
+                &bad_invite_token,
+                "hey1@hey.com",
+                time + 1,
+            )
             .await
             .unwrap();
         trace!("bad invite added: {bad_invite:#?}");
@@ -2633,7 +3009,7 @@ mod tests {
 
             assert!(matches!(
                 result,
-                Err(ServerErr::ServerRegistrationErr(
+                Err(ServerErr::RegistrationErr(
                     ServerRegistrationErr::TokenExpired
                 ))
             ));
@@ -2654,7 +3030,7 @@ mod tests {
                 .await;
 
             match result {
-                Err(ServerErr::ServerRegistrationErr(
+                Err(ServerErr::RegistrationErr(
                     ServerRegistrationErr::ServerRegistrationInvalidInput {
                         username,
                         email,
@@ -2683,7 +3059,7 @@ mod tests {
 
         let token_raw = token.unwrap();
 
-        let all_invites = app_state.db.get_all_invites().await.unwrap();
+        let all_invites = app_state.db.get_invite_all().await.unwrap();
 
         trace!("all invites: {all_invites:#?}");
 
@@ -2695,14 +3071,14 @@ mod tests {
 
             assert!(matches!(
                 result,
-                Err(ServerErr::ServerRegistrationErr(
-                    ServerRegistrationErr::TokenUsed,
+                Err(ServerErr::RegistrationErr(
+                    ServerRegistrationErr::TokenNotFound,
                 ))
             ));
         }
 
         let all_users = app_state.db.get_all_user().await.unwrap();
-        let all_sessions = app_state.db.get_all_session().await.unwrap();
+        let all_sessions = app_state.db.get_session_all().await.unwrap();
 
         trace!("ALL USERS {all_users:#?}");
         assert!(all_users.len() == 1);
@@ -2727,7 +3103,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(ServerErr::ServerLoginErr(ServerLoginErr::WrongCredentials))
+            Err(ServerErr::LoginErr(ServerLoginErr::WrongCredentials))
         ));
 
         let (token, decoded_token, result) = api
@@ -2940,10 +3316,11 @@ mod tests {
 
         let invite2 = app_state
             .db
-            .get_email_token(
+            .get_invite_valid(
                 current_time.as_nanos(),
-                DBEmailTokenKind::Registration,
+                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
                 "hey2@hey.com",
+                // 0,
             )
             .await
             .unwrap();
@@ -3001,7 +3378,7 @@ mod tests {
         let result = api.get_user_posts_newer(2, 10, "hey99").send_native().await;
         assert!(matches!(
             result,
-            Err(ServerErr::ServerGetErr(ServerGetErr::NotFound))
+            Err(ServerErr::GetErr(ServerGetErr::NotFound))
         ));
 
         let result = api
@@ -3010,7 +3387,7 @@ mod tests {
             .await;
         assert!(matches!(
             result,
-            Err(ServerErr::ServerGetErr(ServerGetErr::NotFound))
+            Err(ServerErr::GetErr(ServerGetErr::NotFound))
         ));
 
         let result = api
@@ -3034,11 +3411,11 @@ mod tests {
             .unwrap();
 
         match result {
-            crate::api::ServerRes::User { username } => {
+            crate::api::ServerRes::Acc { username, email } => {
                 assert_eq!(username, "bye");
             }
             wrong => {
-                panic!("{}", format!("expected User, got {:?}", wrong));
+                panic!("{}", format!("expected Acc, got {:?}", wrong));
             }
         }
     }
