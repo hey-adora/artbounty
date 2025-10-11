@@ -208,10 +208,10 @@ pub struct DBUserPostFile {
 }
 
 #[derive(Save!)]
-pub struct DBEmailToken {
+pub struct DBInvite {
     pub id: RecordId,
     pub token_raw: String,
-    pub kind: String,
+    // pub kind: String,
     pub email: String,
     pub expires: u128,
     pub used: bool,
@@ -220,28 +220,50 @@ pub struct DBEmailToken {
 }
 
 #[derive(Save!)]
-pub enum DBEmailTokenKind {
-    Registration,
-    ChangeEmail,
+pub struct DBEmailChange {
+    pub id: RecordId,
+    pub user: DBUser,
+    pub current: DBEmailChangeToken,
+    pub new: Option<DBEmailChangeToken>,
+    pub completed: bool,
+    pub expires: u128,
+    pub modified_at: u128,
+    pub created_at: u128,
 }
 
-impl Display for DBEmailTokenKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let name = match self {
-            Self::Registration => "registration",
-            Self::ChangeEmail => "change_email",
-        };
-        write!(f, "{}", name)
-    }
+#[derive(Save!)]
+pub struct DBEmailChangeToken {
+    pub email: String,
+    pub token_raw: String,
+    pub token_used: bool,
+    // pub token_expires: u128,
 }
 
-impl From<EmailConfirmTokenKind> for DBEmailTokenKind {
-    fn from(value: EmailConfirmTokenKind) -> Self {
-        match value {
-            EmailConfirmTokenKind::ChangeEmail => DBEmailTokenKind::ChangeEmail,
-        }
-    }
-}
+// #[derive(Save!)]
+// pub enum DBEmailTokenKind {
+//     RequestConfirmRegistrationEmail,
+//     RequestChangeEmail,
+//     RequestConfirmNewEmail,
+// }
+//
+// impl Display for DBEmailTokenKind {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         let name = match self {
+//             Self::RequestConfirmRegistrationEmail => "registration",
+//             Self::RequestChangeEmail => "change_email",
+//             Self::RequestConfirmNewEmail => "confirm_new_email",
+//         };
+//         write!(f, "{}", name)
+//     }
+// }
+
+// impl From<EmailConfirmTokenKind> for DBEmailTokenKind {
+//     fn from(value: EmailConfirmTokenKind) -> Self {
+//         match value {
+//             EmailConfirmTokenKind::ChangeEmail => DBEmailTokenKind::RequestChangeEmail,
+//         }
+//     }
+// }
 
 #[derive(Save!)]
 pub struct DBSession {
@@ -262,7 +284,7 @@ pub enum AddPostErr {
 }
 
 #[derive(Debug, Error)]
-pub enum AddEmailInviteTokenErr {
+pub enum AddInviteErr {
     #[error("DB error {0}")]
     DB(#[from] surrealdb::Error),
 
@@ -399,15 +421,34 @@ impl<C: Connection> Db<C> {
                             DEFINE FIELD modified_at ON TABLE stat TYPE number;
                             DEFINE FIELD created_at ON TABLE stat TYPE number;
                             DEFINE INDEX idx_stat_country ON TABLE stat COLUMNS country UNIQUE;
-                            -- email confirmation 
+                            -- invite 
                             DEFINE TABLE invite SCHEMAFULL;
                             DEFINE FIELD token_raw ON TABLE invite TYPE string;
-                            DEFINE FIELD kind ON TABLE invite TYPE string;
+                            -- DEFINE FIELD kind ON TABLE invite TYPE string;
                             DEFINE FIELD email ON TABLE invite TYPE string;
                             DEFINE FIELD expires ON TABLE invite TYPE number;
-                            DEFINE FIELD used ON TABLE invite TYPE bool DEFAULT false;
+                            DEFINE FIELD used ON TABLE invite TYPE bool;
                             DEFINE FIELD modified_at ON TABLE invite TYPE number;
                             DEFINE FIELD created_at ON TABLE invite TYPE number;
+                            DEFINE INDEX idx_invite_token_raw ON TABLE invite COLUMNS token_raw UNIQUE;
+                            -- email change
+                            DEFINE TABLE email_change SCHEMAFULL;
+                            DEFINE FIELD user ON TABLE email_change TYPE record<user>;
+                            DEFINE FIELD current ON TABLE email_change TYPE object;
+                            DEFINE FIELD current.email ON TABLE email_change TYPE string;
+                            DEFINE FIELD current.token_raw ON TABLE email_change TYPE string;
+                            DEFINE FIELD current.token_used ON TABLE email_change TYPE bool;
+                            -- DEFINE FIELD current.token_expires ON TABLE email_change TYPE number;
+                            DEFINE FIELD new ON TABLE email_change TYPE option<object>;
+                            DEFINE FIELD new.email ON TABLE email_change TYPE string;
+                            DEFINE FIELD new.token_raw ON TABLE email_change TYPE string;
+                            DEFINE FIELD new.token_used ON TABLE email_change TYPE bool;
+                            -- DEFINE FIELD new.token_expires ON TABLE email_change TYPE number;
+                            DEFINE FIELD completed ON TABLE email_change TYPE bool;
+                            DEFINE FIELD expires ON TABLE email_change TYPE number;
+                            DEFINE FIELD modified_at ON TABLE email_change TYPE number;
+                            DEFINE FIELD created_at ON TABLE email_change TYPE number;
+                            -- DEFINE INDEX idx_invite_confirm_token_raw ON TABLE email_change COLUMNS token_raw UNIQUE;
                             -- post 
                             DEFINE TABLE post SCHEMAFULL;
                             DEFINE FIELD user ON TABLE post TYPE record<user>;
@@ -606,51 +647,237 @@ impl<C: Connection> Db<C> {
             .and_then_take_expect(2)
     }
 
-    pub async fn add_email_confirmation_token(
+    // pub async fn add_invite(
+    //     &self,
+    //     time: u128,
+    //     // kind: impl Into<DBEmailTokenKind>,
+    //     token_raw: impl Into<String>,
+    //     email: impl Into<String>,
+    //     expires: u128,
+    // ) -> Result<DBInvite, surrealdb::Error> {
+    //     let email: String = email.into();
+    //
+    //     self.db.query(
+    //         r#"
+    //          LET $prev_token = SELECT * FROM ONLY invite WHERE email = $email AND kind = $kind AND used = 0 AND expires >= $time ORDER BY created_at DESC;
+    //          IF $prev_token {
+    //             return $prev_token;
+    //          } ELSE {
+    //             LET $result = CREATE email_confirm SET
+    //                token_raw = $token_raw,
+    //                kind = $kind,
+    //                email = $email,
+    //                expires = $expires,
+    //                used = 0,
+    //                modified_at = $time,
+    //                created_at = $time;
+    //             return $result;
+    //          }
+    //         "#,
+    //     )
+    //     .bind(("kind", kind.into().to_string()))
+    //     .bind(("token_raw", token_raw.into()))
+    //     .bind(("email", email.clone()))
+    //     .bind(("expires", expires))
+    //     .bind(("time", time))
+    //     .await
+    //     .check_good(surrealdb::Error::from)
+    //     .and_then_take_expect(1)
+    // }
+    // current.email = $user_email AND
+    // current.token_used = false AND
+    // current.token_expires >= $time AND
+    // (new = NONE OR (
+    // new.token_used = false AND
+    // new.token_expires >= $time
+    // ))
+    // ORDER BY created_at DESC;
+    pub async fn add_email_change(
         &self,
         time: u128,
-        kind: impl Into<DBEmailTokenKind>,
+        user: RecordId,
+        user_email: impl Into<String>,
         token_raw: impl Into<String>,
-        email: impl Into<String>,
         expires: u128,
-    ) -> Result<DBEmailToken, surrealdb::Error> {
-        let email: String = email.into();
+        // where_used: u64,
+    ) -> Result<DBEmailChange, surrealdb::Error> {
+        let token_raw = token_raw.into();
+        let user_email: String = user_email.into();
 
-        self.db.query(
-            r#"
-             LET $prev_token = SELECT * FROM ONLY invite WHERE email = $email AND kind = $kind AND used = false AND expires >= $time ORDER BY created_at DESC;
+        self.db
+            .query(
+                r#"
+             LET $prev_token = SELECT *, user.* FROM ONLY email_change WHERE 
+                user = $user AND
+                expires >= $time AND
+                completed = false
+                ORDER BY created_at DESC;
              IF $prev_token {
                 return $prev_token;
              } ELSE {
-                LET $result = CREATE invite SET
-                   token_raw = $token_raw,
-                   kind = $kind,
-                   email = $email,
+                LET $result = CREATE email_change SET
+                   user = $user,
+                   current.email = $user_email,
+                   current.token_raw = $token_raw,
+                   current.token_used = false,
+                   new = NONE,
+                   completed = false,
                    expires = $expires,
-                   used = false,
                    modified_at = $time,
                    created_at = $time;
-                return $result;
+                return SELECT *, user.* FROM $result.id;
              }
             "#,
-        )
-        .bind(("kind", kind.into().to_string()))
-        .bind(("token_raw", token_raw.into()))
-        .bind(("email", email.clone()))
-        .bind(("expires", expires))
-        .bind(("time", time))
-        .await
-        .check_good(surrealdb::Error::from)
-        .and_then_take_expect(1)
+            )
+            // .bind(("kind", kind.into().to_string()))
+            .bind(("user", user))
+            .bind(("token_raw", token_raw))
+            .bind(("user_email", user_email.clone()))
+            .bind(("expires", expires))
+            // .bind(("where_used", where_used))
+            .bind(("time", time))
+            .await
+            .check_good(surrealdb::Error::from)
+            .and_then_take_expect(1)
     }
 
-    pub async fn add_email_invite_token(
+    pub async fn get_email_change_all(&self) -> Result<Vec<DBEmailChange>, surrealdb::Error> {
+        self.db
+            .query("SELECT *, user.* FROM email_change")
+            .await
+            .check_good(surrealdb::Error::from)
+            .and_then_take_all(0)
+    }
+
+    pub async fn get_email_change(
         &self,
         time: u128,
+        user: RecordId,
+    ) -> Result<DBEmailChange, DB404Err> {
+        self.db
+            .query(
+                r#"
+                    SELECT *, user.* FROM ONLY email_change WHERE 
+                                user = $user_id AND
+                                expires >= $time AND
+                                completed = false
+                                ORDER BY created_at DESC;
+                "#,
+            )
+            .bind(("user_id", user))
+            .bind(("time", time))
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_or(0, DB404Err::NotFound)
+    }
+
+    pub async fn get_email_change_by_confirm_token(
+        &self,
+        time: u128,
+        user: RecordId,
+        token_raw: impl Into<String>,
+    ) -> Result<DBEmailChange, DB404Err> {
+        self.db
+            .query(
+                r#"
+                    SELECT *, user.* FROM ONLY email_change WHERE 
+                                user = $user_id AND
+                                expires >= $time AND
+                                completed = false AND
+                                current.token_raw = $token_raw 
+                                ORDER BY created_at DESC;
+                "#,
+            )
+            .bind(("token_raw", token_raw.into()))
+            .bind(("user_id", user))
+            .bind(("time", time))
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_or(0, DB404Err::NotFound)
+    }
+
+    pub async fn update_email_change_confirm_current(
+        &self,
+        time: u128,
+        email_change: RecordId,
+    ) -> Result<DBEmailChange, surrealdb::Error> {
+        self.db
+            .query(
+                r#"
+                    UPDATE $email_change_id SET current.token_used = true, modified_at = $time RETURN *, user.*;
+                "#,
+            )
+            .bind(("email_change_id", email_change))
+            .bind(("time", time))
+            .await
+            .check_good(surrealdb::Error::from)
+            .and_then_take_expect(0)
+    }
+
+    pub async fn update_email_change_confirm_new(
+        &self,
+        time: u128,
+        email_change: RecordId,
+    ) -> Result<DBEmailChange, surrealdb::Error> {
+        self.db
+            .query("UPDATE $email_change_id SET new.token_used = true, modified_at = $time RETURN *, user.*",)
+            .bind(("email_change_id", email_change))
+            .bind(("time", time))
+            .await
+            .check_good(surrealdb::Error::from)
+            .and_then_take_expect(0)
+    }
+
+    pub async fn update_email_change_complete(
+        &self,
+        time: u128,
+        email_change: RecordId,
+    ) -> Result<DBEmailChange, surrealdb::Error> {
+        self.db
+            .query("UPDATE $email_change_id SET completed = true, modified_at = $time RETURN *, user.*",)
+            .bind(("email_change_id", email_change))
+            .bind(("time", time))
+            .await
+            .check_good(surrealdb::Error::from)
+            .and_then_take_expect(0)
+    }
+
+    pub async fn update_email_change_add_new(
+        &self,
+        time: u128,
+        email_change: RecordId,
+        new_email: impl Into<String>,
+        token_raw: impl Into<String>,
+    ) -> Result<DBEmailChange, surrealdb::Error> {
+        self.db
+            .query(
+                r#"
+                    UPDATE $email_change_id SET 
+                        new.email = $new_email,
+                        new.token_raw = $token_raw,
+                        new.token_used = true,
+                        modified_at = $time
+                    RETURN *, user.*;
+                "#,
+            )
+            .bind(("new_email", new_email.into()))
+            .bind(("token_raw", token_raw.into()))
+            .bind(("email_change_id", email_change))
+            .bind(("time", time))
+            .await
+            .check_good(surrealdb::Error::from)
+            .and_then_take_expect(0)
+    }
+
+    pub async fn add_invite(
+        &self,
+        time: u128,
+        // kind: impl Into<DBEmailTokenKind>,
         token_raw: impl Into<String>,
         email: impl Into<String>,
         expires: u128,
-    ) -> Result<DBEmailToken, AddEmailInviteTokenErr> {
+        // where_used: u64,
+    ) -> Result<DBInvite, AddInviteErr> {
         let token_raw = token_raw.into();
         let email: String = email.into();
 
@@ -673,61 +900,33 @@ impl<C: Connection> Db<C> {
              }
             "#,
         )
-        .bind(("kind", DBEmailTokenKind::Registration.to_string()))
+        // .bind(("kind", kind.into().to_string()))
         .bind(("token_raw", token_raw))
         .bind(("email", email.clone()))
         .bind(("expires", expires))
+        // .bind(("where_used", where_used))
         .bind(("time", time))
         .await
         .check_good(|err| match err {
-            err if err.field_value_null("email") => AddEmailInviteTokenErr::EmailIsTaken(email),
+            err if err.field_value_null("email") => AddInviteErr::EmailIsTaken(email),
             err => err.into(),
         })
         .and_then_take_expect(1)
     }
 
-    pub async fn get_all_invites(&self) -> Result<Vec<DBEmailToken>, DB404Err> {
+    pub async fn get_invite_all(&self) -> Result<Vec<DBInvite>, DB404Err> {
         self.db
             .query("SELECT * FROM invite;")
             .await
             .check_good(DB404Err::from)
             .and_then_take_all(0)
     }
-    pub async fn get_invite_by_token(
-        &self,
-        kind: impl Into<DBEmailTokenKind>,
-        token: impl Into<String>,
-    ) -> Result<DBEmailToken, DB404Err> {
-        self.db
-            .query("SELECT * FROM ONLY invite WHERE token_raw = $invite_token AND kind = $kind;")
-            .bind(("kind", kind.into().to_string()))
-            .bind(("invite_token", token.into()))
-            .await
-            .check_good(DB404Err::from)
-            .and_then_take_or(0, DB404Err::NotFound)
-    }
 
-    pub async fn get_email_token<Email: Into<String>>(
+    pub async fn get_invite_all_valid<Email: Into<String>>(
         &self,
         time: u128,
-        kind: impl Into<DBEmailTokenKind>,
         email: Email,
-    ) -> Result<DBEmailToken, DB404Err> {
-        self.db.query("SELECT * FROM invite WHERE email = $email AND kind = $kind AND used = false AND expires >= $time ORDER BY created_at DESC;")
-            .bind(("kind", kind.into().to_string()))
-            .bind(("email", email.into()))
-            .bind(("time", time))
-            .await
-            .check_good(DB404Err::from)
-            .and_then_take_all(0)
-            .and_then(|v| v.first().cloned().ok_or(DB404Err::NotFound))
-    }
-
-    pub async fn get_all_email_tokens<Email: Into<String>>(
-        &self,
-        email: Email,
-        time: u128,
-    ) -> Result<Vec<DBEmailToken>, DB404Err> {
+    ) -> Result<Vec<DBInvite>, DB404Err> {
         self.db.query("SELECT * FROM invite WHERE email = $email AND used = false AND expires >= $time ORDER BY created_at DESC;")
             .bind(("email", email.into()))
             .bind(("time", time))
@@ -736,7 +935,62 @@ impl<C: Connection> Db<C> {
             .and_then_take_all(0)
     }
 
-    pub async fn change_username(
+    pub async fn get_invite_any_by_token(
+        &self,
+        // kind: impl Into<DBEmailTokenKind>,
+        token: impl Into<String>,
+    ) -> Result<DBInvite, DB404Err> {
+        self.db
+            .query("SELECT * FROM ONLY invite WHERE token_raw = $invite_token;")
+            // .bind(("kind", kind.into().to_string()))
+            .bind(("invite_token", token.into()))
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_or(0, DB404Err::NotFound)
+    }
+
+    pub async fn get_invite_valid(
+        &self,
+        time: u128,
+        // kind: impl Into<DBEmailTokenKind>,
+        email: impl Into<String>,
+        // used: u64,
+    ) -> Result<DBInvite, DB404Err> {
+        self.db.query("SELECT * FROM invite WHERE email = $email AND used = false AND expires >= $time ORDER BY created_at DESC;")
+            // .bind(("kind", kind.into().to_string()))
+            .bind(("email", email.into()))
+            .bind(("time", time))
+            // .bind(("used", used))
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_all(0)
+            .and_then(|v| v.first().cloned().ok_or(DB404Err::NotFound))
+    }
+
+    pub async fn update_invite_used(
+        &self,
+        time: u128,
+        // kind: impl Into<DBEmailTokenKind>,
+        token_raw: impl Into<String>,
+        // where_used: u64,
+        // set_used: u64,
+    ) -> Result<DBInvite, DB404Err> {
+        self.db
+            .query(
+                "UPDATE invite SET modified_at = $time, used = true WHERE token_raw = $token_raw AND used = false AND expires >= $time;",
+                // "UPDATE email_confirm SET modified_at = $time, used = 1 WHERE kind = $kind AND token_raw = $token_raw AND expires >= $time;",
+            )
+            .bind(("token_raw", token_raw.into()))
+            // .bind(("kind", kind.into().to_string()))
+            .bind(("time", time))
+            // .bind(("set_used", set_used))
+            // .bind(("where_used", where_used))
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_or(0, DB404Err::NotFound)
+    }
+
+    pub async fn update_user_username(
         &self,
         user: RecordId,
         new_username: impl Into<String>,
@@ -758,7 +1012,7 @@ impl<C: Connection> Db<C> {
             .and_then_take_or(0, DBChangeUsernameErr::NotFound)
     }
 
-    pub async fn change_email(
+    pub async fn update_user_email(
         &self,
         user: RecordId,
         new_email: impl Into<String>,
@@ -778,24 +1032,6 @@ impl<C: Connection> Db<C> {
                 err => err.into(),
             })
             .and_then_take_or(0, DBChangeEmailErr::NotFound)
-    }
-
-    pub async fn use_email_token<TokenRaw: Into<String>>(
-        &self,
-        time: u128,
-        kind: impl Into<DBEmailTokenKind>,
-        token_raw: TokenRaw,
-    ) -> Result<DBEmailToken, DB404Err> {
-        self.db
-            .query(
-                "UPDATE invite SET modified_at = $time, used = true WHERE kind = $kind AND token_raw = $token_raw AND expires >= $time;",
-            )
-            .bind(("token_raw", token_raw.into()))
-            .bind(("kind", kind.into().to_string()))
-            .bind(("time", time))
-            .await
-            .check_good(DB404Err::from)
-            .and_then_take_or(0, DB404Err::NotFound)
     }
 
     pub async fn add_user<Username: Into<String>, Email: Into<String>, Password: Into<String>>(
@@ -917,7 +1153,7 @@ impl<C: Connection> Db<C> {
             .and_then_take_or(0, DB404Err::NotFound)
     }
 
-    pub async fn get_all_session(&self) -> Result<Vec<DBSession>, DB404Err> {
+    pub async fn get_session_all(&self) -> Result<Vec<DBSession>, DB404Err> {
         self.db
             .query("SELECT *, user.* FROM session")
             .await
@@ -938,8 +1174,8 @@ mod tests {
     use crate::{
         api::ChangeUsernameErr,
         db::{
-            AddEmailInviteTokenErr, AddSessionErr, AddUserErr, DB404Err, DBChangeEmailErr,
-            DBChangeUsernameErr, DBEmailTokenKind, DBUserPostFile, Db,
+            AddInviteErr, AddSessionErr, AddUserErr, DB404Err, DBChangeEmailErr,
+            DBChangeUsernameErr, DBUserPostFile, Db,
         },
     };
 
@@ -1061,74 +1297,163 @@ mod tests {
         db.migrate(time).await.unwrap();
 
         let invite = db
-            .add_email_invite_token(0, "wowza", "hey@hey.com", 0)
+            .add_invite(
+                0,
+                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
+                "wowza",
+                "hey@hey.com",
+                0,
+                // 0,
+            )
             .await
             .unwrap();
         trace!("{invite:#?}");
         let invite = db
-            .add_email_invite_token(1, "wowza1", "hey@hey.com", 2)
+            .add_invite(
+                1,
+                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
+                "wowza1",
+                "hey@hey.com",
+                2,
+                // 0
+            )
             .await
             .unwrap();
         trace!("{invite:#?}");
         let invite = db
-            .add_email_invite_token(1, "wowza2", "hey@hey.com", 0)
+            .add_invite(
+                1,
+                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
+                "wowza2",
+                "hey@hey.com",
+                0,
+                // 0
+            )
             .await
             .unwrap();
         trace!("{invite:#?}");
         let invite = db
-            .get_email_token(1, DBEmailTokenKind::Registration, "hey@hey.com")
+            .get_invite_valid(
+                1,
+                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
+                "hey@hey.com",
+                // 0,
+            )
             .await;
         trace!("{invite:#?}");
         assert_eq!(invite.unwrap().token_raw, "wowza1");
-        let invite = db
-            .get_invite_by_token(DBEmailTokenKind::Registration, "wowza1")
-            .await;
+        let invite = db.get_invite_any_by_token("wowza1").await;
         trace!("{invite:#?}");
         assert_eq!(invite.unwrap().token_raw, "wowza1");
         let invite = db
-            .get_email_token(0, DBEmailTokenKind::Registration, "hey1@hey.com")
+            .get_invite_valid(
+                0,
+                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
+                "hey1@hey.com",
+                // 0,
+            )
             .await;
         trace!("{invite:#?}");
         assert!(matches!(invite, Err(DB404Err::NotFound)));
-        let invites = db.get_all_email_tokens("hey@hey.com", 1).await.unwrap();
+        let invites = db.get_invite_all_valid(1, "hey@hey.com").await.unwrap();
         assert_eq!(invites.len(), 1);
-        let result = db
-            .use_email_token(1, DBEmailTokenKind::Registration, "wowza")
-            .await;
-        assert!(matches!(result, Err(DB404Err::NotFound)));
-        let result = db
-            .use_email_token(1, DBEmailTokenKind::ChangeEmail, "wowza1")
-            .await;
-        assert!(matches!(result, Err(DB404Err::NotFound)));
-        let _invite = db
-            .use_email_token(1, DBEmailTokenKind::Registration, "wowza1")
-            .await
-            .unwrap();
-        let invite = db
-            .get_email_token(1, DBEmailTokenKind::Registration, "hey@hey.com")
-            .await;
-        assert!(matches!(invite, Err(DB404Err::NotFound)));
+        // let result = db.update_email_confirm_used(1, "wowza", 0, 1).await;
+        // assert!(matches!(result, Err(DB404Err::NotFound)));
+        // // let result = db.update_email_confirm_used(1, "wowza1", 1).await;
+        // // assert!(matches!(result, Err(DB404Err::NotFound)));
+        // let _invite = db.update_email_confirm_used(1, "wowza1", 0,  1).await.unwrap();
+        // let invite = db
+        //     .get_invite_valid(
+        //         1,
+        //         // DBEmailTokenKind::RequestConfirmRegistrationEmail,
+        //         "hey@hey.com",
+        //         // 0,
+        //     )
+        //     .await;
+        // assert!(matches!(invite, Err(DB404Err::NotFound)));
 
         let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
         let invite2 = db
-            .add_email_invite_token(0, "wowza", "hey1@hey.com", 0)
+            .add_invite(
+                0,
+                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
+                "wowza",
+                "hey1@hey.com",
+                0,
+                // 0,
+            )
             .await;
         trace!("{invite2:#?}");
-        assert!(matches!(
-            invite2,
-            Err(AddEmailInviteTokenErr::EmailIsTaken(_))
-        ));
+        assert!(matches!(invite2, Err(AddInviteErr::EmailIsTaken(_))));
+    }
+    #[test(tokio::test)]
+    async fn email_change() {
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate(0).await.unwrap();
+
+        let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
+
+        let email_change = db
+            .add_email_change(0, user.id.clone(), user.email.clone(), "token", 1)
+            .await
+            .unwrap();
+
+        // it must return active email_change instead of creating new ones
+        {
+            let email_change = db
+                .add_email_change(0, user.id.clone(), user.email.clone(), "token1", 1)
+                .await
+                .unwrap();
+
+            assert_eq!(email_change.current.token_raw, "token");
+        }
+
+        // confirm current token
+        {
+            let email_change = db.get_email_change(0, user.id.clone()).await.unwrap();
+            let result = db
+                .update_email_change_confirm_current(0, email_change.id.clone())
+                .await
+                .unwrap();
+        }
+
+        // add new email stage
+        {
+            let email_change = db.get_email_change(0, user.id.clone()).await.unwrap();
+            let result = db
+                .update_email_change_add_new(0, email_change.id.clone(), "hey2@hey.com", "token2")
+                .await
+                .unwrap();
+        }
+
+        // confirm new email
+        {
+            let email_change = db.get_email_change(0, user.id.clone()).await.unwrap();
+            let result = db
+                .update_email_change_confirm_new(0, email_change.id.clone())
+                .await
+                .unwrap();
+        }
+
+        // complete
+        {
+            let email_change = db.get_email_change(0, user.id.clone()).await.unwrap();
+            let result = db
+                .update_email_change_complete(0, email_change.id.clone())
+                .await
+                .unwrap();
+        }
     }
 
     #[test(tokio::test)]
-    async fn change_email() {
+    async fn update_user_email() {
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate(0).await.unwrap();
 
         let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
         let user2 = db.add_user(0, "hey3", "hey3@hey.com", "123").await.unwrap();
         let _result = db
-            .change_email(user.id.clone(), "hey2@hey.com", 0)
+            .update_user_email(user.id.clone(), "hey2@hey.com", 0)
             .await
             .unwrap();
         let user = db.get_user_by_email("hey2@hey.com").await.unwrap();
@@ -1138,7 +1463,9 @@ mod tests {
         let result = db.get_user_by_email("hey1@hey.com").await;
         assert!(matches!(result, Err(DB404Err::NotFound)));
 
-        let result = db.change_email(user.id.clone(), "hey3@hey.com", 0).await;
+        let result = db
+            .update_user_email(user.id.clone(), "hey3@hey.com", 0)
+            .await;
         assert!(matches!(result, Err(DBChangeEmailErr::EmailIsTaken(_))));
     }
 
@@ -1183,7 +1510,7 @@ mod tests {
         assert!(matches!(result, Err(DB404Err::NotFound)));
 
         let result = db
-            .change_username(user1.id.clone(), "hey5", time)
+            .update_user_username(user1.id.clone(), "hey5", time)
             .await
             .unwrap();
         assert_eq!(result.username, "hey5");
@@ -1196,7 +1523,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = db.change_username(user1.id, "hey2", time).await;
+        let result = db.update_user_username(user1.id, "hey2", time).await;
         assert!(matches!(
             result,
             Err(DBChangeUsernameErr::UsernameIsTaken(_))

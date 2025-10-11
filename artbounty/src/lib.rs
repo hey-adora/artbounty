@@ -326,16 +326,18 @@ pub mod path {
     use crate::view::app::page::settings::{EmailChangeStage, SelectedForm, UsernameChangeStage};
 
     pub const PATH_API: &'static str = "/api";
-    pub const PATH_API_LOGOUT: &'static str = "/logout";
-    pub const PATH_API_USER: &'static str = "/user";
-    pub const PATH_API_PROFILE: &'static str = "/profile";
-    pub const PATH_API_INVITE_DECODE: &'static str = "/invite_decode";
-    pub const PATH_API_EMAIL_INVITE: &'static str = "/email_invite";
-    pub const PATH_API_EMAIL_CONFIRMATION: &'static str = "/email_confirmation";
     pub const PATH_API_REGISTER: &'static str = "/register";
     pub const PATH_API_LOGIN: &'static str = "/login";
+    pub const PATH_API_LOGOUT: &'static str = "/logout";
+    pub const PATH_API_USER: &'static str = "/user";
+    pub const PATH_API_ACC: &'static str = "/acc";
+    pub const PATH_API_INVITE_DECODE: &'static str = "/invite_decode";
     pub const PATH_API_CHANGE_USERNAME: &'static str = "/change_username";
-    pub const PATH_API_CHANGE_EMAIL: &'static str = "/change_email";
+    // pub const PATH_API_CHANGE_EMAIL: &'static str = "/change_email";
+    pub const PATH_API_SEND_EMAIL_INVITE: &'static str = "/send_email_invite";
+    pub const PATH_API_SEND_EMAIL_CHANGE: &'static str = "/send_email_change";
+    // pub const PATH_API_EMAIL_NEW: &'static str = "/email_change";
+    // pub const PATH_API_CONFIRM_EMAIL_CHANGE: &'static str = "/confirm_email_change";
     pub const PATH_API_POST_ADD: &'static str = "/post/add";
     pub const PATH_API_POST_GET: &'static str = "/post/get";
     pub const PATH_API_POST_GET_OLDER: &'static str = "/post/get_older";

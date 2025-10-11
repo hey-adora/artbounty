@@ -99,7 +99,7 @@ pub mod post {
                     Ok(res) => {
                         error!("wrong res, expected Post, got {:?}", res);
                     }
-                    Err(ServerErr::ServerGetErr(ServerGetErr::NotFound)) => {
+                    Err(ServerErr::GetErr(ServerGetErr::NotFound)) => {
                         not_found.set(true);
                     }
                     Err(err) => {
@@ -472,32 +472,32 @@ pub mod settings {
                 e.prevent_default();
                 let navigate = navigate.clone();
 
-                api.send_email_confirmation(EmailConfirmTokenKind::ChangeEmail)
-                    .send_web(move |result| {
-                        let navigate = navigate.clone();
-                        async move {
-                            match result {
-                                Ok(ServerRes::Ok) => {
-                                    navigate(
-                                        &link_settings_form_email(
-                                            EmailChangeStage::ClickConfirm,
-                                            None,
-                                            None,
-                                        ),
-                                        NavigateOptions::default(),
-                                    );
-                                }
-                                Ok(err) => {
-                                    error!("expected Post, received {err:?}");
-                                    let _ = change_email_send_confirm_err
-                                        .try_set("SERVER ERROR, wrong response.".to_string());
-                                }
-                                Err(err) => {
-                                    let _ = change_email_send_confirm_err.try_set(err.to_string());
-                                }
-                            }
-                        }
-                    });
+                // api.send_email_change(EmailConfirmTokenKind::ChangeEmail)
+                //     .send_web(move |result| {
+                //         let navigate = navigate.clone();
+                //         async move {
+                //             match result {
+                //                 Ok(ServerRes::Ok) => {
+                //                     navigate(
+                //                         &link_settings_form_email(
+                //                             EmailChangeStage::ClickConfirm,
+                //                             None,
+                //                             None,
+                //                         ),
+                //                         NavigateOptions::default(),
+                //                     );
+                //                 }
+                //                 Ok(err) => {
+                //                     error!("expected Post, received {err:?}");
+                //                     let _ = change_email_send_confirm_err
+                //                         .try_set("SERVER ERROR, wrong response.".to_string());
+                //                 }
+                //                 Err(err) => {
+                //                     let _ = change_email_send_confirm_err.try_set(err.to_string());
+                //                 }
+                //             }
+                //         }
+                //     });
 
                 //
             }
@@ -531,34 +531,34 @@ pub mod settings {
                     return;
                 }
 
-                api.change_email(confirm_token, new_email.clone())
-                    .send_web(move |result| {
-                        let navigate = navigate.clone();
-                        let new_email = new_email.clone();
-                        async move {
-                            match result {
-                                Ok(ServerRes::Ok) => {
-                                    navigate(
-                                        &link_settings_form_email(
-                                            EmailChangeStage::ConfirmNewEmail,
-                                            Some(new_email),
-                                            None,
-                                        ),
-                                        NavigateOptions::default(),
-                                    );
-                                }
-                                Ok(err) => {
-                                    error!("expected Ok, received {err:?}");
-                                    let _ = change_email_enter_new_email_err
-                                        .try_set("SERVER ERROR, wrong response.".to_string());
-                                }
-                                Err(err) => {
-                                    let _ =
-                                        change_email_enter_new_email_err.try_set(err.to_string());
-                                }
-                            }
-                        }
-                    });
+                // api.change_email(confirm_token, new_email.clone())
+                //     .send_web(move |result| {
+                //         let navigate = navigate.clone();
+                //         let new_email = new_email.clone();
+                //         async move {
+                //             match result {
+                //                 Ok(ServerRes::Ok) => {
+                //                     navigate(
+                //                         &link_settings_form_email(
+                //                             EmailChangeStage::ConfirmNewEmail,
+                //                             Some(new_email),
+                //                             None,
+                //                         ),
+                //                         NavigateOptions::default(),
+                //                     );
+                //                 }
+                //                 Ok(err) => {
+                //                     error!("expected Ok, received {err:?}");
+                //                     let _ = change_email_enter_new_email_err
+                //                         .try_set("SERVER ERROR, wrong response.".to_string());
+                //                 }
+                //                 Err(err) => {
+                //                     let _ =
+                //                         change_email_enter_new_email_err.try_set(err.to_string());
+                //                 }
+                //             }
+                //         }
+                //     });
 
                 //
             }
@@ -842,7 +842,7 @@ pub mod upload {
                                         Default::default(),
                                     );
                                 }
-                                Err(ServerErr::ServerAddPostErr(
+                                Err(ServerErr::AddPostErr(
                                     ServerAddPostErr::ServerImgErr(errs),
                                 )) => {
                                     let msg = errs
@@ -974,7 +974,7 @@ pub mod profile {
                         user_username.set(Some(format!("expected Uesr, received {res:?}")));
                         error!("expected Uesr, received {res:?}");
                     }
-                    Err(ServerErr::ServerGetErr(ServerGetErr::NotFound)) => {
+                    Err(ServerErr::GetErr(ServerGetErr::NotFound)) => {
                         user_username.set(Some("Not Found".to_string()));
                     }
                     Err(err) => {
@@ -1240,19 +1240,19 @@ pub mod register {
                                 register_email_decoded
                                     .set(format!("error, expected OK, received: {res:?}"));
                             }
-                            Err(ServerErr::ServerRegistrationErr(
+                            Err(ServerErr::RegistrationErr(
                                 ServerRegistrationErr::TokenExpired,
                             )) => {
                                 register_general_err
                                     .set("This invite link is already expired.".to_string());
                             }
-                            Err(ServerErr::ServerRegistrationErr(
+                            Err(ServerErr::RegistrationErr(
                                 ServerRegistrationErr::TokenUsed,
                             )) => {
                                 register_general_err
                                     .set("This invite link was already used.".to_string());
                             }
-                            Err(ServerErr::ServerRegistrationErr(
+                            Err(ServerErr::RegistrationErr(
                                 ServerRegistrationErr::TokenNotFound,
                             )) => {
                                 register_general_err

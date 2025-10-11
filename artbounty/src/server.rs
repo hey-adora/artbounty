@@ -2,8 +2,9 @@ use leptos::{logging, prelude::*};
 use tracing::trace;
 
 use crate::path::{
-    PATH_API, PATH_API_EMAIL_INVITE, PATH_API_INVITE_DECODE, PATH_API_LOGIN, PATH_API_LOGOUT,
-    PATH_API_POST_ADD, PATH_API_POST_GET_OLDER, PATH_API_PROFILE, PATH_API_REGISTER, PATH_API_USER,
+    PATH_API, PATH_API_ACC, PATH_API_INVITE_DECODE, PATH_API_LOGIN, PATH_API_LOGOUT,
+    PATH_API_POST_ADD, PATH_API_POST_GET_OLDER, PATH_API_REGISTER, PATH_API_SEND_EMAIL_INVITE,
+    PATH_API_USER,
 };
 
 #[cfg(feature = "ssr")]
@@ -100,11 +101,7 @@ pub fn create_api_router(
     use crate::{
         api::{self, backend::auth_middleware},
         path::{
-            PATH_API_CHANGE_EMAIL, PATH_API_CHANGE_USERNAME, PATH_API_EMAIL_CONFIRMATION,
-            PATH_API_POST_GET, PATH_API_POST_GET_NEWER, PATH_API_POST_GET_NEWER_OR_EQUAL,
-            PATH_API_POST_GET_OLDER_OR_EQUAL, PATH_API_USER_POST_GET_NEWER,
-            PATH_API_USER_POST_GET_NEWER_OR_EQUAL, PATH_API_USER_POST_GET_OLDER,
-            PATH_API_USER_POST_GET_OLDER_OR_EQUAL,
+            PATH_API_CHANGE_USERNAME, PATH_API_POST_GET, PATH_API_POST_GET_NEWER, PATH_API_POST_GET_NEWER_OR_EQUAL, PATH_API_POST_GET_OLDER_OR_EQUAL, PATH_API_SEND_EMAIL_CHANGE, PATH_API_USER_POST_GET_NEWER, PATH_API_USER_POST_GET_NEWER_OR_EQUAL, PATH_API_USER_POST_GET_OLDER, PATH_API_USER_POST_GET_OLDER_OR_EQUAL
         },
     };
 
@@ -112,8 +109,14 @@ pub fn create_api_router(
     let api_router_public = Router::new()
         .route(PATH_API_LOGIN, post(api::backend::login))
         .route(PATH_API_REGISTER, post(api::backend::register))
-        .route(PATH_API_INVITE_DECODE, post(api::backend::decode_invite))
-        .route(PATH_API_EMAIL_INVITE, post(api::backend::send_email_invite))
+        .route(
+            PATH_API_INVITE_DECODE,
+            post(api::backend::decode_email_token),
+        )
+        .route(
+            PATH_API_SEND_EMAIL_INVITE,
+            post(api::backend::send_email_invite),
+        )
         .route(PATH_API_USER, post(api::backend::get_user))
         .route(PATH_API_LOGOUT, post(api::backend::logout))
         .route(PATH_API_POST_GET, post(api::backend::get_post))
@@ -144,16 +147,21 @@ pub fn create_api_router(
             post(api::backend::get_posts_newer_or_equal_for_user),
         );
     let api_router_auth = Router::new()
-        .route(PATH_API_PROFILE, post(api::backend::profile))
+        .route(PATH_API_ACC, post(api::backend::get_account))
         .route(
             PATH_API_CHANGE_USERNAME,
             post(api::backend::change_username),
         )
-        .route(PATH_API_CHANGE_EMAIL, post(api::backend::change_email))
-        .route(
-            PATH_API_EMAIL_CONFIRMATION,
-            post(api::backend::send_email_confirm),
-        )
+        .route(PATH_API_SEND_EMAIL_CHANGE, post(api::backend::send_email_change))
+        // .route(PATH_API_CHANGE_EMAIL, post(api::backend::change_email))
+        // .route(
+        //     PATH_API_CONFIRM_EMAIL_CHANGE,
+        //     post(api::backend::confirm_email_change),
+        // )
+        // .route(
+        //     PATH_API_EMAIL_CHANGE,
+        //     post(api::backend::send_email_new),
+        // )
         .route(PATH_API_POST_ADD, post(api::backend::add_post))
         .route_layer(middleware::from_fn_with_state(app_state, auth_middleware));
     let api_router = Router::new()
