@@ -323,7 +323,10 @@ pub mod path {
     use leptos::prelude::*;
     use leptos_router::{OptionalParamSegment, ParamSegment, StaticSegment, WildcardSegment, path};
 
-    use crate::view::app::page::settings::{EmailChangeStage, SelectedForm, UsernameChangeStage};
+    use crate::{
+        api::EmailChangeStage,
+        view::app::page::settings::{EmailChangeFormStage, SelectedForm, UsernameChangeStage},
+    };
 
     pub const PATH_API: &'static str = "/api";
     pub const PATH_API_REGISTER: &'static str = "/register";
@@ -333,11 +336,14 @@ pub mod path {
     pub const PATH_API_ACC: &'static str = "/acc";
     pub const PATH_API_INVITE_DECODE: &'static str = "/invite_decode";
     pub const PATH_API_CHANGE_USERNAME: &'static str = "/change_username";
+    pub const PATH_API_CHANGE_EMAIL: &'static str = "/change_email";
     // pub const PATH_API_CHANGE_EMAIL: &'static str = "/change_email";
     pub const PATH_API_SEND_EMAIL_INVITE: &'static str = "/send_email_invite";
     pub const PATH_API_SEND_EMAIL_CHANGE: &'static str = "/send_email_change";
+    pub const PATH_API_SEND_EMAIL_NEW: &'static str = "/send_email_new";
     // pub const PATH_API_EMAIL_NEW: &'static str = "/email_change";
-    // pub const PATH_API_CONFIRM_EMAIL_CHANGE: &'static str = "/confirm_email_change";
+    pub const PATH_API_CONFIRM_EMAIL_CHANGE: &'static str = "/confirm_email_change";
+    pub const PATH_API_CONFIRM_EMAIL_NEW: &'static str = "/confirm_email_new";
     pub const PATH_API_POST_ADD: &'static str = "/post/add";
     pub const PATH_API_POST_GET: &'static str = "/post/get";
     pub const PATH_API_POST_GET_OLDER: &'static str = "/post/get_older";
@@ -390,8 +396,40 @@ pub mod path {
         PATH_SETTINGS.to_string()
     }
 
+    pub fn link_settings_form_email_current_send() -> String {
+        link_settings_form_email(EmailChangeFormStage::CurrentSendConfirm, None, None)
+    }
+
+    pub fn link_settings_form_email_current_click() -> String {
+        link_settings_form_email(EmailChangeFormStage::CurrentClickConfirm, None, None)
+    }
+
+    pub fn link_settings_form_email_current_confirm(confirm_token: impl Into<String>) -> String {
+        link_settings_form_email(EmailChangeFormStage::CurrentConfirm, None, Some(confirm_token.into()))
+    }
+
+    pub fn link_settings_form_email_new_send() -> String {
+        link_settings_form_email(EmailChangeFormStage::NewEnterEmail, None, None)
+    }
+
+    pub fn link_settings_form_email_new_click() -> String {
+        link_settings_form_email(EmailChangeFormStage::NewConfirmEmail, None, None)
+    }
+
+    pub fn link_settings_form_email_new_confirm(confirm_token: impl Into<String>) -> String {
+        link_settings_form_email(EmailChangeFormStage::NewEnterEmail, None, Some(confirm_token.into()))
+    }
+
+    pub fn link_settings_form_email_final_confirm() -> String {
+        link_settings_form_email(EmailChangeFormStage::FinalConfirm, None, None)
+    }
+
+    pub fn link_settings_form_email_completed() -> String {
+        link_settings_form_email(EmailChangeFormStage::Completed, None, None)
+    }
+
     pub fn link_settings_form_email(
-        stage: EmailChangeStage,
+        stage: EmailChangeFormStage,
         new_email: Option<String>,
         confirm_token: Option<String>,
     ) -> String {
@@ -399,7 +437,7 @@ pub mod path {
             "{}?selected_form={}&email_stage={}{}{}{}{}",
             PATH_SETTINGS,
             SelectedForm::ChangeEmail,
-            stage,
+            stage.to_string(),
             if new_email.is_some() {
                 "&new_email="
             } else {
