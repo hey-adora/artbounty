@@ -101,7 +101,7 @@ pub fn create_api_router(
     use crate::{
         api::{self, backend::auth_middleware},
         path::{
-            PATH_API_CHANGE_USERNAME, PATH_API_POST_GET, PATH_API_POST_GET_NEWER, PATH_API_POST_GET_NEWER_OR_EQUAL, PATH_API_POST_GET_OLDER_OR_EQUAL, PATH_API_SEND_EMAIL_CHANGE, PATH_API_USER_POST_GET_NEWER, PATH_API_USER_POST_GET_NEWER_OR_EQUAL, PATH_API_USER_POST_GET_OLDER, PATH_API_USER_POST_GET_OLDER_OR_EQUAL
+            PATH_API_CHANGE_EMAIL, PATH_API_CHANGE_USERNAME, PATH_API_CONFIRM_EMAIL_CHANGE, PATH_API_CONFIRM_EMAIL_NEW, PATH_API_POST_GET, PATH_API_POST_GET_NEWER, PATH_API_POST_GET_NEWER_OR_EQUAL, PATH_API_POST_GET_OLDER_OR_EQUAL, PATH_API_SEND_EMAIL_CHANGE, PATH_API_SEND_EMAIL_NEW, PATH_API_USER_POST_GET_NEWER, PATH_API_USER_POST_GET_NEWER_OR_EQUAL, PATH_API_USER_POST_GET_OLDER, PATH_API_USER_POST_GET_OLDER_OR_EQUAL
         },
     };
 
@@ -152,12 +152,21 @@ pub fn create_api_router(
             PATH_API_CHANGE_USERNAME,
             post(api::backend::change_username),
         )
+        .route(
+            PATH_API_CHANGE_EMAIL,
+            post(api::backend::change_email),
+        )
         .route(PATH_API_SEND_EMAIL_CHANGE, post(api::backend::send_email_change))
+        .route(PATH_API_SEND_EMAIL_NEW, post(api::backend::send_email_new))
         // .route(PATH_API_CHANGE_EMAIL, post(api::backend::change_email))
-        // .route(
-        //     PATH_API_CONFIRM_EMAIL_CHANGE,
-        //     post(api::backend::confirm_email_change),
-        // )
+        .route(
+            PATH_API_CONFIRM_EMAIL_CHANGE,
+            post(api::backend::confirm_email_change),
+        )
+        .route(
+            PATH_API_CONFIRM_EMAIL_NEW,
+            post(api::backend::confirm_email_new),
+        )
         // .route(
         //     PATH_API_EMAIL_CHANGE,
         //     post(api::backend::send_email_new),

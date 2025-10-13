@@ -15,8 +15,6 @@ use surrealdb::{Surreal, opt::IntoEndpoint};
 use thiserror::Error;
 use tracing::{error, trace};
 
-use crate::api::EmailConfirmTokenKind;
-
 // pub static DB: LazyLock<Db<local::Db>> = LazyLock::new(Db::init);
 derive_alias! {
     #[derive(Save!)] = #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)];
@@ -284,15 +282,14 @@ pub enum AddPostErr {
 }
 
 #[derive(Debug, Error)]
-pub enum AddInviteErr {
+pub enum EmailIsTakenErr {
     #[error("DB error {0}")]
     DB(#[from] surrealdb::Error),
 
     #[error("account with \"{0}\" email already exists")]
     EmailIsTaken(String),
-
-    #[error("jwt error")]
-    ServerJWT,
+    // #[error("jwt error")]
+    // ServerJWT,
 }
 
 #[derive(Debug, Error)]
@@ -771,7 +768,7 @@ impl<C: Connection> Db<C> {
             .and_then_take_or(0, DB404Err::NotFound)
     }
 
-    pub async fn get_email_change_by_confirm_token(
+    pub async fn get_email_change_by_current_token(
         &self,
         time: u128,
         user: RecordId,
@@ -785,6 +782,31 @@ impl<C: Connection> Db<C> {
                                 expires >= $time AND
                                 completed = false AND
                                 current.token_raw = $token_raw 
+                                ORDER BY created_at DESC;
+                "#,
+            )
+            .bind(("token_raw", token_raw.into()))
+            .bind(("user_id", user))
+            .bind(("time", time))
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_or(0, DB404Err::NotFound)
+    }
+
+    pub async fn get_email_change_by_new_token(
+        &self,
+        time: u128,
+        user: RecordId,
+        token_raw: impl Into<String>,
+    ) -> Result<DBEmailChange, DB404Err> {
+        self.db
+            .query(
+                r#"
+                    SELECT *, user.* FROM ONLY email_change WHERE 
+                                user = $user_id AND
+                                expires >= $time AND
+                                completed = false AND
+                                new.token_raw = $token_raw 
                                 ORDER BY created_at DESC;
                 "#,
             )
@@ -848,25 +870,30 @@ impl<C: Connection> Db<C> {
         email_change: RecordId,
         new_email: impl Into<String>,
         token_raw: impl Into<String>,
-    ) -> Result<DBEmailChange, surrealdb::Error> {
+    ) -> Result<DBEmailChange, EmailIsTakenErr> {
+        let new_email = new_email.into();
         self.db
             .query(
                 r#"
+                    LET $user_email = SELECT email FROM ONLY user WHERE email = $new_email;
                     UPDATE $email_change_id SET 
-                        new.email = $new_email,
+                        new.email = if $user_email { null } else { $new_email },
                         new.token_raw = $token_raw,
-                        new.token_used = true,
+                        new.token_used = false,
                         modified_at = $time
                     RETURN *, user.*;
                 "#,
             )
-            .bind(("new_email", new_email.into()))
+            .bind(("new_email", new_email.clone()))
             .bind(("token_raw", token_raw.into()))
             .bind(("email_change_id", email_change))
             .bind(("time", time))
             .await
-            .check_good(surrealdb::Error::from)
-            .and_then_take_expect(0)
+            .check_good(|err| match err {
+                err if err.field_value_null("new.email") => EmailIsTakenErr::EmailIsTaken(new_email),
+                err => err.into(),
+            })
+            .and_then_take_expect(1)
     }
 
     pub async fn add_invite(
@@ -877,7 +904,7 @@ impl<C: Connection> Db<C> {
         email: impl Into<String>,
         expires: u128,
         // where_used: u64,
-    ) -> Result<DBInvite, AddInviteErr> {
+    ) -> Result<DBInvite, EmailIsTakenErr> {
         let token_raw = token_raw.into();
         let email: String = email.into();
 
@@ -908,7 +935,7 @@ impl<C: Connection> Db<C> {
         .bind(("time", time))
         .await
         .check_good(|err| match err {
-            err if err.field_value_null("email") => AddInviteErr::EmailIsTaken(email),
+            err if err.field_value_null("email") => EmailIsTakenErr::EmailIsTaken(email),
             err => err.into(),
         })
         .and_then_take_expect(1)
@@ -1174,8 +1201,8 @@ mod tests {
     use crate::{
         api::ChangeUsernameErr,
         db::{
-            AddInviteErr, AddSessionErr, AddUserErr, DB404Err, DBChangeEmailErr,
-            DBChangeUsernameErr, DBUserPostFile, Db,
+            AddSessionErr, AddUserErr, DB404Err, DBChangeEmailErr, DBChangeUsernameErr,
+            DBUserPostFile, Db, EmailIsTakenErr,
         },
     };
 
@@ -1384,14 +1411,16 @@ mod tests {
             )
             .await;
         trace!("{invite2:#?}");
-        assert!(matches!(invite2, Err(AddInviteErr::EmailIsTaken(_))));
+        assert!(matches!(invite2, Err(EmailIsTakenErr::EmailIsTaken(_))));
     }
+
     #[test(tokio::test)]
-    async fn email_change() {
+    async fn db_email_change() {
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate(0).await.unwrap();
 
         let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
+        let user_3 = db.add_user(0, "hey3", "hey3@hey.com", "123").await.unwrap();
 
         let email_change = db
             .add_email_change(0, user.id.clone(), user.email.clone(), "token", 1)
@@ -1415,6 +1444,16 @@ mod tests {
                 .update_email_change_confirm_current(0, email_change.id.clone())
                 .await
                 .unwrap();
+        }
+
+        // error check: cant allow to use email that is already used by a user
+        {
+            let email_change = db.get_email_change(0, user.id.clone()).await.unwrap();
+            let result = db
+                .update_email_change_add_new(0, email_change.id.clone(), "hey3@hey.com", "token2")
+                .await
+                ;
+            assert!(matches!(result, Err(EmailIsTakenErr::EmailIsTaken(_))));
         }
 
         // add new email stage

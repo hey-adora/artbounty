@@ -225,10 +225,10 @@ pub mod settings {
     use std::rc::Rc;
 
     use crate::api::{
-        Api, ApiWeb, EmailConfirmTokenKind, ServerAddPostErr, ServerErr, ServerReqImg, ServerRes,
+        Api, ApiWeb, EmailChangeStage, ServerAddPostErr, ServerErr, ServerReqImg, ServerRes,
     };
     use crate::path::{
-        link_post, link_reg, link_settings, link_settings_form_email, link_settings_form_username,
+        link_post, link_reg, link_settings, link_settings_form_email, link_settings_form_email_completed, link_settings_form_email_current_click, link_settings_form_email_final_confirm, link_settings_form_email_new_click, link_settings_form_email_new_send, link_settings_form_username
     };
     use crate::valid::auth::{proccess_post_description, proccess_post_title, proccess_username};
     use crate::view::app::GlobalState;
@@ -274,13 +274,38 @@ pub mod settings {
         strum::Display,
     )]
     #[strum(serialize_all = "lowercase")]
-    pub enum EmailChangeStage {
-        SendConfirm,
-        ClickConfirm,
-        EnterNewEmail,
-        ConfirmNewEmail,
-        Finish,
+    pub enum EmailChangeFormStage {
+        CurrentSendConfirm,
+        CurrentClickConfirm,
+        CurrentConfirm,
+        NewEnterEmail,
+        NewClickConfirm,
+        NewConfirmEmail,
+        FinalConfirm,
+        Completed,
     }
+
+    // impl From<PageParams> for EmailChangeFormStage {
+    //     fn from(value: PageParams) -> Self {
+    //         match (value.email_stage, value.confirm_token) {
+    //             (Some(EmailChangeNewStage), None) => {
+    //                 EmailChangeFormStage::CurrentClickConfirm
+    //             }
+    //             (Some(EmailChangeStage::ConfirmEmail), Some(_)) => {
+    //                 EmailChangeFormStage::CurrentConfirm
+    //             }
+    //             (Some(EmailChangeStage::EnterNewEmail), _) => EmailChangeFormStage::NewEnterEmail,
+    //             (Some(EmailChangeStage::ConfirmNewEmail), None) => {
+    //                 EmailChangeFormStage::NewClickConfirm
+    //             }
+    //             (Some(EmailChangeStage::ConfirmNewEmail), Some(_)) => {
+    //                 EmailChangeFormStage::NewConfirmEmail
+    //             }
+    //             (Some(EmailChangeStage::ReadyToComplete), _) => EmailChangeFormStage::FinalConfirm,
+    //             _ => EmailChangeFormStage::CurrentSendConfirm,
+    //         }
+    //     }
+    // }
 
     #[derive(
         Clone,
@@ -308,7 +333,7 @@ pub mod settings {
         pub new_username: Option<String>,
         pub old_username: Option<String>,
         pub confirm_token: Option<String>,
-        pub email_stage: Option<EmailChangeStage>,
+        pub email_stage: Option<EmailChangeFormStage>,
         pub username_stage: Option<UsernameChangeStage>,
         // pub current_email: Option<String>,
     }
@@ -321,14 +346,6 @@ pub mod settings {
 
         let navigate = leptos_router::hooks::use_navigate();
         let query = use_query::<PageParams>();
-        let get_query_selected_form = move || {
-            query
-                .read()
-                .as_ref()
-                .ok()
-                .and_then(|v| v.selected_form.clone())
-                .unwrap_or(SelectedForm::None)
-        };
         let get_query = move || {
             query
                 .read()
@@ -345,36 +362,27 @@ pub mod settings {
                 .map(|v| v.clone())
                 .unwrap_or_default()
         };
-        let get_query_new_username = move || {
-            query
-                .read()
-                .as_ref()
-                .ok()
-                .and_then(|v| v.new_username.clone())
+        let get_query_selected_form =
+            move || get_query().selected_form.unwrap_or(SelectedForm::None);
+        let get_query_new_username = move || get_query().new_username;
+        let get_query_old_username = move || get_query().old_username;
+        let get_query_email_stage = move || get_query().email_stage.unwrap_or(EmailChangeFormStage::CurrentSendConfirm);
+        // let get_email_change_form_stage = move || EmailChangeFormStage::from(get_query());
+        let get_current_email_or_default = move || {
+            global_state
+                .get_email_tracked()
+                .unwrap_or("current email".to_string())
         };
-        let get_query_old_username = move || {
-            query
-                .read()
-                .as_ref()
-                .ok()
-                .and_then(|v| v.old_username.clone())
-        };
-
-        let get_query_email_stage = move || {
-            query
-                .read()
-                .as_ref()
-                .ok()
-                .and_then(|v| v.email_stage.clone())
-                .unwrap_or(EmailChangeStage::SendConfirm)
-        };
+        let get_new_email_or_default =
+            move || get_query().new_email.unwrap_or("new email".to_string());
+        // let get_email_change_form_stage_untracked = move || EmailChangeFormStage::from(get_query());
 
         // let is_current_stage = move |stage: usize| -> bool {
         //
         //     let current_stage = get_query_form_stage();
         // };
 
-        let view_current_stage_label = move |stage: EmailChangeStage| {
+        let view_current_stage_label = move |stage: EmailChangeFormStage| {
             let current_stage = get_query_email_stage();
             let (text, style) = if current_stage == stage {
                 ("Current", "text-base0C")
@@ -395,10 +403,14 @@ pub mod settings {
         let change_username_username_err = RwSignal::new(String::new());
         let change_username_password = NodeRef::new();
 
-        let change_email_send_confirm_err = RwSignal::new(String::new());
+        let change_email_new_email_input = NodeRef::new();
 
-        let change_email_enter_new_email_input = NodeRef::new();
-        let change_email_enter_new_email_err = RwSignal::new(String::new());
+        let change_email_current_send_err = RwSignal::new(String::new());
+        let change_email_current_confirm_err = RwSignal::new(String::new());
+        let change_email_new_send_err = RwSignal::new(String::new());
+        let change_email_new_confirm_err = RwSignal::new(String::new());
+
+        // let change_email_enter_new_email_err = RwSignal::new(String::new());
         // let change_username_password_err = RwSignal::new(String::new());
 
         let on_change_username = {
@@ -466,103 +478,224 @@ pub mod settings {
             }
         };
 
-        let on_email_change_send_confirm = {
+        let on_email_change = {
             let navigate = navigate.clone();
             move |e: SubmitEvent| {
                 e.prevent_default();
                 let navigate = navigate.clone();
-
-                // api.send_email_change(EmailConfirmTokenKind::ChangeEmail)
-                //     .send_web(move |result| {
-                //         let navigate = navigate.clone();
-                //         async move {
-                //             match result {
-                //                 Ok(ServerRes::Ok) => {
-                //                     navigate(
-                //                         &link_settings_form_email(
-                //                             EmailChangeStage::ClickConfirm,
-                //                             None,
-                //                             None,
-                //                         ),
-                //                         NavigateOptions::default(),
-                //                     );
-                //                 }
-                //                 Ok(err) => {
-                //                     error!("expected Post, received {err:?}");
-                //                     let _ = change_email_send_confirm_err
-                //                         .try_set("SERVER ERROR, wrong response.".to_string());
-                //                 }
-                //                 Err(err) => {
-                //                     let _ = change_email_send_confirm_err.try_set(err.to_string());
-                //                 }
-                //             }
-                //         }
-                //     });
-
                 //
-            }
-        };
+                match get_query_email_stage() {
+                    EmailChangeFormStage::CurrentSendConfirm => {
+                        api.send_email_change().send_web(move |result| {
+                            let navigate = navigate.clone();
+                            //
+                            async move {
+                                match result {
+                                    Ok(ServerRes::EmailChangeStage { stage, new_email }) => {
+                                        trace!("recv: {stage:?}");
+                                        let link = match stage {
+                                            EmailChangeStage::ConfirmEmail => {
+                                                link_settings_form_email_current_click()
+                                            }
+                                            EmailChangeStage::EnterNewEmail => {
+                                                link_settings_form_email_new_send()
+                                            }
+                                            EmailChangeStage::ConfirmNewEmail => {
+                                                link_settings_form_email_new_click()
+                                            }
+                                            EmailChangeStage::ReadyToComplete => {
+                                                link_settings_form_email_final_confirm()
+                                            }
+                                            EmailChangeStage::Complete => {
+                                                link_settings_form_email_completed()
+                                            }
+                                        };
 
-        let on_email_change_enter_new_email = {
-            let navigate = navigate.clone();
-            move |e: SubmitEvent| {
-                e.prevent_default();
-                let navigate = navigate.clone();
+                                        trace!("link generated {link}");
 
-                let confirm_token = get_query_untracked().confirm_token;
-                let confirm_token_is_none = confirm_token.is_none();
-                let (Some(confirm_token), Some(new_email)) = (
-                    confirm_token,
-                    change_email_enter_new_email_input.get() as Option<HtmlInputElement>,
-                ) else {
-                    if confirm_token_is_none {
-                        change_email_enter_new_email_err
-                            .set("missing confirm_token query field".to_string());
+                                        navigate(
+                                            &link,
+                                            NavigateOptions::default(),
+                                        );
+                                    }
+                                    Ok(err) => {
+                                        error!("expected EmailChangeState, received {err:?}");
+                                        let _ = change_email_current_send_err
+                                            .try_set("SERVER ERROR, wrong response.".to_string());
+                                    }
+                                    Err(err) => {
+                                        let _ =
+                                            change_email_current_send_err.try_set(err.to_string());
+                                    }
+                                }
+                            }
+                        });
                     }
-
-                    return;
-                };
-
-                let new_email = new_email.value();
-
-                if new_email.is_empty() {
-                    change_email_enter_new_email_err
-                        .set("new_email field cant be empty".to_string());
-                    return;
+                    EmailChangeFormStage::CurrentClickConfirm => {
+                        //
+                    }
+                    EmailChangeFormStage::CurrentConfirm => {
+                        //
+                    }
+                    EmailChangeFormStage::NewEnterEmail => {
+                        //
+                    }
+                    EmailChangeFormStage::NewClickConfirm => {
+                        //
+                    }
+                    EmailChangeFormStage::NewConfirmEmail => {
+                        //
+                    }
+                    EmailChangeFormStage::FinalConfirm => {
+                        //
+                    }
+                    EmailChangeFormStage::Completed => {
+                        //
+                    }
                 }
-
-                // api.change_email(confirm_token, new_email.clone())
-                //     .send_web(move |result| {
-                //         let navigate = navigate.clone();
-                //         let new_email = new_email.clone();
-                //         async move {
-                //             match result {
-                //                 Ok(ServerRes::Ok) => {
-                //                     navigate(
-                //                         &link_settings_form_email(
-                //                             EmailChangeStage::ConfirmNewEmail,
-                //                             Some(new_email),
-                //                             None,
-                //                         ),
-                //                         NavigateOptions::default(),
-                //                     );
-                //                 }
-                //                 Ok(err) => {
-                //                     error!("expected Ok, received {err:?}");
-                //                     let _ = change_email_enter_new_email_err
-                //                         .try_set("SERVER ERROR, wrong response.".to_string());
-                //                 }
-                //                 Err(err) => {
-                //                     let _ =
-                //                         change_email_enter_new_email_err.try_set(err.to_string());
-                //                 }
-                //             }
-                //         }
-                //     });
-
-                //
             }
         };
+
+        // let on_email_change_send = {
+        //     let navigate = navigate.clone();
+        //     move |e: SubmitEvent| {
+        //         e.prevent_default();
+        //         let navigate = navigate.clone();
+        //
+        //         match get_query_email_stage() {
+        //             Some(EmailChangeStage::EnterNewEmail) => {} // send confrim email to new email
+        //             None => {
+        //                 api.send_email_change().send_web(move |result| {
+        //                     //
+        //                     async move {
+        //                         match result {
+        //                             Ok(ServerRes::EmailChangeStage { stage, new_email }) => {
+        //                                 trace!("recv: {stage:?}");
+        //                                 // navigate(
+        //                                 //     &link_settings_form_email(
+        //                                 //         EmailChangeStage::ClickConfirm,
+        //                                 //         None,
+        //                                 //         None,
+        //                                 //     ),
+        //                                 //     NavigateOptions::default(),
+        //                                 // );
+        //                             }
+        //                             Ok(err) => {
+        //                                 error!("expected EmailChangeState, received {err:?}");
+        //                                 let _ = change_email_current_send_err
+        //                                     .try_set("SERVER ERROR, wrong response.".to_string());
+        //                             }
+        //                             Err(err) => {
+        //                                 let _ =
+        //                                     change_email_current_send_err.try_set(err.to_string());
+        //                             }
+        //                         }
+        //                     }
+        //                 });
+        //             }
+        //             _ => {}
+        //         }
+        //     }
+        // };
+        //
+        // let on_email_change_confirm = {
+        //     let navigate = navigate.clone();
+        //     move |e: SubmitEvent| {
+        //         e.prevent_default();
+        //         let navigate = navigate.clone();
+        //
+        //         let confirm_token = get_query_untracked().confirm_token;
+        //         let confirm_token_is_none = confirm_token.is_none();
+        //         let (Some(confirm_token), Some(new_email)) = (
+        //             confirm_token,
+        //             change_email_new_email_input.get() as Option<HtmlInputElement>,
+        //         ) else {
+        //             if confirm_token_is_none {
+        //                 change_email_new_send_err
+        //                     .set("missing confirm_token query field".to_string());
+        //             }
+        //
+        //             return;
+        //         };
+        //
+        //         let new_email = new_email.value();
+        //
+        //         if new_email.is_empty() {
+        //             change_email_new_send_err.set("new_email field cant be empty".to_string());
+        //             return;
+        //         }
+        //
+        //         // api.change_email(confirm_token, new_email.clone())
+        //         //     .send_web(move |result| {
+        //         //         let navigate = navigate.clone();
+        //         //         let new_email = new_email.clone();
+        //         //         async move {
+        //         //             match result {
+        //         //                 Ok(ServerRes::Ok) => {
+        //         //                     navigate(
+        //         //                         &link_settings_form_email(
+        //         //                             EmailChangeStage::ConfirmNewEmail,
+        //         //                             Some(new_email),
+        //         //                             None,
+        //         //                         ),
+        //         //                         NavigateOptions::default(),
+        //         //                     );
+        //         //                 }
+        //         //                 Ok(err) => {
+        //         //                     error!("expected Ok, received {err:?}");
+        //         //                     let _ = change_email_enter_new_email_err
+        //         //                         .try_set("SERVER ERROR, wrong response.".to_string());
+        //         //                 }
+        //         //                 Err(err) => {
+        //         //                     let _ =
+        //         //                         change_email_enter_new_email_err.try_set(err.to_string());
+        //         //                 }
+        //         //             }
+        //         //         }
+        //         //     });
+        //
+        //         //
+        //     }
+        // };
+
+        let view_stage_errors = move |errors: RwSignal<String>, stage: EmailChangeFormStage| {
+            view! {
+                <div class=move || format!("text-[1rem] text-base08 {}", if get_query_email_stage() >= stage { "visible" } else {"hidden"} )>
+                    <ul class="list-disc ml-[1rem]">
+                        {move || errors.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                    </ul>
+                </div>
+            }
+        };
+
+        let email_form_button_send = move || -> bool {
+            match get_query_email_stage() {
+                EmailChangeFormStage::CurrentSendConfirm => true,
+                EmailChangeFormStage::CurrentClickConfirm => false,
+                EmailChangeFormStage::CurrentConfirm => false,
+                EmailChangeFormStage::NewEnterEmail => true,
+                EmailChangeFormStage::NewClickConfirm => true,
+                EmailChangeFormStage::NewConfirmEmail => false,
+                EmailChangeFormStage::FinalConfirm => false,
+                EmailChangeFormStage::Completed => false,
+            }
+        };
+        let email_form_button_confirm = move || -> bool {
+            match get_query_email_stage() {
+                EmailChangeFormStage::CurrentSendConfirm => false,
+                EmailChangeFormStage::CurrentClickConfirm => false,
+                EmailChangeFormStage::CurrentConfirm => true,
+                EmailChangeFormStage::NewEnterEmail => false,
+                EmailChangeFormStage::NewClickConfirm => false,
+                EmailChangeFormStage::NewConfirmEmail => true,
+                EmailChangeFormStage::FinalConfirm => true,
+                EmailChangeFormStage::Completed => false,
+            }
+        };
+
+        // let view_email_stage = move || {
+        //
+        // };
 
         // let on_open_change_username = move |_e: MouseEvent| selected_form.set(SelectedForm::ChangeUsername);
         // let on_close = move |e: MouseEvent| {
@@ -590,7 +723,7 @@ pub mod settings {
                         <label for="current_email" class="text-[1.2rem] ">"Email"</label>
                         <div class="flex">
                             <input value=move || global_state.get_email_tracked() id="current_email" name="current_email" disabled type="text" class="bg-base01 text-base0B w-full pl-2 " />
-                            <a href=link_settings_form_email(EmailChangeStage::SendConfirm, None, None) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
+                            <a href=link_settings_form_email(EmailChangeFormStage::CurrentSendConfirm, None, None) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
                             // <a href=link_settings_form(SelectedForm::ChangeUsername) class="border-2 border-base0E text-[1rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Change Username"</a>
                         </div>
                     </form>
@@ -667,38 +800,44 @@ pub mod settings {
                         <h2 class="text-[1.5rem] text-base0F text-center ">"Email Change"</h2>
                         <ol class="text-[1.2rem] list-decimal grid gap-2">
                             <li>"Send confirmation email to "
-                                <span class="text-base0E">{move || format!("{}. ", global_state.get_email_tracked().unwrap_or("404".to_string()))}</span>
-                                {move || view_current_stage_label(EmailChangeStage::SendConfirm) }
-                                <div class=move || format!("text-[1rem] text-base08 {}", if get_query_email_stage() >= EmailChangeStage::SendConfirm { "visible" } else {"hidden"} )>
-                                    <ul class="list-disc ml-[1rem]">
-                                        {move || change_email_send_confirm_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
-                                    </ul>
-                                </div>
+                                <span class="text-base0E">{move || format!("{}. ", get_current_email_or_default())}</span>
+                                {move || view_current_stage_label(EmailChangeFormStage::CurrentSendConfirm) }
+                                {move || view_stage_errors(change_email_current_send_err, EmailChangeFormStage::CurrentSendConfirm)}
                             </li>
                             <li>"Click on confirmation link that was sent to "
-                                <span class="text-base0E">{move || format!("{}. ", global_state.get_email_tracked().unwrap_or("404".to_string()))}</span>
-                                {move || view_current_stage_label(EmailChangeStage::ClickConfirm) }
+                                <span class="text-base0E">{move || format!("{}. ", get_current_email_or_default())}</span>
+                                {move || view_current_stage_label(EmailChangeFormStage::CurrentClickConfirm) }
+                            </li>
+                            <li>"Confirm email change? "
+                                {move || view_current_stage_label(EmailChangeFormStage::CurrentConfirm) }
+                                {move || view_stage_errors(change_email_current_confirm_err, EmailChangeFormStage::CurrentConfirm)}
                             </li>
                             <li>"Enter new email. "
-                                {move || view_current_stage_label(EmailChangeStage::EnterNewEmail) }
-                                <div class=move || format!(" {}", if get_query_email_stage() >= EmailChangeStage::EnterNewEmail { "visible" } else {"hidden"} )>
-                                    <input node_ref=change_email_enter_new_email_input placeholder="email@example.com" class="bg-base02 mt-2 pl-2" type="email" />
+                                {move || view_current_stage_label(EmailChangeFormStage::NewEnterEmail) }
+                                <div class=move || format!(" {}", if get_query_email_stage() >= EmailChangeFormStage::NewEnterEmail { "visible" } else {"hidden"} )>
+                                    <input node_ref=change_email_new_email_input placeholder="email@example.com" class="bg-base02 mt-2 pl-2" type="email" />
                                 </div>
-                                <div class=move || format!("text-[1rem] text-base08 {}", if get_query_email_stage() >= EmailChangeStage::EnterNewEmail { "visible" } else {"hidden"} )>
-                                    <ul class="list-disc ml-[1rem]">
-                                        {move || change_email_enter_new_email_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
-                                    </ul>
-                                </div>
+                                {move || view_stage_errors(change_email_new_send_err, EmailChangeFormStage::NewEnterEmail)}
+                            </li>
+                            <li>"Click on confirmation link that was sent to "
+                                <span class="text-base0E">{move || format!("{}. ", get_new_email_or_default())}</span>
+                                {move || view_current_stage_label(EmailChangeFormStage::NewClickConfirm) }
+                                // {move || view_stage_errors(change_email_current_confirm_err, EmailChangeFormStage::NewClickConfirm)}
+                            </li>
+                            <li>"Confirm the new email? "
+                                {move || view_current_stage_label(EmailChangeFormStage::NewConfirmEmail) }
+                                {move || view_stage_errors(change_email_new_confirm_err, EmailChangeFormStage::NewConfirmEmail)}
+                            </li>
+                            <li>"Final confirm. "
+                                <span class="text-base0E">{move || format!("from {} to {}.", get_current_email_or_default(), get_new_email_or_default())}</span>
+                                {move || view_current_stage_label(EmailChangeFormStage::FinalConfirm) }
                             </li>
                             <li>
                                 <div>"Finish. "
-                                    {move || view_current_stage_label(EmailChangeStage::Finish) }
+                                    {move || view_current_stage_label(EmailChangeFormStage::Completed) }
                                 </div>
-                                <div class=move || format!("text-[1rem] text-base09 {}", if get_query_email_stage() >= EmailChangeStage::Finish { "visible" } else {"hidden"} )>
-                                    "Username changed from "
-                                    <span class="text-base0B">" "{move || get_query_old_username().unwrap_or("404".to_string())}" "</span>
-                                    <span>" to "</span>
-                                    <span class="text-base0B">" "{move || get_query_new_username().unwrap_or("404".to_string())}" "</span>
+                                <div class=move || format!("text-[1rem] text-base09 {}", if get_query_email_stage() >= EmailChangeFormStage::Completed { "visible" } else {"hidden"} )>
+                                    <span class="text-base0E">{move || format!("Email changed from {} to {}.", get_current_email_or_default(), get_new_email_or_default())}</span>
                                 </div>
                             </li>
                         </ol>
@@ -724,10 +863,10 @@ pub mod settings {
                             // } }
                             // <a href=link_settings() class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Send"</a>
                             <a href=link_settings() class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Close"</a>
-                            <form method="POST" action="" on:submit=on_email_change_send_confirm class=move || format!(" {}", if get_query_email_stage() == EmailChangeStage::SendConfirm { "visible" } else { "hidden" })>
+                            <form method="POST" action="" on:submit=on_email_change.clone() class=move || format!(" {}", if email_form_button_send() { "visible" } else { "hidden" })>
                                 <input type="submit" value="Send" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
                             </form>
-                            <form method="POST" action="" on:submit=on_email_change_enter_new_email class=move || format!(" {}", if get_query_email_stage() == EmailChangeStage::EnterNewEmail { "visible" } else { "hidden" })>
+                            <form method="POST" action="" on:submit=on_email_change class=move || format!(" {}", if email_form_button_confirm() { "visible" } else { "hidden" })>
                                 <input type="submit" value="Confirm" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
                             </form>
                         </div>
@@ -842,9 +981,9 @@ pub mod upload {
                                         Default::default(),
                                     );
                                 }
-                                Err(ServerErr::AddPostErr(
-                                    ServerAddPostErr::ServerImgErr(errs),
-                                )) => {
+                                Err(ServerErr::AddPostErr(ServerAddPostErr::ServerImgErr(
+                                    errs,
+                                ))) => {
                                     let msg = errs
                                         .clone()
                                         .into_iter()
@@ -1246,9 +1385,7 @@ pub mod register {
                                 register_general_err
                                     .set("This invite link is already expired.".to_string());
                             }
-                            Err(ServerErr::RegistrationErr(
-                                ServerRegistrationErr::TokenUsed,
-                            )) => {
+                            Err(ServerErr::RegistrationErr(ServerRegistrationErr::TokenUsed)) => {
                                 register_general_err
                                     .set("This invite link was already used.".to_string());
                             }
