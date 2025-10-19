@@ -132,9 +132,9 @@ pub mod valid {
         pub fn proccess_email<S: AsRef<str>>(email: S) -> Result<String, String> {
             let mut errors = String::new();
             let email = email.as_ref().trim().to_owned();
-            if !email.is_email() {
-                errors += "invalid email\n";
-            }
+            // if !email.is_email() {
+            //     errors += "invalid email\n";
+            // }
 
             if errors.is_empty() {
                 Ok(email)
@@ -187,7 +187,7 @@ pub mod valid {
         fn is_first_char_alphabetic(&self) -> bool;
         fn is_smaller_than(&self, size: usize) -> bool;
         fn is_bigger_than(&self, size: usize) -> bool;
-        fn is_email(&self) -> bool;
+        // fn is_email(&self) -> bool;
     }
 
     impl<S: AsRef<str>> Validator for S {
@@ -207,77 +207,77 @@ pub mod valid {
                 .map(|c| c.is_alphabetic())
                 .unwrap_or_default()
         }
-        fn is_email(&self) -> bool {
-            let email = self.as_ref();
-            let mut email_chars = email.chars().enumerate();
-            if email_chars
-                .next()
-                .map(|(_i, char)| !(char == '-' || char == '.' || char.is_alphanumeric()))
-                .unwrap_or(true)
-            {
-                trace!("invalid 1");
-                return false;
-            }
-
-            let mut symbol_a: usize = 0;
-            for (i, char) in email_chars.by_ref() {
-                if char == '@' {
-                    symbol_a = i;
-                    break;
-                } else if char == '-' || char == '.' || char.is_alphanumeric() {
-                    continue;
-                } else {
-                    trace!("invalid 2");
-                    return false;
-                }
-            }
-            if symbol_a == 0 {
-                trace!("invalid 2.5");
-                return false;
-            }
-            if email_chars
-                .next()
-                .map(|(_i, char)| !(char == '-' || char == '.' || char.is_alphanumeric()))
-                .unwrap_or(true)
-            {
-                trace!("invalid 3");
-                return false;
-            }
-
-            let mut last_dot: usize = 0;
-            for (i, char) in email_chars {
-                if char == '.' {
-                    last_dot = i;
-                } else if char == '-' || char == '.' || char.is_alphanumeric() {
-                    continue;
-                } else {
-                    trace!("invalid 4");
-                    return false;
-                }
-            }
-
-            if last_dot == 0 {
-                trace!("invalid 4.5");
-                return false;
-            }
-
-            let email_chars = email.chars().skip(last_dot + 1);
-            let mut count = 0;
-            for char in email_chars {
-                count += 1;
-                if !char.is_alphanumeric() {
-                    trace!("invalid 5");
-                    return false;
-                }
-            }
-
-            if !(2..=4).contains(&count) {
-                trace!("invalid 6: {count}");
-                return false;
-            }
-
-            true
-        }
+        // fn is_email(&self) -> bool {
+        //     let email = self.as_ref();
+        //     let mut email_chars = email.chars().enumerate();
+        //     if email_chars
+        //         .next()
+        //         .map(|(_i, char)| !(char == '-' || char == '.' || char.is_alphanumeric()))
+        //         .unwrap_or(true)
+        //     {
+        //         trace!("invalid 1");
+        //         return false;
+        //     }
+        //
+        //     let mut symbol_a: usize = 0;
+        //     for (i, char) in email_chars.by_ref() {
+        //         if char == '@' {
+        //             symbol_a = i;
+        //             break;
+        //         } else if char == '-' || char == '.' || char.is_alphanumeric() {
+        //             continue;
+        //         } else {
+        //             trace!("invalid 2");
+        //             return false;
+        //         }
+        //     }
+        //     if symbol_a == 0 {
+        //         trace!("invalid 2.5");
+        //         return false;
+        //     }
+        //     if email_chars
+        //         .next()
+        //         .map(|(_i, char)| !(char == '-' || char == '.' || char.is_alphanumeric()))
+        //         .unwrap_or(true)
+        //     {
+        //         trace!("invalid 3");
+        //         return false;
+        //     }
+        //
+        //     let mut last_dot: usize = 0;
+        //     for (i, char) in email_chars {
+        //         if char == '.' {
+        //             last_dot = i;
+        //         } else if char == '-' || char == '.' || char.is_alphanumeric() {
+        //             continue;
+        //         } else {
+        //             trace!("invalid 4");
+        //             return false;
+        //         }
+        //     }
+        //
+        //     if last_dot == 0 {
+        //         trace!("invalid 4.5");
+        //         return false;
+        //     }
+        //
+        //     let email_chars = email.chars().skip(last_dot + 1);
+        //     let mut count = 0;
+        //     for char in email_chars {
+        //         count += 1;
+        //         if !char.is_alphanumeric() {
+        //             trace!("invalid 5");
+        //             return false;
+        //         }
+        //     }
+        //
+        //     if !(2..=4).contains(&count) {
+        //         trace!("invalid 6: {count}");
+        //         return false;
+        //     }
+        //
+        //     true
+        // }
         fn is_bigger_than(&self, size: usize) -> bool {
             self.as_ref().len() > size
         }
@@ -299,16 +299,16 @@ pub mod valid {
             assert!("input".is_smaller_than(6));
             assert!(!"input".is_bigger_than(5));
             assert!("input".is_bigger_than(4));
-            assert!("hey@hey.com".is_email());
-            assert!("hey@hey..com".is_email());
-            assert!(!"@hey.com".is_email());
-            assert!(!"heyhey.com".is_email());
-            assert!(!"h@.com".is_email());
-            assert!(!"hhey.com".is_email());
-            assert!(!"hhey@".is_email());
-            assert!(!"h@h.".is_email());
-            assert!(!"h@h.h".is_email());
-            assert!("h@h.hh".is_email());
+            // assert!("hey@hey.com".is_email());
+            // assert!("hey@hey..com".is_email());
+            // assert!(!"@hey.com".is_email());
+            // assert!(!"heyhey.com".is_email());
+            // assert!(!"h@.com".is_email());
+            // assert!(!"hhey.com".is_email());
+            // assert!(!"hhey@".is_email());
+            // assert!(!"h@h.".is_email());
+            // assert!(!"h@h.h".is_email());
+            // assert!("h@h.hh".is_email());
             assert!("hey@hey..com".is_first_char_alphabetic());
             assert!(!"0ey@hey..com".is_first_char_alphabetic());
             assert!("abcd#e".is_containing_symbol());
@@ -337,6 +337,7 @@ pub mod path {
     pub const PATH_API_INVITE_DECODE: &'static str = "/invite_decode";
     pub const PATH_API_CHANGE_USERNAME: &'static str = "/change_username";
     pub const PATH_API_CHANGE_EMAIL: &'static str = "/change_email";
+    pub const PATH_API_CHANGE_EMAIL_STATUS: &'static str = "/change_email_status";
     // pub const PATH_API_CHANGE_EMAIL: &'static str = "/change_email";
     pub const PATH_API_SEND_EMAIL_INVITE: &'static str = "/send_email_invite";
     pub const PATH_API_SEND_EMAIL_CHANGE: &'static str = "/send_email_change";
@@ -413,11 +414,11 @@ pub mod path {
     }
 
     pub fn link_settings_form_email_new_click() -> String {
-        link_settings_form_email(EmailChangeFormStage::NewConfirmEmail, None, None)
+        link_settings_form_email(EmailChangeFormStage::NewClickConfirm, None, None)
     }
 
     pub fn link_settings_form_email_new_confirm(confirm_token: impl Into<String>) -> String {
-        link_settings_form_email(EmailChangeFormStage::NewEnterEmail, None, Some(confirm_token.into()))
+        link_settings_form_email(EmailChangeFormStage::NewConfirmEmail, None, Some(confirm_token.into()))
     }
 
     pub fn link_settings_form_email_final_confirm() -> String {

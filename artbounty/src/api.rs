@@ -10,21 +10,30 @@ use thiserror::Error;
 use tracing::{debug, error, trace};
 use wasm_bindgen_futures::spawn_local;
 
+use crate::path::{
+    link_settings_form_email_completed, link_settings_form_email_current_click,
+    link_settings_form_email_final_confirm, link_settings_form_email_new_click,
+    link_settings_form_email_new_send,
+};
+
 #[cfg(feature = "ssr")]
 pub mod app_state {
     use std::{sync::Arc, time::Duration};
 
     use rand::distr::{Alphanumeric, SampleString};
+    use surrealdb::RecordId;
     use tokio::sync::Mutex;
+    use tracing::trace;
 
     use crate::{
         api::{
-            EmailToken, ServerErr, ServerTokenErr,
+            EmailChangeNewErr, EmailChangeStage, EmailToken, ServerErr, ServerTokenErr,
             clock::{Clock, get_timestamp},
             encode_token,
             settings::Settings,
         },
-        db::{self, DBUser, DbEngine},
+        db::{self, DB404Err, DBEmailChange, DBUser, DbEngine},
+        path::{link_settings_form_email_current_confirm, link_settings_form_email_new_confirm},
     };
 
     #[derive(Clone)]
@@ -88,6 +97,162 @@ pub mod app_state {
 
         pub async fn gen_key(&self) -> String {
             rand::distr::Alphanumeric.sample_string(&mut rand::rng(), 16)
+        }
+
+        pub async fn get_email_change_status(
+            &self,
+            time: u128,
+            db_user: &DBUser,
+        ) -> Result<Option<(DBEmailChange, EmailChangeStage)>, ServerErr> {
+            let result = self.db.get_email_change(time, db_user.id.clone()).await;
+            match result {
+                Ok(v) => {
+                    let stage = EmailChangeStage::from(&v);
+                    Ok(Some((v, stage)))
+                }
+                Err(DB404Err::NotFound) => Ok(None),
+                Err(DB404Err::DB(_)) => Err(ServerErr::DbErr),
+            }
+        }
+
+        // pub async fn get_email_change_status_by_current_token(
+        //     &self,
+        //     time: u128,
+        //     db_user: &DBUser,
+        //     confirm_token: impl Into<String>,
+        // ) -> Result<Option<(DBEmailChange, EmailChangeStage)>, ServerErr> {
+        //     let result = self.db.get_email_change_by_current_token(time, db_user.id.clone(), confirm_token).await;
+        //     match result {
+        //         Ok(v) => {
+        //             let stage = EmailChangeStage::from(&v);
+        //             Ok(Some((v, stage)))
+        //         }
+        //         Err(DB404Err::NotFound) => Ok(None),
+        //         Err(DB404Err::DB(_)) => Err(ServerErr::DbErr),
+        //     }
+        // }
+
+        pub async fn get_email_change_status_unwrap<F, R>(
+            &self,
+            time: u128,
+            db_user: &DBUser,
+            invalid_err: F,
+        ) -> Result<(DBEmailChange, EmailChangeStage), ServerErr>
+        where
+            F: Fn(String) -> R,
+            R: Into<ServerErr>,
+        {
+            self.get_email_change_status(time, &db_user)
+                .await?
+                .ok_or(invalid_err("email change not started".to_string()).into())
+        }
+
+        pub async fn get_email_change_status_compare<F, R>(
+            &self,
+            time: u128,
+            db_user: &DBUser,
+            expected_stage: EmailChangeStage,
+            invalid_stage_err: F,
+        ) -> Result<(DBEmailChange, EmailChangeStage), ServerErr>
+        where
+            F: Fn(String) -> R,
+            R: Into<ServerErr>,
+        {
+            let (email_change, stage) = self
+                .get_email_change_status(time, &db_user)
+                .await?
+                .ok_or(invalid_stage_err("email change not started".to_string()).into())?;
+            trace!("2 stage {stage}");
+            stage.is_stage(expected_stage, invalid_stage_err)?;
+
+            Ok((email_change, stage))
+        }
+
+        // pub async fn get_email_change_status_compare_current<F, R>(
+        //     &self,
+        //     time: u128,
+        //     db_user: &DBUser,
+        //     current_token: impl AsRef<str>,
+        //     expected_stage: EmailChangeStage,
+        //     invalid_stage_err: F,
+        //     invalid_token_err: impl Into<ServerErr>,
+        // ) -> Result<(DBEmailChange, EmailChangeStage), ServerErr>
+        // where
+        //     F: Fn(String) -> R,
+        //     R: Into<ServerErr>,
+        // {
+        //     let (email_change, stage) = self.get_email_change_status(time, &db_user)
+        //         .await?
+        //         .ok_or(invalid_stage_err("email change not started".to_string()).into())?;
+        //     stage.is_stage(expected_stage, invalid_stage_err)?;
+        //
+        //     if email_change.current.token_raw == current_token.as_ref() {
+        //         return Err(invalid_token_err.into());
+        //     }
+        //
+        //     Ok((email_change, stage))
+        // }
+
+        // pub async fn get_email_change_status_by_current_token_unwrap<F, R>(
+        //     &self,
+        //     time: u128,
+        //     db_user: &DBUser,
+        //     confirm_token: impl Into<String>,
+        //     invalid_err: impl Into<ServerErr>,
+        // ) -> Result<(DBEmailChange, EmailChangeStage), ServerErr>
+        // where
+        //     F: Fn(String) -> R,
+        //     R: Into<ServerErr>,
+        // {
+        //     self.get_email_change_status(time, &db_user)
+        //         .await?
+        //         .ok_or(invalid_err.into())
+        // }
+
+        pub async fn get_email_change(
+            &self,
+            time: u128,
+            user_id: RecordId,
+            not_found: impl Into<ServerErr>,
+        ) -> Result<DBEmailChange, ServerErr> {
+            self.db
+                .get_email_change(time, user_id)
+                .await
+                .map_err(|err| match err {
+                    DB404Err::NotFound => not_found.into(),
+                    DB404Err::DB(_) => ServerErr::DbErr,
+                })
+        }
+
+        pub async fn add_email_change(
+            &self,
+            time: u128,
+            db_user: &DBUser,
+        ) -> Result<DBEmailChange, ServerErr> {
+            let (confirm_token, exp) = self.new_token(&db_user.email).await?;
+
+            self.db
+                .add_email_change(
+                    time,
+                    db_user.id.clone(),
+                    db_user.email.clone(),
+                    confirm_token.clone(),
+                    exp,
+                )
+                .await
+                .map_err(|_| ServerErr::DbErr)
+        }
+
+        pub fn send_email_change(&self, confim_token: impl Into<String>) {
+            let link = link_settings_form_email_current_confirm(confim_token.into());
+            let link = format!("{}{}", &self.settings.site.address, link,);
+            trace!("{link}");
+        }
+
+        pub fn send_email_new(&self, confim_token: impl Into<String>) {
+            let link = link_settings_form_email_new_confirm(&confim_token.into());
+            let link = format!("{}{}", &self.settings.site.address, link,);
+            trace!("{link}");
         }
     }
 }
@@ -303,7 +468,7 @@ pub enum ServerRes {
     Posts(Vec<UserPost>),
     Post(UserPost),
     EmailChangeStage {
-        stage: EmailChangeStage,
+        stage: Option<EmailChangeStage>,
         new_email: Option<String>,
     },
     Ok,
@@ -339,6 +504,9 @@ pub enum ServerErr {
 
     #[error("change email err {0}")]
     EmailChangeNew(#[from] EmailChangeNewErr),
+
+    #[error("change email err {0}")]
+    EmailChangeToken(#[from] EmailChangeTokenErr),
 
     #[error("change email err {0}")]
     EmailChange(#[from] EmailChangeErr),
@@ -519,8 +687,17 @@ pub enum EmailChangeNewErr {
     #[error("email \"{0}\" is taken")]
     EmailIsTaken(String),
 
-    #[error("token not found")]
-    TokenNotFound,
+    #[error("token is invalid")]
+    TokenInvalid,
+
+    #[error("invalid stage: {0}")]
+    InvalidStage(String),
+}
+
+#[derive(Error, Com!)]
+pub enum EmailChangeTokenErr {
+    #[error("token is invalid")]
+    TokenInvalid,
 
     #[error("invalid stage: {0}")]
     InvalidStage(String),
@@ -528,9 +705,6 @@ pub enum EmailChangeNewErr {
 
 #[derive(Error, Com!)]
 pub enum EmailChangeErr {
-    #[error("token not found")]
-    TokenNotFound,
-
     #[error("invalid stage: {0}")]
     InvalidStage(String),
 }
@@ -588,28 +762,53 @@ pub enum EmailChangeStage {
     Complete,
 }
 
+impl EmailChangeStage {
+    pub fn link(&self) -> String {
+        match self {
+            EmailChangeStage::ConfirmEmail => link_settings_form_email_current_click(),
+            EmailChangeStage::EnterNewEmail => link_settings_form_email_new_send(),
+            EmailChangeStage::ConfirmNewEmail => link_settings_form_email_new_click(),
+            EmailChangeStage::ReadyToComplete => link_settings_form_email_final_confirm(),
+            EmailChangeStage::Complete => link_settings_form_email_completed(),
+        }
+    }
+}
+
+#[cfg(feature = "ssr")]
+impl EmailChangeStage {
+    pub fn is_stage<F, R>(&self, expected: Self, invalid_stage_err: F) -> Result<(), ServerErr>
+    where
+        F: Fn(String) -> R,
+        R: Into<ServerErr>,
+    {
+        match self {
+            stage if *stage == expected => Ok(()),
+            stage => {
+                Err(invalid_stage_err(format!("expected {:?}, got: {:?}", expected, stage)).into())
+            }
+        }
+    }
+}
+
 #[cfg(feature = "ssr")]
 impl From<&crate::db::DBEmailChange> for EmailChangeStage {
     fn from(value: &crate::db::DBEmailChange) -> Self {
-        if value.completed {
-            return EmailChangeStage::Complete;
-        }
-
-        if let Some(new) = &value.new
+        let output = if value.completed {
+            EmailChangeStage::Complete
+        } else if let Some(new) = &value.new
             && new.token_used
         {
-            return EmailChangeStage::ReadyToComplete;
-        }
+            EmailChangeStage::ReadyToComplete
+        } else if let Some(new) = &value.new {
+            EmailChangeStage::ConfirmNewEmail
+        } else if value.current.token_used {
+            EmailChangeStage::EnterNewEmail
+        } else {
+            EmailChangeStage::ConfirmEmail
+        };
 
-        if let Some(new) = &value.new {
-            return EmailChangeStage::ConfirmNewEmail;
-        }
-
-        if value.current.token_used {
-            return EmailChangeStage::EnterNewEmail;
-        }
-
-        EmailChangeStage::ConfirmEmail
+        debug!("email change stage converter: input {value:#?}, output: {output:?}");
+        output
     }
 }
 
@@ -1000,6 +1199,10 @@ pub trait Api {
 
     fn change_email(&self) -> ApiReq {
         self.into_req(crate::path::PATH_API_CHANGE_EMAIL, ServerReq::None)
+    }
+
+    fn change_email_status(&self) -> ApiReq {
+        self.into_req(crate::path::PATH_API_CHANGE_EMAIL_STATUS, ServerReq::None)
     }
 
     // fn change_email(
@@ -1618,16 +1821,18 @@ pub mod backend {
     use crate::api::app_state::AppState;
     use crate::api::{
         AuthToken, ChangeUsernameErr, EmailChangeErr, EmailChangeNewErr, EmailChangeStage,
-        EmailToken, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr, ServerDesErr,
-        ServerErr, ServerErrImg, ServerErrImgMeta, ServerGetErr, ServerLoginErr,
+        EmailChangeTokenErr, EmailToken, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr,
+        ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerGetErr, ServerLoginErr,
         ServerRegistrationErr, ServerReq, ServerRes, ServerTokenErr, User, UserPost, UserPostFile,
         auth_token_get, decode_token, encode_token, hash_password, verify_password,
     };
-    use crate::db::DBUserPostFile;
     use crate::db::{AddUserErr, DBChangeEmailErr};
     use crate::db::{DB404Err, DBChangeUsernameErr};
+    use crate::db::{DBEmailChange, DBUserPostFile};
     use crate::db::{DBUser, EmailIsTakenErr};
-    use crate::path::link_settings_form_email_current_confirm;
+    use crate::path::{
+        link_settings_form_email_current_confirm, link_settings_form_email_new_confirm,
+    };
     use crate::valid::auth::{
         proccess_password, proccess_post_description, proccess_post_title, proccess_username,
     };
@@ -1895,7 +2100,7 @@ pub mod backend {
     }
 
     pub async fn change_email(
-        State(app_state): State<AppState>,
+        State(app): State<AppState>,
         auth_token: Extension<AuthToken>,
         db_user: Extension<DBUser>,
         req: ServerReq,
@@ -1905,30 +2110,25 @@ pub mod backend {
                 "expected ChangeUsername, received: {req:?}"
             ))));
         };
-        let time = app_state.clock.now().await.as_nanos();
+        let time = app.clock.now().await.as_nanos();
 
-        let email_change = app_state
+        let (email_change, stage) = app
+            .get_email_change_status_compare(
+                time,
+                &db_user,
+                EmailChangeStage::ReadyToComplete,
+                EmailChangeNewErr::InvalidStage,
+            )
+            .await?;
+
+        let new = email_change
+            .new
+            .as_ref()
+            .ok_or_else(|| EmailChangeNewErr::InvalidStage(format!("expected NewConfirm")))?;
+
+        let result = app
             .db
-            .get_email_change(time, db_user.id.clone())
-            .await
-            .map_err(|err| match err {
-                DB404Err::NotFound => ServerErr::from(EmailChangeNewErr::TokenNotFound),
-                DB404Err::DB(_) => ServerErr::DbErr,
-            })?;
-
-        let stage = EmailChangeStage::from(&email_change);
-        let new_email = match (stage, &email_change.new) {
-            (EmailChangeStage::ReadyToComplete, Some(new)) => new.email.clone(),
-            (stage, _) => {
-                return Err(ServerErr::from(EmailChangeNewErr::InvalidStage(format!(
-                    "expected ConfirmNewEmail, got: {stage:?}"
-                ))));
-            }
-        };
-
-        let result = app_state
-            .db
-            .update_user_email(db_user.id.clone(), new_email.clone(), time)
+            .update_user_email(db_user.id.clone(), new.email.clone(), time)
             .await
             .map_err(|err| match err {
                 DBChangeEmailErr::EmailIsTaken(email) => {
@@ -1937,42 +2137,15 @@ pub mod backend {
                 _ => ServerErr::DbErr,
             })?;
 
-        // let result = match result {
-        //     DBChangeEmailErr::EmailIsTaken(email) => {
-        //         // app_state
-        //         //     .db
-        //         //     .update_email_change_complete(time, email_change)
-        //         //     .await
-        //         //     .map_err(|_| ServerErr::DbErr)?;
-        //         ServerErr::from(EmailChangeNewErr::EmailIsTaken(email))
-        //     }
-        //     _ => ServerErr::DbErr,
-        // };
-
-        // let _confirm_token = app_state
-        //     .db
-        //     .update_invite_used(time, token)
-        //     .await
-        //     .map_err(|err| match err {
-        //         DB404Err::NotFound => ServerErr::ChangeEmailErr(ChangeEmailErr::NotFound),
-        //         DB404Err::DB(_) => ServerErr::DbErr,
-        //     })?;
-        //
-        // let _result = app_state
-        //     .db
-        //     .update_user_email(db_user.id.clone(), new_email, time)
-        //     .await
-        //     .map_err(|err| match err {
-        //         DBChangeEmailErr::EmailIsTaken(email) => {
-        //             ServerErr::ChangeEmailErr(ChangeEmailErr::EmailIsTaken(email))
-        //         }
-        //         DBChangeEmailErr::NotFound => ServerErr::ChangeEmailErr(ChangeEmailErr::NotFound),
-        //         DBChangeEmailErr::DB(_) => ServerErr::DbErr,
-        //     })?;
+        let result = app
+            .db
+            .update_email_change_complete(time, email_change.id.clone())
+            .await
+            .map_err(|_| ServerErr::DbErr)?;
 
         Ok(ServerRes::EmailChangeStage {
-            stage: EmailChangeStage::Complete,
-            new_email: Some(new_email),
+            stage: Some(EmailChangeStage::Complete),
+            new_email: Some(new.email.clone()),
         })
     }
 
@@ -2462,23 +2635,17 @@ pub mod backend {
         };
         let time = app_state.clock.now().await.as_nanos();
 
-        let email_change = app_state
-            .db
-            .get_email_change_by_current_token(time, db_user.id.clone(), token)
-            .await
-            .map_err(|err| match err {
-                DB404Err::NotFound => ServerErr::from(EmailChangeErr::TokenNotFound),
-                DB404Err::DB(_) => ServerErr::DbErr,
-            })?;
+        let (email_change, stage) = app_state
+            .get_email_change_status_compare(
+                time,
+                &db_user,
+                EmailChangeStage::ConfirmEmail,
+                EmailChangeTokenErr::InvalidStage,
+            )
+            .await?;
 
-        let stage = EmailChangeStage::from(&email_change);
-        match stage {
-            EmailChangeStage::ConfirmEmail => (),
-            stage => {
-                return Err(ServerErr::from(EmailChangeErr::InvalidStage(format!(
-                    "expected ConfirmEmail, got: {stage:?}"
-                ))));
-            }
+        if email_change.current.token_raw != token {
+            return Err(EmailChangeTokenErr::TokenInvalid.into());
         }
 
         let result = app_state
@@ -2488,45 +2655,49 @@ pub mod backend {
             .map_err(|_| ServerErr::DbErr)?;
 
         let stage = EmailChangeStage::from(&result);
+
         Ok(ServerRes::EmailChangeStage {
-            stage,
+            stage: Some(stage),
             new_email: None,
         })
     }
 
     pub async fn confirm_email_new(
-        State(app_state): State<AppState>,
+        State(app): State<AppState>,
         auth_token: Extension<AuthToken>,
         db_user: Extension<DBUser>,
         req: ServerReq,
     ) -> Result<ServerRes, ServerErr> {
+        // let _span = tracing::trace_span!("confirm_email_new").entered();
         let ServerReq::ConfirmToken { token } = req else {
             return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
                 "expected ConfirmKind, received: {req:?}"
             ))));
         };
-        let time = app_state.clock.now().await.as_nanos();
+        let time = app.clock.now().await.as_nanos();
+        trace!("time {}", time);
 
-        let email_change = app_state
-            .db
-            .get_email_change_by_new_token(time, db_user.id.clone(), token)
-            .await
-            .map_err(|err| match err {
-                DB404Err::NotFound => ServerErr::from(EmailChangeErr::TokenNotFound),
-                DB404Err::DB(_) => ServerErr::DbErr,
-            })?;
+        let (email_change, stage) = app
+            .get_email_change_status_compare(
+                time,
+                &db_user,
+                EmailChangeStage::ConfirmNewEmail,
+                EmailChangeTokenErr::InvalidStage,
+            )
+            .await?;
 
-        let stage = EmailChangeStage::from(&email_change);
-        match stage {
-            EmailChangeStage::ConfirmNewEmail { .. } => (),
-            stage => {
-                return Err(ServerErr::from(EmailChangeErr::InvalidStage(format!(
-                    "expected ConfirmNewEmail, got: {stage:?}"
-                ))));
-            }
+        trace!("stage {}", stage);
+
+        if email_change
+            .new
+            .as_ref()
+            .map(|v| v.token_raw != token)
+            .unwrap_or_default()
+        {
+            return Err(EmailChangeTokenErr::TokenInvalid.into());
         }
 
-        let result = app_state
+        let result = app
             .db
             .update_email_change_confirm_new(time, email_change.id.clone())
             .await
@@ -2534,7 +2705,7 @@ pub mod backend {
 
         let stage = EmailChangeStage::from(&result);
         Ok(ServerRes::EmailChangeStage {
-            stage,
+            stage: Some(stage),
             new_email: email_change.new.map(|v| v.email),
         })
     }
@@ -2556,8 +2727,8 @@ pub mod backend {
     //     Ok(ServerRes::Ok)
     // }
 
-    pub async fn send_email_change(
-        State(app_state): State<AppState>,
+    pub async fn resend_email_change(
+        State(app): State<AppState>,
         auth_token: Extension<AuthToken>,
         db_user: Extension<DBUser>,
         req: ServerReq,
@@ -2568,37 +2739,144 @@ pub mod backend {
             ))));
         };
 
-        let time = app_state.time().await;
-        let (confirm_token, exp) = app_state.new_token(&db_user.email).await?;
+        let time = app.time().await;
 
-        let result = app_state
+        let (email_change, stage) =
+            app.get_email_change_status(time, &db_user)
+                .await?
+                .ok_or(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
+                    "email change not started".to_string(),
+                )))?;
+
+        stage.is_stage(
+            EmailChangeStage::ConfirmEmail,
+            EmailChangeNewErr::InvalidStage,
+        )?;
+
+        app.send_email_change(email_change.current.token_raw);
+
+        Ok(ServerRes::EmailChangeStage {
+            stage: Some(stage),
+            new_email: None,
+        })
+    }
+
+    pub async fn resend_email_new(
+        State(app): State<AppState>,
+        auth_token: Extension<AuthToken>,
+        db_user: Extension<DBUser>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::None = req else {
+            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                "expected None, received: {req:?}"
+            ))));
+        };
+
+        let time = app.time().await;
+
+        let (email_change, stage) =
+            app.get_email_change_status(time, &db_user)
+                .await?
+                .ok_or(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
+                    "email change not started".to_string(),
+                )))?;
+
+        stage.is_stage(
+            EmailChangeStage::ConfirmEmail,
+            EmailChangeNewErr::InvalidStage,
+        )?;
+
+        app.send_email_change(email_change.current.token_raw);
+
+        Ok(ServerRes::EmailChangeStage {
+            stage: Some(stage),
+            new_email: None,
+        })
+    }
+
+    pub async fn cancel_email_change(
+        State(app): State<AppState>,
+        auth_token: Extension<AuthToken>,
+        db_user: Extension<DBUser>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let time = app.time().await;
+        let (email_change, stage) =
+            app.get_email_change_status(time, &db_user)
+                .await?
+                .ok_or(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
+                    "email change not started".to_string(),
+                )))?;
+
+        let result = app
             .db
-            .add_email_change(
-                time,
-                db_user.id.clone(),
-                db_user.email.clone(),
-                confirm_token.clone(),
-                exp,
-            )
+            .update_email_change_complete(time, email_change.id.clone())
             .await
             .map_err(|_| ServerErr::DbErr)?;
 
-        let is_new = result.created_at == time;
-        if is_new {
-            let link = link_settings_form_email_current_confirm(confirm_token.clone());
-            let link = format!("{}{}", &app_state.settings.site.address, link,);
-            trace!("{link}");
-        }
+        Ok(ServerRes::EmailChangeStage {
+            stage: Some(EmailChangeStage::Complete),
+            new_email: None,
+        })
+    }
 
-        let stage = EmailChangeStage::from(&result);
+    pub async fn status_email_change(
+        State(app): State<AppState>,
+        auth_token: Extension<AuthToken>,
+        db_user: Extension<DBUser>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let time = app.time().await;
+        let stage = app
+            .get_email_change_status(time, &db_user)
+            .await?
+            .map(|v| v.1);
+
         Ok(ServerRes::EmailChangeStage {
             stage,
             new_email: None,
         })
     }
 
+    pub async fn send_email_change(
+        State(app): State<AppState>,
+        auth_token: Extension<AuthToken>,
+        db_user: Extension<DBUser>,
+        req: ServerReq,
+    ) -> Result<ServerRes, ServerErr> {
+        let ServerReq::None = req else {
+            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                "expected None, received: {req:?}"
+            ))));
+        };
+
+        let time = app.time().await;
+
+        match app.get_email_change_status(time, &db_user).await? {
+            Some(_) => {
+                return Err(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
+                    "email change is already initialized".to_string(),
+                )));
+            }
+            None => (),
+        }
+
+        let email_change = app.add_email_change(time, &db_user).await?;
+
+        let stage = EmailChangeStage::from(&email_change);
+        stage.is_stage(EmailChangeStage::ConfirmEmail, EmailChangeErr::InvalidStage)?;
+
+        app.send_email_change(email_change.current.token_raw);
+
+        Ok(ServerRes::EmailChangeStage {
+            stage: Some(stage),
+            new_email: None,
+        })
+    }
+
     pub async fn send_email_new(
-        State(app_state): State<AppState>,
+        State(app): State<AppState>,
         auth_token: Extension<AuthToken>,
         db_user: Extension<DBUser>,
         req: ServerReq,
@@ -2609,36 +2887,26 @@ pub mod backend {
             ))));
         };
 
-        let time = app_state.time().await;
+        let time = app.time().await;
 
-        let email_change = app_state
-            .db
-            .get_email_change(time, db_user.id.clone())
-            .await
-            .map_err(|err| match err {
-                DB404Err::NotFound => ServerErr::from(EmailChangeNewErr::TokenNotFound),
-                DB404Err::DB(_) => ServerErr::DbErr,
-            })?;
+        let (email_change, stage) = app
+            .get_email_change_status_compare(
+                time,
+                &db_user,
+                EmailChangeStage::EnterNewEmail,
+                EmailChangeNewErr::InvalidStage,
+            )
+            .await?;
 
-        let stage = EmailChangeStage::from(&email_change);
-        match stage {
-            EmailChangeStage::EnterNewEmail => (),
-            stage => {
-                return Err(ServerErr::from(EmailChangeNewErr::InvalidStage(format!(
-                    "expected EnterNewEmail, got: {stage:?}"
-                ))));
-            }
-        }
+        let (confirm_token, exp) = app.new_token(&db_user.email).await?;
 
-        let (confirm_token, exp) = app_state.new_token(&db_user.email).await?;
-
-        let result = app_state
+        let result = app
             .db
             .update_email_change_add_new(
                 time,
                 email_change.id.clone(),
                 email.clone(),
-                confirm_token,
+                confirm_token.clone(),
             )
             .await
             .map_err(|err| match err {
@@ -2648,9 +2916,16 @@ pub mod backend {
                 EmailIsTakenErr::DB(_) => ServerErr::DbErr,
             })?;
 
+        let token = result
+            .new
+            .as_ref()
+            .ok_or_else(|| EmailChangeNewErr::InvalidStage(format!("expected NewConfirm")))?;
+        app.send_email_new(token.token_raw.clone());
+
         let stage = EmailChangeStage::from(&result);
+
         Ok(ServerRes::EmailChangeStage {
-            stage,
+            stage: Some(stage),
             new_email: Some(email),
         })
     }
@@ -2889,9 +3164,11 @@ mod tests {
 
     use crate::api::app_state::AppState;
     use crate::api::{
-        Api, ApiTest, EmailChangeStage, EmailToken, ServerErr, ServerGetErr, ServerLoginErr,
-        ServerRegistrationErr, ServerReqImg, ServerRes, encode_token,
+        Api, ApiTest, EmailChangeErr, EmailChangeNewErr, EmailChangeStage, EmailChangeTokenErr,
+        EmailToken, ServerErr, ServerGetErr, ServerLoginErr, ServerRegistrationErr, ServerReqImg,
+        ServerRes, encode_token,
     };
+    use crate::db::{DBUser, EmailIsTakenErr};
     // use crate::db::DBEmailTokenKind;
     use crate::server::create_api_router;
     use tracing_appender::rolling;
@@ -2960,6 +3237,301 @@ mod tests {
 
             token.unwrap()
         }
+
+        pub async fn req_email_change(&self, auth_token: impl AsRef<str>) -> Option<()> {
+            let result = self
+                .api
+                .send_email_change()
+                .send_native_with_token(auth_token.as_ref())
+                .await;
+
+            let matched = result
+                == Ok(ServerRes::EmailChangeStage {
+                    stage: Some(EmailChangeStage::ConfirmEmail),
+                    new_email: None,
+                });
+
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn req_email_change_fail_stage(&self, auth_token: impl AsRef<str>) -> Option<()> {
+            let result = self
+                .api
+                .send_email_change()
+                .send_native_with_token(auth_token.as_ref())
+                .await;
+            let matched = result
+                == Err(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
+                    "email change is already initialized".to_string(),
+                )));
+
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn req_email_new(
+            &self,
+            auth_token: impl AsRef<str>,
+            new_email: impl AsRef<str>,
+        ) -> Option<()> {
+            let result = self
+                .api
+                .send_email_new(new_email.as_ref())
+                .send_native_with_token(auth_token.as_ref())
+                .await;
+
+            let matched = result
+                == Ok(ServerRes::EmailChangeStage {
+                    stage: Some(EmailChangeStage::ConfirmNewEmail),
+                    new_email: Some(new_email.as_ref().to_string()),
+                });
+
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn req_email_new_fail_taken(
+            &self,
+            auth_token: impl AsRef<str>,
+            new_email: impl AsRef<str>,
+        ) -> Option<()> {
+            let result = self
+                .api
+                .send_email_new(new_email.as_ref())
+                .send_native_with_token(auth_token.as_ref())
+                .await;
+
+            let matched = matches!(
+                result,
+                Err(ServerErr::EmailChangeNew(EmailChangeNewErr::EmailIsTaken(
+                    _
+                )))
+            );
+
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn req_email_new_fail_stage(
+            &self,
+            auth_token: impl AsRef<str>,
+            new_email: impl AsRef<str>,
+        ) -> Option<()> {
+            let result = self
+                .api
+                .send_email_new(new_email.as_ref())
+                .send_native_with_token(auth_token.as_ref())
+                .await;
+
+            let matched = matches!(
+                result,
+                Err(ServerErr::EmailChangeNew(EmailChangeNewErr::InvalidStage(
+                    _
+                )))
+            );
+
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn req_email_new_fail_invalid(
+            &self,
+            auth_token: impl AsRef<str>,
+            new_email: impl AsRef<str>,
+        ) -> Option<()> {
+            let result = self
+                .api
+                .send_email_new(new_email.as_ref())
+                .send_native_with_token(auth_token.as_ref())
+                .await;
+
+            let matched = matches!(
+                result,
+                Err(ServerErr::EmailChangeNew(EmailChangeNewErr::TokenInvalid))
+            );
+
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn req_email_change_complete(
+            &self,
+            auth_token: impl AsRef<str>,
+            new_email: impl AsRef<str>,
+        ) -> Option<()> {
+            let result = self
+                .api
+                .change_email()
+                .send_native_with_token(auth_token.as_ref())
+                .await;
+
+            let matched = result
+                == Ok(ServerRes::EmailChangeStage {
+                    stage: Some(EmailChangeStage::Complete),
+                    new_email: Some(new_email.as_ref().to_string()),
+                });
+
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn confirm_email_change(
+            &self,
+            auth_token: impl AsRef<str>,
+            db_user: &DBUser,
+        ) -> Option<()> {
+            let confirm_token = self
+                .state
+                .db
+                .get_email_change(0, db_user.id.clone())
+                .await
+                .unwrap();
+
+            let result = self
+                .api
+                .confirm_email_change(confirm_token.current.token_raw.clone())
+                .send_native_with_token(auth_token.as_ref())
+                .await;
+
+            let matched = result
+                == Ok(ServerRes::EmailChangeStage {
+                    stage: Some(EmailChangeStage::EnterNewEmail),
+                    new_email: None,
+                });
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn confirm_email_change_fail_stage(
+            &self,
+            auth_token: impl AsRef<str>,
+            db_user: &DBUser,
+        ) -> Option<()> {
+            let result = self
+                .api
+                .confirm_email_change("invalid")
+                .send_native_with_token(auth_token.as_ref())
+                .await;
+
+            let matched = matches!(
+                result,
+                Err(ServerErr::EmailChangeToken(
+                    EmailChangeTokenErr::InvalidStage(_)
+                ))
+            );
+
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn confirm_email_change_fail_invalid(
+            &self,
+            auth_token: impl AsRef<str>,
+            db_user: &DBUser,
+        ) -> Option<()> {
+            let confirm_token = self.state.db.get_email_change(0, db_user.id.clone()).await;
+
+            let result = self
+                .api
+                .confirm_email_change(
+                    confirm_token
+                        .map(|v| v.current.token_raw)
+                        .unwrap_or(String::from("invalid")),
+                )
+                .send_native_with_token(auth_token.as_ref())
+                .await;
+
+            let matched = matches!(
+                result,
+                Err(ServerErr::EmailChangeToken(
+                    EmailChangeTokenErr::TokenInvalid
+                ))
+            );
+
+            if matched { Some(()) } else { None }
+        }
+        pub async fn confirm_email_new(
+            &self,
+            auth_token: impl AsRef<str>,
+            db_user: &DBUser,
+            new_email: impl AsRef<str>,
+        ) -> Option<()> {
+            let confirm_token = self
+                .state
+                .db
+                .get_email_change(0, db_user.id.clone())
+                .await
+                .unwrap();
+
+            let result = self
+                .api
+                .confirm_email_new(confirm_token.new.clone().unwrap().token_raw)
+                .send_native_with_token(auth_token.as_ref())
+                .await;
+
+            let matched = result
+                == Ok(ServerRes::EmailChangeStage {
+                    stage: Some(EmailChangeStage::ReadyToComplete),
+                    new_email: Some(new_email.as_ref().to_string()),
+                });
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn confirm_email_new_fail_stage(
+            &self,
+            auth_token: impl AsRef<str>,
+            db_user: &DBUser,
+        ) -> Option<()> {
+            let result = self
+                .api
+                .confirm_email_new("invalid")
+                .send_native_with_token(auth_token.as_ref())
+                .await;
+
+            let matched = matches!(
+                result,
+                Err(ServerErr::EmailChangeToken(
+                    EmailChangeTokenErr::InvalidStage(_)
+                ))
+            );
+
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn confirm_email_new_fail_invalid(
+            &self,
+            auth_token: impl AsRef<str>,
+            db_user: &DBUser,
+        ) -> Option<()> {
+            let result = self
+                .api
+                .confirm_email_new("invalid")
+                .send_native_with_token(auth_token.as_ref())
+                .await;
+
+            let matched = matches!(
+                result,
+                Err(ServerErr::EmailChangeToken(
+                    EmailChangeTokenErr::TokenInvalid
+                ))
+            );
+
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn status_email_change(
+            &self,
+            auth_token: impl AsRef<str>,
+            expected_status: EmailChangeStage,
+        ) -> Option<()> {
+
+            let result = self
+                .api
+                .change_email_status()
+                .send_native_with_token(auth_token.as_ref())
+                .await;
+
+            let matched = matches!(
+                result,
+                Err(ServerErr::EmailChangeToken(
+                    EmailChangeTokenErr::TokenInvalid
+                ))
+            );
+
+            if matched { Some(()) } else { None }
+        }
     }
 
     // async fn register(
@@ -2973,241 +3545,65 @@ mod tests {
     async fn api_email_change_test() {
         let app = ApiTestApp::new().await;
         let auth_token = app.register("hey").await;
-        let user = app.state.db.get_user_by_username("hey").await.unwrap();
+        let auth_token3 = app.register("hey3").await;
+        let db_user = app.state.db.get_user_by_username("hey").await.unwrap();
 
-        let result = app
-            .api
-            .send_email_change()
-            .send_native_with_token(auth_token.clone())
+        app.req_email_new_fail_invalid(&auth_token, "hey3@hey.com")
             .await;
-        assert_eq!(
-            result,
-            Ok(ServerRes::EmailChangeStage {
-                stage: EmailChangeStage::ConfirmEmail,
-                new_email: None
-            })
-        );
-        // assert!(matches!(
-        //     result,
-        //     Ok(ServerRes::EmailChangeStage(EmailChangeStage::ConfirmEmail))
-        // ));
+        app.confirm_email_new_fail_invalid(&auth_token, &db_user)
+            .await;
+        app.confirm_email_change_fail_invalid(&auth_token, &db_user)
+            .await;
 
-        // confirm action
-        {
-            let confirm_token = app
-                .state
-                .db
-                .get_email_change(0, user.id.clone())
-                .await
-                .unwrap();
+        // ###
+        app.req_email_change(&auth_token).await.unwrap();
 
-            let result = app
-                .api
-                .confirm_email_change(confirm_token.current.token_raw.clone())
-                .send_native_with_token(auth_token.clone())
-                .await;
+        app.req_email_new_fail_stage(&auth_token, "hey3@hey.com")
+            .await
+            .unwrap();
 
-            assert_eq!(
-                result,
-                Ok(ServerRes::EmailChangeStage {
-                    stage: EmailChangeStage::EnterNewEmail,
-                    new_email: None
-                })
-            );
-            // match result {
-            //     ServerRes::EmailChangeStage(EmailChangeStage::EnterNewEmail) => (),
-            //     res => panic!("expected EnterNewEmail, received {res:?}"),
-            // }
-        }
+        // ###
+        app.confirm_email_change(&auth_token, &db_user)
+            .await
+            .unwrap();
 
-        // check what happens if you request it again
-        {
-            let result = app
-                .api
-                .send_email_change()
-                .send_native_with_token(auth_token.clone())
-                .await;
-            assert_eq!(
-                result,
-                Ok(ServerRes::EmailChangeStage {
-                    stage: EmailChangeStage::EnterNewEmail,
-                    new_email: None
-                })
-            );
-            // assert!(matches!(
-            //     result,
-            //     Ok(ServerRes::EmailChangeStage(EmailChangeStage::EnterNewEmail))
-            // ));
-        }
+        app.req_email_change_fail_stage(&auth_token).await.unwrap();
+        app.req_email_new_fail_taken(&auth_token, "hey3@hey.com")
+            .await
+            .unwrap();
 
-        // send the new email
-        {
-            let result = app
-                .api
-                .send_email_new("hey2@hey.com")
-                .send_native_with_token(auth_token.clone())
-                .await;
+        // ###
+        app.req_email_new(&auth_token, "hey2@hey.com")
+            .await
+            .unwrap();
 
-            assert_eq!(
-                result,
-                Ok(ServerRes::EmailChangeStage {
-                    stage: EmailChangeStage::ConfirmNewEmail,
-                    new_email: Some("hey2@hey.com".to_string())
-                })
-            );
-            // match result {
-            //     ServerRes::EmailChangeStage(EmailChangeStage::ConfirmNewEmail { .. }) => (),
-            //     res => panic!("expected ReadyToComplete, received {res:?}"),
-            // }
-        }
+        app.confirm_email_new_fail_invalid(&auth_token, &db_user)
+            .await
+            .unwrap();
 
-        // confirm the new email
-        {
-            let confirm_token = app
-                .state
-                .db
-                .get_email_change(0, user.id.clone())
-                .await
-                .unwrap();
+        // ###
+        app.confirm_email_new(&auth_token, &db_user, "hey2@hey.com")
+            .await
+            .unwrap();
 
-            let result = app
-                .api
-                .confirm_email_new(confirm_token.new.clone().unwrap().token_raw)
-                .send_native_with_token(auth_token.clone())
-                .await;
+        app.confirm_email_new_fail_stage(&auth_token, &db_user)
+            .await
+            .unwrap();
 
-            assert_eq!(
-                result,
-                Ok(ServerRes::EmailChangeStage {
-                    stage: EmailChangeStage::ReadyToComplete,
-                    new_email: Some("hey2@hey.com".to_string())
-                })
-            );
-            // match result {
-            //     ServerRes::EmailChangeStage(EmailChangeStage::ReadyToComplete { .. }) => (),
-            //     res => panic!("expected ReadyToComplete, received {res:?}"),
-            // }
-        }
+        // ###
+        app.req_email_change_complete(&auth_token, "hey2@hey.com")
+            .await
+            .unwrap();
 
-        // complete email change
-        {
-            let result = app
-                .api
-                .change_email()
-                .send_native_with_token(auth_token.clone())
-                .await;
-
-            assert_eq!(
-                result,
-                Ok(ServerRes::EmailChangeStage {
-                    stage: EmailChangeStage::Complete,
-                    new_email: Some("hey2@hey.com".to_string())
-                })
-            );
-            // match result {
-            //     ServerRes::EmailChangeStage(EmailChangeStage::Complete) => (),
-            //     res => panic!("expected Complete, received {res:?}"),
-            // }
-        }
-
-        // SEND CONFIRMATION TO CURRENT EMAIL
-        // let result = app
-        //     .api
-        //     .send_email_change()
-        //     .send_native_with_token(auth_token.clone())
-        //     .await
-        //     .unwrap();
-        //
-        // // SEND CONFIRMATION TO NEW EMAIL
-        // {
-        //     let result = app
-        //         .api
-        //         .send_email_new("hey2@hey.com")
-        //         .send_native_with_token(auth_token.clone())
-        //         .await
-        //         .unwrap();
-        //
-        //     match result {
-        //         ServerRes::Ok => (),
-        //         res => panic!("expected Ok, received {res:?}"),
-        //     }
-        // }
-        //
-        // // CONFIRM ACTION
-        // {
-        //     let confirm_token = app
-        //         .state
-        //         .db
-        //         .get_invite_valid(
-        //             0,
-        //             DBEmailTokenKind::RequestConfirmNewEmail,
-        //             "hey2@hey.com",
-        //             0,
-        //         )
-        //         .await
-        //         .unwrap()
-        //         .token_raw;
-        //
-        //     let result = app
-        //         .api
-        //         .confirm_email_change(confirm_token)
-        //         .send_native_with_token(auth_token.clone())
-        //         .await
-        //         .unwrap();
-        //     match result {
-        //         ServerRes::Ok => (),
-        //         res => panic!("expected Ok, received {res:?}"),
-        //     }
-        // }
-
-        // REQUEST NEW EMAIL CONFIRM
-
-        // let result = app.api.ac
-
-        // let result = app.
-
-        // let confirm_token = app
-        //     .state
-        //     .db
-        //     .get_email_confirm(0, DBEmailTokenKind::RequestChangeEmail, "hey@hey.com", 0)
-        //     .await
-        //     .unwrap();
-
-        // get new email confirmation token
-        // and then change email
-        // and check if email input is not empty, maybe add regex validation
-
-        // let result = app
-        //     .api
-        //     .change_email(confirm_token.token_raw.clone(), "hey2@hey.com")
-        //     .send_native_with_token(auth_token)
-        //     .await
-        //     .unwrap();
-        //
-        // let all_users = app.state.db.get_all_user().await.unwrap();
-        // assert_eq!(all_users.len(), 1);
-        //
-        // let user1 = app
-        //     .state
-        //     .db
-        //     .get_user_by_email("hey2@hey.com")
-        //     .await
-        //     .unwrap();
-        // assert_eq!(user1.email, "hey2@hey.com");
-
-        // confirm_token
-
-        // let current_time = Duration::from_nanos(1);
-        // let time_mut = Arc::new(Mutex::new(current_time));
-        // let app_state = AppState::new_testng(time_mut.clone()).await;
-        // let my_app = create_api_router(app_state.clone()).with_state(app_state.clone());
-        //
-        // let server = TestServer::builder()
-        //     .http_transport()
-        //     .build(my_app)
-        //     .unwrap();
-
-        // let api = ApiTest::new(&server);
+        app.confirm_email_change_fail_stage(&auth_token, &db_user)
+            .await
+            .unwrap();
+        app.confirm_email_new_fail_stage(&auth_token, &db_user)
+            .await
+            .unwrap();
+        app.req_email_new_fail_stage(&auth_token, "hey2@hey.com")
+            .await
+            .unwrap();
     }
 
     // #[test(tokio::test)]
