@@ -16,6 +16,7 @@ use crate::view::toolbox::prelude::*;
 
 pub mod components;
 pub mod page;
+pub mod hook;
 
 #[derive(Clone, Copy, Default, Debug)]
 pub struct GlobalState {

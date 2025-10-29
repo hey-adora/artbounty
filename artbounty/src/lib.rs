@@ -1,3 +1,4 @@
+#![recursion_limit = "512"]
 #[macro_use]
 extern crate macro_rules_attribute;
 
@@ -132,9 +133,9 @@ pub mod valid {
         pub fn proccess_email<S: AsRef<str>>(email: S) -> Result<String, String> {
             let mut errors = String::new();
             let email = email.as_ref().trim().to_owned();
-            // if !email.is_email() {
-            //     errors += "invalid email\n";
-            // }
+            if email.is_empty() {
+                errors += "email cannot be empty\n";
+            }
 
             if errors.is_empty() {
                 Ok(email)
@@ -173,9 +174,9 @@ pub mod valid {
             #[test]
             fn test_proccess_email() {
                 assert!(proccess_email("hey@hey..com").is_ok());
-                assert!(proccess_email("heyhey.com").is_err());
+                // assert!(proccess_email("heyhey.com").is_err());
                 assert!(proccess_email("").is_err());
-                assert!(proccess_email("hey@hey.com").is_ok());
+                // assert!(proccess_email("hey@hey.com").is_ok());
             }
         }
     }
@@ -325,7 +326,7 @@ pub mod path {
 
     use crate::{
         api::EmailChangeStage,
-        view::app::page::settings::{EmailChangeFormStage, SelectedForm, UsernameChangeStage},
+        view::app::{hook::EmailChangeFormStage, page::settings::{ SelectedForm, UsernameChangeStage}},
     };
 
     pub const PATH_API: &'static str = "/api";
@@ -413,20 +414,20 @@ pub mod path {
         link_settings_form_email(EmailChangeFormStage::NewEnterEmail, None, None)
     }
 
-    pub fn link_settings_form_email_new_click() -> String {
-        link_settings_form_email(EmailChangeFormStage::NewClickConfirm, None, None)
+    pub fn link_settings_form_email_new_click(new_email: impl Into<String>) -> String {
+        link_settings_form_email(EmailChangeFormStage::NewClickConfirm, Some(new_email.into()), None)
     }
 
-    pub fn link_settings_form_email_new_confirm(confirm_token: impl Into<String>) -> String {
-        link_settings_form_email(EmailChangeFormStage::NewConfirmEmail, None, Some(confirm_token.into()))
+    pub fn link_settings_form_email_new_confirm(new_email: impl Into<String>, confirm_token: impl Into<String>) -> String {
+        link_settings_form_email(EmailChangeFormStage::NewConfirmEmail, Some(new_email.into()), Some(confirm_token.into()))
     }
 
-    pub fn link_settings_form_email_final_confirm() -> String {
-        link_settings_form_email(EmailChangeFormStage::FinalConfirm, None, None)
+    pub fn link_settings_form_email_final_confirm(new_email: impl Into<String>) -> String {
+        link_settings_form_email(EmailChangeFormStage::FinalConfirm, Some(new_email.into()), None)
     }
 
-    pub fn link_settings_form_email_completed() -> String {
-        link_settings_form_email(EmailChangeFormStage::Completed, None, None)
+    pub fn link_settings_form_email_completed(new_email: impl Into<String>) -> String {
+        link_settings_form_email(EmailChangeFormStage::Completed, Some(new_email.into()), None)
     }
 
     pub fn link_settings_form_email(

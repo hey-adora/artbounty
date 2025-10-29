@@ -1,3 +1,4 @@
+#![recursion_limit = "512"]
 use artbounty::server::server;
 use leptos::{logging, prelude::*};
 use tracing::trace;
