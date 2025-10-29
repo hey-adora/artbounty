@@ -249,8 +249,12 @@ pub mod app_state {
             trace!("{link}");
         }
 
-        pub fn send_email_new(&self, confim_token: impl Into<String>) {
-            let link = link_settings_form_email_new_confirm(&confim_token.into());
+        pub fn send_email_new(
+            &self,
+            new_email: impl Into<String>,
+            confim_token: impl Into<String>,
+        ) {
+            let link = link_settings_form_email_new_confirm(new_email.into(), &confim_token.into());
             let link = format!("{}{}", &self.settings.site.address, link,);
             trace!("{link}");
         }
@@ -763,13 +767,19 @@ pub enum EmailChangeStage {
 }
 
 impl EmailChangeStage {
-    pub fn link(&self) -> String {
+    pub fn link(&self, new_email: Option<String>) -> Option<String> {
         match self {
-            EmailChangeStage::ConfirmEmail => link_settings_form_email_current_click(),
-            EmailChangeStage::EnterNewEmail => link_settings_form_email_new_send(),
-            EmailChangeStage::ConfirmNewEmail => link_settings_form_email_new_click(),
-            EmailChangeStage::ReadyToComplete => link_settings_form_email_final_confirm(),
-            EmailChangeStage::Complete => link_settings_form_email_completed(),
+            EmailChangeStage::ConfirmEmail => Some(link_settings_form_email_current_click()),
+            EmailChangeStage::EnterNewEmail => Some(link_settings_form_email_new_send()),
+            EmailChangeStage::ConfirmNewEmail => {
+                new_email.map(|new_email| link_settings_form_email_new_click(new_email))
+            }
+            EmailChangeStage::ReadyToComplete => {
+                new_email.map(|new_email| link_settings_form_email_final_confirm(new_email))
+            }
+            EmailChangeStage::Complete => {
+                new_email.map(|new_email| link_settings_form_email_completed(new_email))
+            }
         }
     }
 }
@@ -2920,7 +2930,7 @@ pub mod backend {
             .new
             .as_ref()
             .ok_or_else(|| EmailChangeNewErr::InvalidStage(format!("expected NewConfirm")))?;
-        app.send_email_new(token.token_raw.clone());
+        app.send_email_new(email.clone(), token.token_raw.clone());
 
         let stage = EmailChangeStage::from(&result);
 
@@ -3516,7 +3526,6 @@ mod tests {
             auth_token: impl AsRef<str>,
             expected_status: EmailChangeStage,
         ) -> Option<()> {
-
             let result = self
                 .api
                 .change_email_status()
