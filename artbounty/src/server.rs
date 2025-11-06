@@ -25,7 +25,10 @@ pub async fn server() {
     };
 
     use crate::{
-        api::{app_state::AppState, clock::get_timestamp},
+        api::{
+            app_state::{self, AppState},
+            clock::get_timestamp,
+        },
         view::{app::App, shell},
     };
 
@@ -55,6 +58,7 @@ pub async fn server() {
         .deflate(true)
         .compress_when(predicate::SizeAbove::new(0));
     let app_state = AppState::new(time).await;
+    let file_path = app_state.get_file_path().await;
 
     let cors = CorsLayer::new()
         // allow `GET` and `POST` when accessing the resource
@@ -73,7 +77,7 @@ pub async fn server() {
     let api_router = create_api_router(app_state.clone()).with_state(app_state.clone());
 
     let app = Router::new()
-        .nest_service("/file", ServeDir::new(&app_state.settings.site.files_path))
+        .nest_service("/file", ServeDir::new(&file_path))
         .merge(leptos_router)
         .merge(api_router)
         .layer(cors)
@@ -101,7 +105,13 @@ pub fn create_api_router(
     use crate::{
         api::{self, backend::auth_middleware},
         path::{
-            PATH_API_CHANGE_EMAIL, PATH_API_CHANGE_EMAIL_STATUS, PATH_API_CHANGE_USERNAME, PATH_API_CONFIRM_EMAIL_CHANGE, PATH_API_CONFIRM_EMAIL_NEW, PATH_API_POST_GET, PATH_API_POST_GET_NEWER, PATH_API_POST_GET_NEWER_OR_EQUAL, PATH_API_POST_GET_OLDER_OR_EQUAL, PATH_API_SEND_EMAIL_CHANGE, PATH_API_SEND_EMAIL_NEW, PATH_API_USER_POST_GET_NEWER, PATH_API_USER_POST_GET_NEWER_OR_EQUAL, PATH_API_USER_POST_GET_OLDER, PATH_API_USER_POST_GET_OLDER_OR_EQUAL
+            PATH_API_CHANGE_EMAIL, PATH_API_CHANGE_EMAIL_STATUS, PATH_API_CHANGE_USERNAME,
+            PATH_API_CONFIRM_EMAIL_CHANGE, PATH_API_CONFIRM_EMAIL_NEW, PATH_API_POST_GET,
+            PATH_API_POST_GET_NEWER, PATH_API_POST_GET_NEWER_OR_EQUAL,
+            PATH_API_POST_GET_OLDER_OR_EQUAL, PATH_API_RESEND_EMAIL_CHANGE,
+            PATH_API_RESEND_EMAIL_NEW, PATH_API_SEND_EMAIL_CHANGE, PATH_API_SEND_EMAIL_NEW,
+            PATH_API_USER_POST_GET_NEWER, PATH_API_USER_POST_GET_NEWER_OR_EQUAL,
+            PATH_API_USER_POST_GET_OLDER, PATH_API_USER_POST_GET_OLDER_OR_EQUAL,
         },
     };
 
@@ -152,13 +162,24 @@ pub fn create_api_router(
             PATH_API_CHANGE_USERNAME,
             post(api::backend::change_username),
         )
+        .route(PATH_API_CHANGE_EMAIL, post(api::backend::change_email))
         .route(
-            PATH_API_CHANGE_EMAIL,
-            post(api::backend::change_email),
+            PATH_API_RESEND_EMAIL_CHANGE,
+            post(api::backend::resend_email_change),
         )
-        .route(PATH_API_SEND_EMAIL_CHANGE, post(api::backend::send_email_change))
-        .route(PATH_API_CHANGE_EMAIL_STATUS, post(api::backend::status_email_change))
+        .route(
+            PATH_API_RESEND_EMAIL_NEW,
+            post(api::backend::resend_email_new),
+        )
+        .route(
+            PATH_API_SEND_EMAIL_CHANGE,
+            post(api::backend::send_email_change),
+        )
         .route(PATH_API_SEND_EMAIL_NEW, post(api::backend::send_email_new))
+        .route(
+            PATH_API_CHANGE_EMAIL_STATUS,
+            post(api::backend::status_email_change),
+        )
         // .route(PATH_API_CHANGE_EMAIL, post(api::backend::change_email))
         .route(
             PATH_API_CONFIRM_EMAIL_CHANGE,
