@@ -8,7 +8,7 @@ use tracing::info;
 
 use crate::api::Api;
 use crate::api::ApiWeb;
-use crate::api::ApiWebpTmp;
+use crate::api::ApiWebTmp;
 use crate::api::ServerErr;
 use crate::api::ServerRes;
 use crate::path::link_user;
@@ -59,14 +59,14 @@ impl GlobalState {
     }
     pub fn update_auth(&self) {
         let this = self.clone();
-        ApiWebpTmp::new()
+        ApiWebTmp::new()
             .profile()
             .send_web(move |result| async move {
                 this.set_auth_from_res(result);
             });
     }
     pub async fn update_auth_now(&self) -> Result<ServerRes, ServerErr> {
-        let result = ApiWebpTmp::new().profile().send_native().await;
+        let result = ApiWebTmp::new().profile().send_native().await;
         self.set_auth_from_res(result.clone());
         result
     }
@@ -103,7 +103,7 @@ impl GlobalState {
         self.acc_pending.get()
     }
     pub fn logout(&self) {
-        let api = ApiWebpTmp::new();
+        let api = ApiWebTmp::new();
         let acc = self.acc;
         api.logout().send_web(move |result| async move {
             match result {

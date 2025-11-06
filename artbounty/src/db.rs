@@ -218,6 +218,33 @@ pub struct DBInvite {
 }
 
 #[derive(Save!)]
+pub struct DBSentEmail {
+    pub id: RecordId,
+    pub body: String,
+    pub to_email: String,
+    pub reason: String,
+    pub modified_at: u128,
+    pub created_at: u128,
+}
+
+#[derive(Clone)]
+pub enum DBSentEmailReason {
+    ConfirmEmailChange,
+    ConfirmEmailChangeNewEmail,
+}
+
+impl Display for DBSentEmailReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text = match self {
+            DBSentEmailReason::ConfirmEmailChange => "confirm_email_change",
+            DBSentEmailReason::ConfirmEmailChangeNewEmail => "confirm_email_change_new_email",
+        };
+
+        write!(f, "{}", text)
+    }
+}
+
+#[derive(Save!)]
 pub struct DBEmailChange {
     pub id: RecordId,
     pub user: DBUser,
@@ -418,6 +445,13 @@ impl<C: Connection> Db<C> {
                             DEFINE FIELD modified_at ON TABLE stat TYPE number;
                             DEFINE FIELD created_at ON TABLE stat TYPE number;
                             DEFINE INDEX idx_stat_country ON TABLE stat COLUMNS country UNIQUE;
+                            -- sent_email 
+                            DEFINE TABLE sent_email SCHEMAFULL;
+                            DEFINE FIELD body ON TABLE sent_email TYPE string;
+                            DEFINE FIELD to_email ON TABLE sent_email TYPE string;
+                            DEFINE FIELD reason ON TABLE sent_email TYPE string;
+                            DEFINE FIELD modified_at ON TABLE sent_email TYPE number;
+                            DEFINE FIELD created_at ON TABLE sent_email TYPE number;
                             -- invite 
                             DEFINE TABLE invite SCHEMAFULL;
                             DEFINE FIELD token_raw ON TABLE invite TYPE string;
@@ -689,6 +723,65 @@ impl<C: Connection> Db<C> {
     // new.token_expires >= $time
     // ))
     // ORDER BY created_at DESC;
+    pub async fn add_sent_email(
+        &self,
+        time: u128,
+        body: impl Into<String>,
+        to_email: impl Into<String>,
+        reason: DBSentEmailReason,
+    ) -> Result<DBSentEmail, surrealdb::Error> {
+        self.db
+            .query(
+                r#"
+               CREATE sent_email SET
+                   body = $body,
+                   to_email = $to_email,
+                   reason = $reason,
+                   modified_at = $time,
+                   created_at = $time;
+            "#,
+            )
+            .bind(("body", body.into()))
+            .bind(("to_email", to_email.into()))
+            .bind(("reason", reason.to_string()))
+            .bind(("time", time))
+            .await
+            .check_good(surrealdb::Error::from)
+            .and_then_take_expect(0)
+    }
+
+    pub async fn get_sent_email_by_email(
+        &self,
+        to_email: impl Into<String>,
+    ) -> Result<Vec<DBSentEmail>, surrealdb::Error> {
+        self.db
+            .query(
+                r#"
+                SELECT * FROM sent_email WHERE to_email = $to_email ORDER BY created_at DESC;
+            "#,
+            )
+            .bind(("to_email", to_email.into()))
+            .await
+            .check_good(surrealdb::Error::from)
+            .and_then_take_all(0)
+    }
+
+    pub async fn get_sent_email_by_email_latest(
+        &self,
+        to_email: impl Into<String>,
+    ) -> Result<DBSentEmail, DB404Err> {
+        self.db
+            .query(
+                r#"
+                SELECT * FROM ONLY sent_email WHERE to_email = $to_email ORDER BY created_at DESC LIMIT 1;
+            "#,
+            )
+            .bind(("to_email", to_email.into()))
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_or(0, DB404Err::NotFound)
+    }
+
     pub async fn add_email_change(
         &self,
         time: u128,
@@ -890,7 +983,9 @@ impl<C: Connection> Db<C> {
             .bind(("time", time))
             .await
             .check_good(|err| match err {
-                err if err.field_value_null("new.email") => EmailIsTakenErr::EmailIsTaken(new_email),
+                err if err.field_value_null("new.email") => {
+                    EmailIsTakenErr::EmailIsTaken(new_email)
+                }
                 err => err.into(),
             })
             .and_then_take_expect(1)
@@ -1202,9 +1297,45 @@ mod tests {
         api::ChangeUsernameErr,
         db::{
             AddSessionErr, AddUserErr, DB404Err, DBChangeEmailErr, DBChangeUsernameErr,
-            DBUserPostFile, Db, EmailIsTakenErr,
+            DBSentEmailReason, DBUserPostFile, Db, EmailIsTakenErr,
         },
     };
+    #[test(tokio::test)]
+    async fn db_sent_email() {
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate(0).await.unwrap();
+
+        let sent_email = db
+            .add_sent_email(
+                0,
+                "wowza",
+                "prime@heyadora.com",
+                DBSentEmailReason::ConfirmEmailChangeNewEmail,
+            )
+            .await
+            .unwrap();
+        assert_eq!(sent_email.body, "wowza");
+
+        let sent_email = db
+            .add_sent_email(
+                1,
+                "wowza2",
+                "prime@heyadora.com",
+                DBSentEmailReason::ConfirmEmailChangeNewEmail,
+            )
+            .await
+            .unwrap();
+        assert_eq!(sent_email.body, "wowza2");
+
+        let all_emails = db
+            .get_sent_email_by_email("prime@heyadora.com")
+            .await
+            .unwrap();
+        assert_eq!(all_emails[0].body, "wowza2");
+
+        let latest_email = db.get_sent_email_by_email_latest("prime@heyadora.com").await.unwrap();
+        assert_eq!(latest_email.body, "wowza2");
+    }
 
     #[test(tokio::test)]
     async fn db_post() {
@@ -1451,8 +1582,7 @@ mod tests {
             let email_change = db.get_email_change(0, user.id.clone()).await.unwrap();
             let result = db
                 .update_email_change_add_new(0, email_change.id.clone(), "hey3@hey.com", "token2")
-                .await
-                ;
+                .await;
             assert!(matches!(result, Err(EmailIsTakenErr::EmailIsTaken(_))));
         }
 

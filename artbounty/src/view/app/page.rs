@@ -15,7 +15,6 @@ pub mod post {
         pub post: Option<String>,
     }
 
-
     #[component]
     pub fn Page() -> impl IntoView {
         let main_ref = NodeRef::new();
@@ -405,9 +404,8 @@ pub mod settings {
         // let change_email_new_email = RwSignal::new(String::from("new email"));
         // let change_email_step_err = RwSignal::new(String::new());
 
-
         let change_email = use_change_email(api, change_email_new_email_input);
-        let change_email_errors = change_email.errors;
+        let change_email_errors = change_email.get_stage_error();
         let change_email_new = change_email.get_email();
         let change_email_form_stage = change_email.get_form_stage();
         let change_email_btn_stage = change_email.get_btn_stage();
@@ -490,7 +488,7 @@ pub mod settings {
             };
 
             view! {
-                <span class=style>{text}</span>
+                <span class=style>"["{text}"] "</span>
             }
         };
 
@@ -498,7 +496,7 @@ pub mod settings {
             view! {
                 <div class=move || format!("text-[1rem] text-base08 {}", if change_email_form_stage() == stage { "visible" } else {"hidden"} )>
                     <ul class="list-disc ml-[1rem]">
-                        {move || change_email_errors.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                        {move || change_email_errors().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                     </ul>
                 </div>
             }
@@ -525,7 +523,7 @@ pub mod settings {
                         <label for="current_email" class="text-[1.2rem] ">"Email"</label>
                         <div class="flex">
                             <input value=move || global_state.get_email_tracked() id="current_email" name="current_email" disabled type="text" class="bg-base01 text-base0B w-full pl-2 " />
-                            <a href=link_settings_form_email(EmailChangeFormStage::CurrentSendConfirm, None, None) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
+                            <a href=link_settings_form_email(EmailChangeFormStage::CurrentSendConfirm, None, None, None) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
                         </div>
                     </form>
 
@@ -599,43 +597,51 @@ pub mod settings {
                     <div class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full gap-[2rem] py-[2rem] border-0 border-base05 bg-base01">
                         <h2 class="text-[1.5rem] text-base0F text-center ">"Email Change"</h2>
                         <ol class="text-[1.2rem] list-decimal grid gap-2">
-                            <li>"Send confirmation email to "
-                                <span class="text-base0E">{move || format!("{}. ", get_current_email_or_default())}</span>
+                            <li>
                                 {move || view_current_stage_label(EmailChangeFormStage::CurrentSendConfirm) }
+                                "Send confirmation email to "
+                                <span class="text-base0E">{move || format!("{}.", get_current_email_or_default())}</span>
                                 {move || view_stage_errors(EmailChangeFormStage::CurrentSendConfirm)}
                             </li>
-                            <li>"Click on confirmation link that was sent to "
-                                <span class="text-base0E">{move || format!("{}. ", get_current_email_or_default())}</span>
+                            <li>
                                 {move || view_current_stage_label(EmailChangeFormStage::CurrentClickConfirm) }
+                                "Click on confirmation link that was sent to "
+                                <span class="text-base0E">{move || format!("{}.", get_current_email_or_default())}</span>
                                 {move || view_stage_errors(EmailChangeFormStage::CurrentClickConfirm)}
                             </li>
-                            <li>"Confirm email change? "
+                            <li>
                                 {move || view_current_stage_label(EmailChangeFormStage::CurrentConfirm) }
+                                "Confirm email change?"
                                 {move || view_stage_errors(EmailChangeFormStage::CurrentConfirm)}
                             </li>
-                            <li>"Enter new email. "
+                            <li>
                                 {move || view_current_stage_label(EmailChangeFormStage::NewEnterEmail) }
+                                "Enter new email."
                                 <div class=move || format!(" {}", if change_email_form_stage() >= EmailChangeFormStage::NewEnterEmail { "visible" } else {"hidden"} )>
                                     <input node_ref=change_email_new_email_input disabled=email_change_input_disabled value=move||change_email_new() placeholder="email@example.com" class="bg-base02 mt-2 pl-2" type="email" />
                                 </div>
                                 {move || view_stage_errors(EmailChangeFormStage::NewEnterEmail)}
                             </li>
-                            <li>"Click on confirmation link that was sent to "
-                                <span class="text-base0E">{move || format!("{}. ", change_email_new())}</span>
+                            <li>
                                 {move || view_current_stage_label(EmailChangeFormStage::NewClickConfirm) }
+                                "Click on confirmation link that was sent to "
+                                <span class="text-base0E">{move || format!("{}. ", change_email_new())}</span>
                                 {move || view_stage_errors(EmailChangeFormStage::NewClickConfirm)}
                             </li>
-                            <li>"Confirm the new email? "
+                            <li>
                                 {move || view_current_stage_label(EmailChangeFormStage::NewConfirmEmail) }
+                                "Confirm the new email?"
                                 {move || view_stage_errors(EmailChangeFormStage::NewConfirmEmail)}
                             </li>
-                            <li>"Final confirm. "
-                                <span class="text-base0E">{move || format!("from {} to {}.", get_current_email_or_default(), change_email_new())}</span>
+                            <li>
                                 {move || view_current_stage_label(EmailChangeFormStage::FinalConfirm) }
+                                "Final confirm."
+                                <span class="text-base0E">{move || format!("from {} to {}.", get_current_email_or_default(), change_email_new())}</span>
                             </li>
                             <li>
-                                <div>"Finish. "
+                                <div>
                                     {move || view_current_stage_label(EmailChangeFormStage::Completed) }
+                                    "Finish."
                                 </div>
                                 <div class=move || format!("text-[1rem] text-base09 {}", if change_email_form_stage() >= EmailChangeFormStage::Completed { "visible" } else {"hidden"} )>
                                     <span class="text-base0E">{move || format!("Email changed from {} to {}.", get_current_email_or_default(), change_email_new())}</span>

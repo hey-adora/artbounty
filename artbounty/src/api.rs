@@ -22,24 +22,24 @@ pub mod app_state {
 
     use rand::distr::{Alphanumeric, SampleString};
     use surrealdb::RecordId;
-    use tokio::sync::Mutex;
+    use tokio::sync::{Mutex, RwLock};
     use tracing::trace;
 
     use crate::{
         api::{
             EmailChangeNewErr, EmailChangeStage, EmailToken, ServerErr, ServerTokenErr,
-            clock::{Clock, get_timestamp},
+            clock::{Clock, get_nanos, get_timestamp},
             encode_token,
             settings::Settings,
         },
-        db::{self, DB404Err, DBEmailChange, DBUser, DbEngine},
+        db::{self, DB404Err, DBEmailChange, DBSentEmailReason, DBUser, DbEngine},
         path::{link_settings_form_email_current_confirm, link_settings_form_email_new_confirm},
     };
 
     #[derive(Clone)]
     pub struct AppState {
         pub db: DbEngine,
-        pub settings: Settings,
+        pub settings: Arc<RwLock<Settings>>,
         pub clock: Clock,
     }
 
@@ -47,19 +47,19 @@ pub mod app_state {
         pub async fn new(time: u128) -> Self {
             let settings = Settings::new_from_file();
             let db = db::new_local(time, &settings.db.path).await;
-            let f = move || async move { get_timestamp() };
+            let f = move || async move { get_nanos() };
             let clock = Clock::new(f);
 
             Self {
                 db,
-                settings,
+                settings: Arc::new(RwLock::new(settings)),
                 clock,
             }
         }
 
-        pub async fn new_testng(time: Arc<Mutex<Duration>>) -> Self {
-            let db = db::new_mem(time.lock().await.as_nanos()).await;
-            let settings = Settings::new_testing();
+        pub async fn new_testng(time: Arc<Mutex<u128>>, invite_exp_ns: u128) -> Self {
+            let db = db::new_mem(*time.lock().await).await;
+            let settings = Settings::new_testing(invite_exp_ns);
             let f = move || {
                 let time = time.clone();
                 async move {
@@ -71,28 +71,47 @@ pub mod app_state {
 
             Self {
                 db,
-                settings,
+                settings: Arc::new(RwLock::new(settings)),
                 clock,
             }
+        }
+
+        pub async fn get_address(&self) -> String {
+            self.settings.read().await.site.address.clone()
+        }
+
+        pub async fn get_invite_exp_ns(&self) -> u128 {
+            self.settings.read().await.auth.invite_exp_ns.into()
+        }
+
+        pub async fn set_invite_exp_ns(&self, duration_ns: u128) {
+            self.settings.write().await.auth.invite_exp_ns = duration_ns as u64;
+        }
+
+        pub async fn get_secret(&self) -> String {
+            self.settings.read().await.auth.secret.clone()
+        }
+
+        pub async fn get_file_path(&self) -> String {
+            self.settings.read().await.site.files_path.clone()
+        }
+
+        pub async fn time(&self) -> u128 {
+            self.clock.now().await
         }
 
         pub async fn new_token(
             &self,
             email: impl Into<String>,
         ) -> Result<(String, u128), ServerErr> {
-            let app_state = self;
-            let time = app_state.clock.now().await;
-            let exp = time + Duration::from_secs(app_state.settings.auth.invite_exp_s);
+            let time = self.time().await;
+            let exp = time + self.get_invite_exp_ns().await;
             let key = self.gen_key().await;
-            let confirm_token = EmailToken::new(key, email.into(), time.as_nanos());
-            let confirm_token = encode_token(&app_state.settings.auth.secret, confirm_token)
+            let confirm_token = EmailToken::new(key, email.into(), time);
+            let confirm_token = encode_token(self.get_secret().await, confirm_token)
                 .map_err(|_| ServerErr::from(ServerTokenErr::ServerJWT))?;
 
-            Ok((confirm_token, exp.as_nanos()))
-        }
-
-        pub async fn time(&self) -> u128 {
-            self.clock.now().await.as_nanos()
+            Ok((confirm_token, exp))
         }
 
         pub async fn gen_key(&self) -> String {
@@ -243,20 +262,50 @@ pub mod app_state {
                 .map_err(|_| ServerErr::DbErr)
         }
 
-        pub fn send_email_change(&self, confim_token: impl Into<String>) {
-            let link = link_settings_form_email_current_confirm(confim_token.into());
-            let link = format!("{}{}", &self.settings.site.address, link,);
+        pub async fn send_email_change(
+            &self,
+            time: u128,
+            to_email: impl Into<String>,
+            confim_token: impl Into<String>,
+        ) -> Result<(), ServerErr> {
+            let link = link_settings_form_email_current_confirm(confim_token.into(), None);
+            let link = format!("{}{}", &self.get_address().await, link);
+            self.db
+                .add_sent_email(
+                    time,
+                    link.clone(),
+                    to_email.into(),
+                    DBSentEmailReason::ConfirmEmailChange,
+                )
+                .await
+                .map_err(|_| ServerErr::DbErr)?;
             trace!("{link}");
+
+            Ok(())
         }
 
-        pub fn send_email_new(
+        pub async fn send_email_new(
             &self,
-            new_email: impl Into<String>,
+            time: u128,
+            to_email: impl Into<String>,
             confim_token: impl Into<String>,
-        ) {
-            let link = link_settings_form_email_new_confirm(new_email.into(), &confim_token.into());
-            let link = format!("{}{}", &self.settings.site.address, link,);
+        ) -> Result<(), ServerErr> {
+            let to_email = to_email.into();
+            let link =
+                link_settings_form_email_new_confirm(to_email.clone(), &confim_token.into(), None);
+            let link = format!("{}{}", &self.get_address().await, link,);
+            self.db
+                .add_sent_email(
+                    time,
+                    link.clone(),
+                    to_email,
+                    DBSentEmailReason::ConfirmEmailChangeNewEmail,
+                )
+                .await
+                .map_err(|_| ServerErr::DbErr)?;
             trace!("{link}");
+
+            Ok(())
         }
     }
 }
@@ -275,7 +324,7 @@ pub mod settings {
     #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
     pub struct Auth {
         pub secret: String,
-        pub invite_exp_s: u64,
+        pub invite_exp_ns: u64,
     }
 
     #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -299,7 +348,7 @@ pub mod settings {
                 .unwrap()
         }
 
-        pub fn new_testing() -> Self {
+        pub fn new_testing(invite_exp_ns: u128) -> Self {
             Self {
                 site: Site {
                     address: "http://localhost:3000".to_string(),
@@ -307,7 +356,7 @@ pub mod settings {
                 },
                 auth: Auth {
                     secret: "secret".to_string(),
-                    invite_exp_s: 1,
+                    invite_exp_ns: invite_exp_ns as u64,
                 },
                 db: Db {
                     path: "memory".to_string(),
@@ -324,7 +373,7 @@ pub mod clock {
     #[derive(Clone)]
     pub struct Clock {
         ticker: Arc<
-            dyn Fn() -> Pin<Box<dyn Future<Output = Duration> + Sync + Send + 'static>>
+            dyn Fn() -> Pin<Box<dyn Future<Output = u128> + Sync + Send + 'static>>
                 + Sync
                 + Send
                 + 'static,
@@ -334,13 +383,13 @@ pub mod clock {
     impl Clock {
         pub fn new<
             F: Fn() -> Fut + Send + Sync + Clone + 'static,
-            Fut: Future<Output = Duration> + Send + Sync + 'static,
+            Fut: Future<Output = u128> + Send + Sync + 'static,
         >(
             ticker: F,
         ) -> Self {
             let fut = Arc::new(move || {
                 let ticker = (ticker.clone())();
-                let f: Pin<Box<dyn Future<Output = Duration> + Sync + Send + 'static>> =
+                let f: Pin<Box<dyn Future<Output = u128> + Sync + Send + 'static>> =
                     Box::pin(ticker);
                 f
             });
@@ -348,12 +397,16 @@ pub mod clock {
             Self { ticker: fut }
         }
 
-        pub async fn now(&self) -> Duration {
+        pub async fn now(&self) -> u128 {
             let mut fut = (self.ticker)();
             let fut = fut.as_mut();
             let duration = fut.await;
             duration
         }
+
+        // pub async fn set(&self, time: u128) {
+        //
+        // }
     }
 
     #[cfg(feature = "ssr")]
@@ -767,19 +820,25 @@ pub enum EmailChangeStage {
 }
 
 impl EmailChangeStage {
-    pub fn link(&self, new_email: Option<String>) -> Option<String> {
+    pub fn link(
+        &self,
+        new_email: Option<String>,
+        stage_error: Option<String>,
+    ) -> Result<String, String> {
         match self {
-            EmailChangeStage::ConfirmEmail => Some(link_settings_form_email_current_click()),
-            EmailChangeStage::EnterNewEmail => Some(link_settings_form_email_new_send()),
-            EmailChangeStage::ConfirmNewEmail => {
-                new_email.map(|new_email| link_settings_form_email_new_click(new_email))
+            EmailChangeStage::ConfirmEmail => {
+                Ok(link_settings_form_email_current_click(stage_error))
             }
-            EmailChangeStage::ReadyToComplete => {
-                new_email.map(|new_email| link_settings_form_email_final_confirm(new_email))
-            }
-            EmailChangeStage::Complete => {
-                new_email.map(|new_email| link_settings_form_email_completed(new_email))
-            }
+            EmailChangeStage::EnterNewEmail => Ok(link_settings_form_email_new_send(stage_error)),
+            EmailChangeStage::ConfirmNewEmail => new_email
+                .map(|new_email| link_settings_form_email_new_click(new_email, stage_error))
+                .ok_or("missing email for ConfirmNewEmail".to_string()),
+            EmailChangeStage::ReadyToComplete => new_email
+                .map(|new_email| link_settings_form_email_final_confirm(new_email, stage_error))
+                .ok_or("missing email for ReadyToComplete".to_string()),
+            EmailChangeStage::Complete => new_email
+                .map(|new_email| link_settings_form_email_completed(new_email, stage_error))
+                .ok_or("missing email for Complete".to_string()),
         }
     }
 }
@@ -1371,6 +1430,14 @@ pub trait Api {
         }
     }
 
+    fn resend_email_change(&self) -> ApiReq {
+        self.into_req(crate::path::PATH_API_RESEND_EMAIL_CHANGE, ServerReq::None)
+    }
+
+    fn resend_email_new(&self) -> ApiReq {
+        self.into_req(crate::path::PATH_API_RESEND_EMAIL_NEW, ServerReq::None)
+    }
+
     fn send_email_change(&self) -> ApiReq {
         self.into_req(crate::path::PATH_API_SEND_EMAIL_CHANGE, ServerReq::None)
     }
@@ -1543,9 +1610,9 @@ impl Api for ApiTest {
 }
 
 #[derive(Clone, Copy, Default)]
-pub struct ApiWebpTmp {}
+pub struct ApiWebTmp {}
 
-impl Api for ApiWebpTmp {
+impl Api for ApiWebTmp {
     fn provide_builder(&self, path: impl AsRef<str>) -> RequestBuilder {
         let origin = location().origin().unwrap();
         let path = path.as_ref();
@@ -1554,7 +1621,7 @@ impl Api for ApiWebpTmp {
     }
 }
 
-impl ApiWebpTmp {
+impl ApiWebTmp {
     pub fn new() -> Self {
         Self::default()
     }
@@ -1861,6 +1928,8 @@ pub mod backend {
     use tokio::fs;
     use tracing::{debug, error, info, trace};
 
+    // auth
+
     pub async fn register(
         State(app_state): State<AppState>,
         req: ServerReq,
@@ -1876,8 +1945,8 @@ pub mod backend {
             ))
             .into());
         };
-        let time = app_state.clock.now().await;
-        let time_ns = time.as_nanos();
+        let time_ns = app_state.clock.now().await;
+        let secret = app_state.get_secret().await;
 
         let invite_token_decoded = app_state
             .db
@@ -1886,7 +1955,6 @@ pub mod backend {
                 &invite_token,
             )
             .await
-            .inspect_err(|err| error!("failed to run use_invite {err}"))
             .map_err(|err| match err {
                 DB404Err::DB(_) => ServerErr::DbErr,
                 DB404Err::NotFound => ServerRegistrationErr::TokenNotFound.into(),
@@ -1898,9 +1966,10 @@ pub mod backend {
                 if invite.used {
                     return Err(ServerRegistrationErr::TokenUsed.into());
                 }
-                decode_token::<EmailToken>(&app_state.settings.auth.secret, &invite_token, false)
+                decode_token::<EmailToken>(&secret, &invite_token, false)
                     .map_err(|err| ServerRegistrationErr::ServerJWT(err.to_string()).into())
-            })?;
+            })
+            .inspect_err(|err| error!("failed to run use_invite {err}"))?;
 
         let email = invite_token_decoded.claims.email;
         let username = proccess_username(username);
@@ -1943,17 +2012,14 @@ pub mod backend {
 
         let result = app_state
             .db
-            .update_invite_used(time.as_nanos(), &invite_token)
+            .update_invite_used(time_ns, &invite_token)
             .await
             .inspect_err(|err| error!("failed to run use_invite {err}"))
             .map_err(|err| ServerErr::DbErr)?;
 
-        let token = encode_token(
-            &app_state.settings.auth.secret,
-            AuthToken::new(username, time.as_nanos()),
-        )
-        .inspect_err(|err| error!("jwt exploded {err}"))
-        .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
+        let token = encode_token(&secret, AuthToken::new(username, time_ns))
+            .inspect_err(|err| error!("jwt exploded {err}"))
+            .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
 
         // let (token, cookie) = create_cookie(&app_state.settings.auth.secret, &user.username, time)
         //     .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
@@ -1968,7 +2034,7 @@ pub mod backend {
     }
 
     pub async fn login(
-        State(app_state): State<AppState>,
+        State(app): State<AppState>,
         req: ServerReq,
     ) -> Result<ServerRes, ServerErr> {
         let ServerReq::Login { email, password } = req else {
@@ -1977,9 +2043,11 @@ pub mod backend {
             ))
             .into());
         };
-        let time = app_state.clock.now().await;
-        let time_ns = time.as_nanos();
-        let user = app_state
+        let time = app.clock.now().await;
+        let time_ns = time;
+        let secret = app.get_secret().await;
+
+        let user = app
             .db
             .get_user_by_email(email)
             .await
@@ -1990,18 +2058,15 @@ pub mod backend {
             .inspect_err(|err| trace!("passwords verification failed {err}"))
             .map_err(|_| ServerErr::LoginErr(ServerLoginErr::WrongCredentials))?;
 
-        let token = encode_token(
-            &app_state.settings.auth.secret,
-            AuthToken::new(&user.username, time.as_nanos()),
-        )
-        .inspect_err(|err| error!("jwt exploded {err}"))
-        .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
+        let token = encode_token(&secret, AuthToken::new(&user.username, time))
+            .inspect_err(|err| error!("jwt exploded {err}"))
+            .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
         // let (token, cookie) = create_cookie(&app_state.settings.auth.secret, &user.username, time)
         //     .map_err(|err| {
         //         ServerErr::ServerLoginErr(ServerLoginErr::ServerCreateCookieErr(err.to_string()))
         //     })?;
 
-        let _session = app_state
+        let _session = app
             .db
             .add_session(time_ns, token.clone(), &user.username)
             .await
@@ -2059,7 +2124,7 @@ pub mod backend {
     }
 
     pub async fn decode_email_token(
-        State(app_state): State<AppState>,
+        State(app): State<AppState>,
         req: ServerReq,
     ) -> Result<ServerRes, ServerErr> {
         let ServerReq::ConfirmToken { token } = req else {
@@ -2067,12 +2132,15 @@ pub mod backend {
                 "expected Register, received: {req:?}"
             ))));
         };
+        let secret = app.get_secret().await;
 
-        let token = decode_token::<EmailToken>(&app_state.settings.auth.secret, token, false)
+        let token = decode_token::<EmailToken>(&secret, token, false)
             .map_err(|err| ServerDecodeInviteErr::JWT(err.to_string()))?;
 
         Ok(ServerRes::InviteToken(token.claims))
     }
+
+    //
 
     pub async fn get_user(
         State(app_state): State<AppState>,
@@ -2120,7 +2188,7 @@ pub mod backend {
                 "expected ChangeUsername, received: {req:?}"
             ))));
         };
-        let time = app.clock.now().await.as_nanos();
+        let time = app.clock.now().await;
 
         let (email_change, stage) = app
             .get_email_change_status_compare(
@@ -2170,7 +2238,7 @@ pub mod backend {
                 "expected ChangeUsername, received: {req:?}"
             ))));
         };
-        let time = app_state.clock.now().await.as_nanos();
+        let time = app_state.clock.now().await;
         debug!("step 1");
 
         verify_password(password, db_user.password.clone())
@@ -2458,7 +2526,7 @@ pub mod backend {
     }
 
     pub async fn add_post(
-        State(app_state): State<AppState>,
+        State(app): State<AppState>,
         auth_token: axum::Extension<AuthToken>,
         req: ServerReq,
     ) -> Result<ServerRes, ServerErr> {
@@ -2473,7 +2541,8 @@ pub mod backend {
             ))
             .into());
         };
-        let time = app_state.clock.now().await;
+        let time = app.clock.now().await;
+        let file_path = app.get_file_path().await;
 
         let title = proccess_post_title(title)
             .map_err(|err| ServerAddPostErr::InvalidTitle(err.to_string()))?;
@@ -2575,7 +2644,7 @@ pub mod backend {
             return Err(ServerAddPostErr::ServerImgErr(errs).into());
         }
 
-        let root_path = Path::new(&app_state.settings.site.files_path);
+        let root_path = Path::new(&file_path);
         let mut output_imgs = Vec::<UserPostFile>::new();
         for file in &files {
             let file_path = root_path.join(format!("{}.{}", &file.0.hash, &file.0.extension));
@@ -2615,10 +2684,10 @@ pub mod backend {
             .into_iter()
             .map(|v| v.0)
             .collect::<Vec<DBUserPostFile>>();
-        let post = app_state
+        let post = app
             .db
             .add_post(
-                time.as_nanos(),
+                time,
                 &auth_token.username,
                 &title,
                 &description,
@@ -2632,6 +2701,8 @@ pub mod backend {
         Ok(ServerRes::Post(post.into()))
     }
 
+    // email change
+
     pub async fn confirm_email_change(
         State(app_state): State<AppState>,
         auth_token: Extension<AuthToken>,
@@ -2643,7 +2714,7 @@ pub mod backend {
                 "expected ConfirmKind, received: {req:?}"
             ))));
         };
-        let time = app_state.clock.now().await.as_nanos();
+        let time = app_state.clock.now().await;
 
         let (email_change, stage) = app_state
             .get_email_change_status_compare(
@@ -2684,7 +2755,7 @@ pub mod backend {
                 "expected ConfirmKind, received: {req:?}"
             ))));
         };
-        let time = app.clock.now().await.as_nanos();
+        let time = app.clock.now().await;
         trace!("time {}", time);
 
         let (email_change, stage) = app
@@ -2763,11 +2834,16 @@ pub mod backend {
             EmailChangeNewErr::InvalidStage,
         )?;
 
-        app.send_email_change(email_change.current.token_raw);
+        app.send_email_change(
+            time,
+            email_change.current.email,
+            email_change.current.token_raw,
+        )
+        .await?;
 
         Ok(ServerRes::EmailChangeStage {
             stage: Some(stage),
-            new_email: None,
+            new_email: email_change.new.as_ref().map(|v| v.email.clone()),
         })
     }
 
@@ -2793,15 +2869,17 @@ pub mod backend {
                 )))?;
 
         stage.is_stage(
-            EmailChangeStage::ConfirmEmail,
+            EmailChangeStage::ConfirmNewEmail,
             EmailChangeNewErr::InvalidStage,
         )?;
+        let new_email = email_change.new.unwrap().email;
 
-        app.send_email_change(email_change.current.token_raw);
+        app.send_email_new(time, new_email.clone(), email_change.current.token_raw)
+            .await?;
 
         Ok(ServerRes::EmailChangeStage {
             stage: Some(stage),
-            new_email: None,
+            new_email: Some(new_email.clone()),
         })
     }
 
@@ -2838,14 +2916,13 @@ pub mod backend {
         req: ServerReq,
     ) -> Result<ServerRes, ServerErr> {
         let time = app.time().await;
-        let stage = app
-            .get_email_change_status(time, &db_user)
-            .await?
-            .map(|v| v.1);
+        let stage = app.get_email_change_status(time, &db_user).await?;
 
         Ok(ServerRes::EmailChangeStage {
-            stage,
-            new_email: None,
+            stage: stage.as_ref().map(|v| v.1.clone()),
+            new_email: stage
+                .as_ref()
+                .and_then(|v| v.0.new.as_ref().map(|v| v.email.clone())),
         })
     }
 
@@ -2877,7 +2954,12 @@ pub mod backend {
         let stage = EmailChangeStage::from(&email_change);
         stage.is_stage(EmailChangeStage::ConfirmEmail, EmailChangeErr::InvalidStage)?;
 
-        app.send_email_change(email_change.current.token_raw);
+        app.send_email_change(
+            time,
+            email_change.current.email,
+            email_change.current.token_raw,
+        )
+        .await?;
 
         Ok(ServerRes::EmailChangeStage {
             stage: Some(stage),
@@ -2930,7 +3012,8 @@ pub mod backend {
             .new
             .as_ref()
             .ok_or_else(|| EmailChangeNewErr::InvalidStage(format!("expected NewConfirm")))?;
-        app.send_email_new(email.clone(), token.token_raw.clone());
+        app.send_email_new(time, email.clone(), token.token_raw.clone())
+            .await?;
 
         let stage = EmailChangeStage::from(&result);
 
@@ -2941,7 +3024,7 @@ pub mod backend {
     }
 
     pub async fn send_email_invite(
-        State(app_state): State<AppState>,
+        State(app): State<AppState>,
         req: ServerReq,
     ) -> Result<ServerRes, ServerErr> {
         let ServerReq::EmailAddress { email } = req else {
@@ -2950,14 +3033,12 @@ pub mod backend {
             ))));
         };
 
-        let time = app_state.time().await;
-        let (confirm_token, exp) = app_state.new_token(&email).await?;
+        let time = app.time().await;
+        let address = app.get_address().await;
+        let (confirm_token, exp) = app.new_token(&email).await?;
         trace!("email token created: {confirm_token}");
 
-        let email_token = app_state
-            .db
-            .add_invite(time, confirm_token, email, exp)
-            .await;
+        let email_token = app.db.add_invite(time, confirm_token, email, exp).await;
         let confirm_token = match email_token {
             Err(EmailIsTakenErr::EmailIsTaken(_)) => {
                 return Ok(ServerRes::Ok);
@@ -2968,7 +3049,7 @@ pub mod backend {
 
         let link = format!(
             "{}{}",
-            &app_state.settings.site.address,
+            &address,
             crate::path::link_reg(&confirm_token.token_raw),
         );
         trace!("{link}");
@@ -3109,13 +3190,14 @@ pub mod backend {
     }
 
     pub async fn check_auth(
-        app_state: &AppState,
+        app: &AppState,
         headers: &HeaderMap,
     ) -> Result<(AuthToken, DBUser), ServerErr>
     where
         ServerErr: std::error::Error + 'static,
     {
         trace!("CHECKING AUTH");
+        let secret = app.get_secret().await;
         let token = auth_token_get(headers, COOKIE).ok_or(ServerErr::AuthErr(
             ServerAuthErr::ServerUnauthorizedNoCookie,
         ))?;
@@ -3126,24 +3208,16 @@ pub mod backend {
         //     .map(|v| cut_cookie(v.value(), COOKIE_PREFIX, "").to_string())?;
 
         trace!("CHECKING AUTH SESSION");
-        let session = app_state
-            .db
-            .get_session(&token)
-            .await
-            .map_err(|err| match err {
-                DB404Err::NotFound => {
-                    ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie)
-                }
-                _ => ServerErr::DbErr,
-            })?;
+        let session = app.db.get_session(&token).await.map_err(|err| match err {
+            DB404Err::NotFound => ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie),
+            _ => ServerErr::DbErr,
+        })?;
 
-        let token = match decode_token::<AuthToken>(&app_state.settings.auth.secret, &token, false)
-        {
+        let token = match decode_token::<AuthToken>(&secret, &token, false) {
             Ok(v) => v,
             Err(err) => {
                 error!("invalid token was stored {err}");
-                app_state
-                    .db
+                app.db
                     .delete_session(token)
                     .await
                     .map_err(|err| ServerErr::DbErr)?;
@@ -3170,15 +3244,15 @@ mod tests {
     use pretty_assertions::assert_eq;
     use test_log::test;
     use tokio::sync::Mutex;
-    use tracing::trace;
+    use tracing::{error, trace};
 
     use crate::api::app_state::AppState;
     use crate::api::{
         Api, ApiTest, EmailChangeErr, EmailChangeNewErr, EmailChangeStage, EmailChangeTokenErr,
-        EmailToken, ServerErr, ServerGetErr, ServerLoginErr, ServerRegistrationErr, ServerReqImg,
-        ServerRes, encode_token,
+        EmailToken, ServerAuthErr, ServerErr, ServerGetErr, ServerLoginErr, ServerRegistrationErr,
+        ServerReqImg, ServerRes, encode_token,
     };
-    use crate::db::{DBUser, EmailIsTakenErr};
+    use crate::db::{DBEmailChange, DBUser, EmailIsTakenErr};
     // use crate::db::DBEmailTokenKind;
     use crate::server::create_api_router;
     use tracing_appender::rolling;
@@ -3187,15 +3261,24 @@ mod tests {
         pub state: AppState,
         // pub router: Router,
         // pub server: TestServer,
-        pub time: Arc<Mutex<Duration>>,
+        pub time: Arc<Mutex<u128>>,
         pub api: ApiTest,
     }
 
     impl ApiTestApp {
-        pub async fn new() -> Self {
-            let current_time = Duration::from_nanos(1);
-            let time_mut = Arc::new(Mutex::new(current_time));
-            let app_state = AppState::new_testng(time_mut.clone()).await;
+        pub async fn new(invite_exp_ns: u128) -> Self {
+            let _ = tracing_subscriber::fmt()
+                .event_format(
+                    tracing_subscriber::fmt::format()
+                        .with_file(true)
+                        .with_line_number(true),
+                )
+                .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+                // .with_writer(file)
+                .try_init();
+
+            let time_mut = Arc::new(Mutex::new(0));
+            let app_state = AppState::new_testng(time_mut.clone(), invite_exp_ns).await;
             let my_app = create_api_router(app_state.clone()).with_state(app_state.clone());
             let server = TestServer::builder()
                 .http_transport()
@@ -3211,11 +3294,149 @@ mod tests {
             }
         }
 
-        pub async fn register(&self, username: impl Into<String>) -> String {
+        pub async fn set_time(&self, time: u128) {
+            *self.time.lock().await = time;
+        }
+
+        // pub async fn set_exp(&mut self, duration_ns: u128) {
+        //     self.state.set_invite_exp_ns(duration_ns);
+        // }
+
+        pub async fn add_post(&self, time: u128, auth_token: impl Into<String>) -> Option<()> {
+            self.set_time(time).await;
+            let auth_token = auth_token.into();
+
+            let mut imgbuf = image::ImageBuffer::new(250, 250);
+            // Iterate over the coordinates and pixels of the image
+            for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
+                let r = (0.3 * x as f32) as u8;
+                let b = (0.3 * y as f32) as u8;
+                *pixel = image::Rgb([r, 0, b]);
+            }
+
+            let path = "../target/tmp/img.png";
+            imgbuf.save(path).unwrap();
+
+            let img = tokio::fs::read(path).await.unwrap();
+            let result = self
+                .api
+                .add_post(
+                    "title1",
+                    "wow",
+                    Vec::from([ServerReqImg {
+                        path: path.to_string(),
+                        data: img.clone(),
+                    }]),
+                )
+                .send_native_with_token(auth_token.clone())
+                .await;
+            trace!("{result:#?}");
+
+            // let result_posts = self.api.get_posts_older(2, 25).send_native().await.unwrap();
+
+            let matched = matches!(result, Ok(crate::api::ServerRes::Post(_)));
+            // let matched = match result {
+            //     Ok(crate::api::ServerRes::Posts(posts)) => posts.len() == 1,
+            //     wrong => false,
+            // };
+
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn expect_posts(
+            &self,
+            time: u128,
+            post_count_newer: usize,
+            post_count_newer_or_equal: usize,
+            post_count_older: usize,
+            post_count_older_or_equal: usize,
+        ) -> Option<()> {
+            let (matched_newer, len_newer) =
+                match self.api.get_posts_newer(time, 1000).send_native().await {
+                    Ok(crate::api::ServerRes::Posts(posts)) => {
+                        let len = posts.len();
+                        let result = len == post_count_newer;
+                        (result, len)
+                    }
+                    wrong => (false, 0),
+                };
+
+            let (matched_newer_or_equal, len_newer_or_equal) = match self
+                .api
+                .get_posts_newer_or_equal(time, 1000)
+                .send_native()
+                .await
+            {
+                Ok(crate::api::ServerRes::Posts(posts)) => {
+                    let len = posts.len();
+                    let result = len == post_count_newer_or_equal;
+                    (result, len)
+                }
+                wrong => (false, 0),
+            };
+
+            let (matched_older, len_older) =
+                match self.api.get_posts_older(time, 1000).send_native().await {
+                    Ok(crate::api::ServerRes::Posts(posts)) => {
+                        let len = posts.len();
+                        let result = len == post_count_older;
+                        (result, len)
+                    }
+                    wrong => (false, 0),
+                };
+
+            let (matched_older_or_equal, len_older_or_equal) = match self
+                .api
+                .get_posts_older_or_equal(time, 1000)
+                .send_native()
+                .await
+            {
+                Ok(crate::api::ServerRes::Posts(posts)) => {
+                    let len = posts.len();
+                    let result = len == post_count_older_or_equal;
+                    (result, len)
+                }
+                wrong => (false, 0),
+            };
+
+            if !matched_newer {
+                error!("expected newer len to be {post_count_newer}, got {len_newer}.");
+            }
+            if !matched_newer_or_equal {
+                error!(
+                    "expected newer_or_equal len to be {post_count_newer_or_equal}, got {len_newer_or_equal}."
+                );
+            }
+            if !matched_older {
+                error!("expected older len to be {post_count_older}, got {len_older}.");
+            }
+            if !matched_older_or_equal {
+                error!(
+                    "expected older_or_equal len to be {post_count_older_or_equal}, got {len_older_or_equal}."
+                );
+            }
+
+            if matched_newer && matched_newer_or_equal && matched_older && matched_older_or_equal {
+                Some(())
+            } else {
+                None
+            }
+        }
+
+        pub async fn register(
+            &self,
+            time: u128,
+            username: impl Into<String>,
+            email: impl Into<String>,
+            password: impl Into<String>,
+        ) -> Option<String> {
+            self.set_time(time).await;
+            let secret = self.state.get_secret().await;
+
             let username = username.into();
-            let email = format!("{username}@hey.com");
-            let password = "passworD1%%%";
-            let time = self.state.clock.now().await.as_nanos();
+            let email = email.into();
+            let password = password.into();
+            let time = self.state.clock.now().await;
 
             let result = self
                 .api
@@ -3242,13 +3463,188 @@ mod tests {
             let (token, decoded_token, result) = self
                 .api
                 .register(username, &invite.token_raw, password)
-                .send_native_and_extract_auth(&self.state.settings.auth.secret)
+                .send_native_and_extract_auth(&secret)
                 .await;
 
-            token.unwrap()
+            token
         }
 
-        pub async fn req_email_change(&self, auth_token: impl AsRef<str>) -> Option<()> {
+        pub async fn register_fail_expired_taken(
+            &self,
+            time: u128,
+            time_future: u128,
+            username: impl Into<String>,
+            email: impl Into<String>,
+            password: impl Into<String>,
+        ) -> Option<()> {
+            self.set_time(time).await;
+            let username = username.into();
+            let email = email.into();
+            let password = password.into();
+
+            let result = self
+                .api
+                .send_email_invite(email.clone())
+                .send_native()
+                .await
+                .unwrap();
+
+            let all = self.state.db.get_invite_all().await.unwrap();
+            trace!("----- ALL INVITES ------\n{all:#?}");
+
+            let invite = self.state.db.get_invite_valid(time, email).await.unwrap();
+
+            self.set_time(time_future).await;
+
+            let result = self
+                .api
+                .register(username, &invite.token_raw, password)
+                .send_native()
+                .await;
+
+            let matched = matches!(
+                result,
+                Err(ServerErr::RegistrationErr(
+                    ServerRegistrationErr::TokenExpired
+                ))
+            );
+            self.set_time(time).await;
+
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn register_fail_404(
+            &self,
+            time: u128,
+            username: impl Into<String>,
+        ) -> Option<()> {
+            self.set_time(time).await;
+            let username = username.into();
+            let email = format!("{username}@hey.com");
+            let password = "passworD1%%%";
+
+            let result = self
+                .api
+                .register(username, "404", password)
+                .send_native()
+                .await;
+
+            let matched = matches!(
+                result,
+                Err(ServerErr::RegistrationErr(
+                    ServerRegistrationErr::TokenNotFound
+                ))
+            );
+
+            if matched { Some(()) } else { None }
+        }
+        pub async fn register_fail_invalid(
+            &self,
+            time: u128,
+            username: impl Into<String>,
+            email: impl Into<String>,
+            password: impl Into<String>,
+        ) -> Option<()> {
+            self.set_time(time).await;
+            let username = username.into();
+            let email = email.into();
+            let password = password.into();
+
+            let result = self
+                .api
+                .send_email_invite(email.clone())
+                .send_native()
+                .await
+                .unwrap();
+            let invite = self.state.db.get_invite_valid(time, email).await.unwrap();
+
+            let result = self
+                .api
+                .register(username, &invite.token_raw, password)
+                .send_native()
+                .await;
+
+            trace!("recv: {result:?}");
+
+            let matched = match result {
+                Err(ServerErr::RegistrationErr(
+                    ServerRegistrationErr::ServerRegistrationInvalidInput {
+                        username,
+                        email,
+                        password,
+                    },
+                )) => username.is_some() && email.is_none() && password.is_some(),
+                etc => false,
+            };
+
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn is_logged_in(&self, time: u128, auth_token: impl AsRef<str>) -> Option<()> {
+            self.set_time(time).await;
+
+            let result = self.api.profile().send_native_with_token(&auth_token).await;
+            let matched = match result {
+                Ok(ServerRes::Acc { username, email }) => true,
+                _ => false,
+            };
+
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn is_logged_out(&self, time: u128, auth_token: impl AsRef<str>) -> Option<()> {
+            self.set_time(time).await;
+
+            let result = self.api.profile().send_native_with_token(&auth_token).await;
+            let matched = result
+                == Err(ServerErr::AuthErr(
+                    ServerAuthErr::ServerUnauthorizedInvalidCookie,
+                ));
+
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn logout(&self, time: u128, auth_token: impl AsRef<str>) -> Option<()> {
+            self.set_time(time).await;
+
+            let result = self.api.logout().send_native_with_token(&auth_token).await;
+
+            let matched = result == Ok(ServerRes::Ok);
+
+            let result = self.api.profile().send_native_with_token(&auth_token).await;
+            let matched_profile = result == Err(ServerErr::DbErr);
+
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn login(
+            &self,
+            time: u128,
+            email: impl Into<String>,
+            password: impl Into<String>,
+        ) -> Option<String> {
+            self.set_time(time).await;
+
+            let email = email.into();
+            let password = password.into();
+            let secret = self.state.get_secret().await;
+
+            let (token, decoded_token, result) = self
+                .api
+                .login(email, password)
+                .send_native_and_extract_auth(&secret)
+                .await;
+
+            token
+        }
+
+        pub async fn req_email_change(
+            &self,
+            time: u128,
+            auth_token: impl AsRef<str>,
+        ) -> Option<()> {
+            self.set_time(time).await;
+
             let result = self
                 .api
                 .send_email_change()
@@ -3264,7 +3660,13 @@ mod tests {
             if matched { Some(()) } else { None }
         }
 
-        pub async fn req_email_change_fail_stage(&self, auth_token: impl AsRef<str>) -> Option<()> {
+        pub async fn req_email_change_fail_stage(
+            &self,
+            time: u128,
+            auth_token: impl AsRef<str>,
+        ) -> Option<()> {
+            self.set_time(time).await;
+
             let result = self
                 .api
                 .send_email_change()
@@ -3280,9 +3682,12 @@ mod tests {
 
         pub async fn req_email_new(
             &self,
+            time: u128,
             auth_token: impl AsRef<str>,
             new_email: impl AsRef<str>,
         ) -> Option<()> {
+            self.set_time(time).await;
+
             let result = self
                 .api
                 .send_email_new(new_email.as_ref())
@@ -3300,9 +3705,12 @@ mod tests {
 
         pub async fn req_email_new_fail_taken(
             &self,
+            time: u128,
             auth_token: impl AsRef<str>,
             new_email: impl AsRef<str>,
         ) -> Option<()> {
+            self.set_time(time).await;
+
             let result = self
                 .api
                 .send_email_new(new_email.as_ref())
@@ -3321,9 +3729,12 @@ mod tests {
 
         pub async fn req_email_new_fail_stage(
             &self,
+            time: u128,
             auth_token: impl AsRef<str>,
             new_email: impl AsRef<str>,
         ) -> Option<()> {
+            self.set_time(time).await;
+
             let result = self
                 .api
                 .send_email_new(new_email.as_ref())
@@ -3342,9 +3753,12 @@ mod tests {
 
         pub async fn req_email_new_fail_invalid(
             &self,
+            time: u128,
             auth_token: impl AsRef<str>,
             new_email: impl AsRef<str>,
         ) -> Option<()> {
+            self.set_time(time).await;
+
             let result = self
                 .api
                 .send_email_new(new_email.as_ref())
@@ -3361,9 +3775,12 @@ mod tests {
 
         pub async fn req_email_change_complete(
             &self,
+            time: u128,
             auth_token: impl AsRef<str>,
             new_email: impl AsRef<str>,
         ) -> Option<()> {
+            self.set_time(time).await;
+
             let result = self
                 .api
                 .change_email()
@@ -3381,9 +3798,12 @@ mod tests {
 
         pub async fn confirm_email_change(
             &self,
+            time: u128,
             auth_token: impl AsRef<str>,
             db_user: &DBUser,
         ) -> Option<()> {
+            self.set_time(time).await;
+
             let confirm_token = self
                 .state
                 .db
@@ -3407,9 +3827,12 @@ mod tests {
 
         pub async fn confirm_email_change_fail_stage(
             &self,
+            time: u128,
             auth_token: impl AsRef<str>,
             db_user: &DBUser,
         ) -> Option<()> {
+            self.set_time(time).await;
+
             let result = self
                 .api
                 .confirm_email_change("invalid")
@@ -3428,9 +3851,12 @@ mod tests {
 
         pub async fn confirm_email_change_fail_invalid(
             &self,
+            time: u128,
             auth_token: impl AsRef<str>,
             db_user: &DBUser,
         ) -> Option<()> {
+            self.set_time(time).await;
+
             let confirm_token = self.state.db.get_email_change(0, db_user.id.clone()).await;
 
             let result = self
@@ -3454,10 +3880,13 @@ mod tests {
         }
         pub async fn confirm_email_new(
             &self,
+            time: u128,
             auth_token: impl AsRef<str>,
             db_user: &DBUser,
             new_email: impl AsRef<str>,
         ) -> Option<()> {
+            self.set_time(time).await;
+
             let confirm_token = self
                 .state
                 .db
@@ -3481,9 +3910,12 @@ mod tests {
 
         pub async fn confirm_email_new_fail_stage(
             &self,
+            time: u128,
             auth_token: impl AsRef<str>,
             db_user: &DBUser,
         ) -> Option<()> {
+            self.set_time(time).await;
+
             let result = self
                 .api
                 .confirm_email_new("invalid")
@@ -3502,9 +3934,12 @@ mod tests {
 
         pub async fn confirm_email_new_fail_invalid(
             &self,
+            time: u128,
             auth_token: impl AsRef<str>,
             db_user: &DBUser,
         ) -> Option<()> {
+            self.set_time(time).await;
+
             let result = self
                 .api
                 .confirm_email_new("invalid")
@@ -3523,21 +3958,98 @@ mod tests {
 
         pub async fn status_email_change(
             &self,
+            time: u128,
             auth_token: impl AsRef<str>,
-            expected_status: EmailChangeStage,
+            expected_status: Option<EmailChangeStage>,
+            expected_email: Option<String>,
         ) -> Option<()> {
+            self.set_time(time).await;
+
             let result = self
                 .api
                 .change_email_status()
                 .send_native_with_token(auth_token.as_ref())
                 .await;
 
-            let matched = matches!(
-                result,
-                Err(ServerErr::EmailChangeToken(
-                    EmailChangeTokenErr::TokenInvalid
-                ))
-            );
+            let matched = result
+                == Ok(ServerRes::EmailChangeStage {
+                    stage: expected_status,
+                    new_email: expected_email,
+                });
+            // assert_eq!(result, );
+            // let matched = matches!(
+            //     result,
+            //     Err(ServerErr::EmailChangeToken(
+            //         EmailChangeTokenErr::TokenInvalid
+            //     ))
+            // );
+
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn resend_change(
+            &self,
+            time: u128,
+            auth_token: impl AsRef<str>,
+            expected_rec_email: impl Into<String>,
+            expected_new_email: Option<String>,
+        ) -> Option<()> {
+            self.set_time(time).await;
+
+            let result = self
+                .api
+                .resend_email_change()
+                .send_native_with_token(auth_token.as_ref())
+                .await;
+
+            let matched = result
+                == Ok(ServerRes::EmailChangeStage {
+                    stage: Some(EmailChangeStage::ConfirmEmail),
+                    new_email: expected_new_email,
+                });
+
+            let db_result = self
+                .state
+                .db
+                .get_sent_email_by_email_latest(expected_rec_email.into())
+                .await;
+
+            if matched && db_result.is_ok() {
+                Some(())
+            } else {
+                None
+            }
+        }
+
+        pub async fn resend_new(
+            &self,
+            time: u128,
+            auth_token: impl AsRef<str>,
+            expected_rec_email: impl Into<String>,
+            expected_new_email: Option<String>,
+        ) -> Option<()> {
+            self.set_time(time).await;
+
+            let result = self
+                .api
+                .resend_email_new()
+                .send_native_with_token(auth_token.as_ref())
+                .await;
+
+            let matched = result
+                == Ok(ServerRes::EmailChangeStage {
+                    stage: Some(EmailChangeStage::ConfirmNewEmail),
+                    new_email: expected_new_email,
+                });
+
+            // let db_result = self
+            //     .state
+            //     .db
+            //     .get_sent_email_by_email_latest(expected_rec_email.into())
+            //     .await;
+
+            // let
+            // let db_matched = db_result.map(|v| v.body.contains("a"));
 
             if matched { Some(()) } else { None }
         }
@@ -3550,567 +4062,652 @@ mod tests {
     // ) -> String {
     // }
 
-    #[test(tokio::test)]
+    #[tokio::test]
     async fn api_email_change_test() {
-        let app = ApiTestApp::new().await;
-        let auth_token = app.register("hey").await;
-        let auth_token3 = app.register("hey3").await;
+        let app = ApiTestApp::new(1).await;
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+        let auth_token3 = app
+            .register(0, "hey3", "hey3@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
         let db_user = app.state.db.get_user_by_username("hey").await.unwrap();
 
-        app.req_email_new_fail_invalid(&auth_token, "hey3@hey.com")
+        app.status_email_change(0, &auth_token, None, None)
+            .await
+            .unwrap();
+
+        app.req_email_new_fail_invalid(0, &auth_token, "hey3@hey.com")
             .await;
-        app.confirm_email_new_fail_invalid(&auth_token, &db_user)
+        app.confirm_email_new_fail_invalid(0, &auth_token, &db_user)
             .await;
-        app.confirm_email_change_fail_invalid(&auth_token, &db_user)
+        app.confirm_email_change_fail_invalid(0, &auth_token, &db_user)
             .await;
 
         // ###
-        app.req_email_change(&auth_token).await.unwrap();
+        app.req_email_change(0, &auth_token).await.unwrap();
 
-        app.req_email_new_fail_stage(&auth_token, "hey3@hey.com")
+        app.req_email_new_fail_stage(0, &auth_token, "hey3@hey.com")
             .await
             .unwrap();
-
-        // ###
-        app.confirm_email_change(&auth_token, &db_user)
+        app.status_email_change(0, &auth_token, Some(EmailChangeStage::ConfirmEmail), None)
             .await
             .unwrap();
-
-        app.req_email_change_fail_stage(&auth_token).await.unwrap();
-        app.req_email_new_fail_taken(&auth_token, "hey3@hey.com")
+        app.resend_change(0, &auth_token, "hey@heyadora.com", None)
             .await
             .unwrap();
 
         // ###
-        app.req_email_new(&auth_token, "hey2@hey.com")
+        app.confirm_email_change(0, &auth_token, &db_user)
             .await
             .unwrap();
 
-        app.confirm_email_new_fail_invalid(&auth_token, &db_user)
+        app.req_email_change_fail_stage(0, &auth_token)
             .await
             .unwrap();
-
-        // ###
-        app.confirm_email_new(&auth_token, &db_user, "hey2@hey.com")
+        app.req_email_new_fail_taken(0, &auth_token, "hey3@heyadora.com")
             .await
             .unwrap();
-
-        app.confirm_email_new_fail_stage(&auth_token, &db_user)
+        app.status_email_change(0, &auth_token, Some(EmailChangeStage::EnterNewEmail), None)
             .await
             .unwrap();
 
         // ###
-        app.req_email_change_complete(&auth_token, "hey2@hey.com")
+        app.req_email_new(0, &auth_token, "hey2@hey.com")
             .await
             .unwrap();
 
-        app.confirm_email_change_fail_stage(&auth_token, &db_user)
+        app.confirm_email_new_fail_invalid(0, &auth_token, &db_user)
             .await
             .unwrap();
-        app.confirm_email_new_fail_stage(&auth_token, &db_user)
+        app.status_email_change(
+            0,
+            &auth_token,
+            Some(EmailChangeStage::ConfirmNewEmail),
+            Some("hey2@hey.com".to_string()),
+        )
+        .await
+        .unwrap();
+        app.resend_new(
+            0,
+            &auth_token,
+            "hey@heyadora.com",
+            Some("hey2@hey.com".to_string()),
+        )
+        .await
+        .unwrap();
+
+        // ###
+        app.confirm_email_new(0, &auth_token, &db_user, "hey2@hey.com")
             .await
             .unwrap();
-        app.req_email_new_fail_stage(&auth_token, "hey2@hey.com")
+
+        app.confirm_email_new_fail_stage(0, &auth_token, &db_user)
             .await
             .unwrap();
+        app.status_email_change(
+            0,
+            &auth_token,
+            Some(EmailChangeStage::ReadyToComplete),
+            Some("hey2@hey.com".to_string()),
+        )
+        .await
+        .unwrap();
+
+        // ###
+        app.req_email_change_complete(0, &auth_token, "hey2@hey.com")
+            .await
+            .unwrap();
+
+        app.confirm_email_change_fail_stage(0, &auth_token, &db_user)
+            .await
+            .unwrap();
+        app.confirm_email_new_fail_stage(0, &auth_token, &db_user)
+            .await
+            .unwrap();
+        app.req_email_new_fail_stage(0, &auth_token, "hey2@hey.com")
+            .await
+            .unwrap();
+        app.status_email_change(0, &auth_token, None, None)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn api_auth_test() {
+        let app = ApiTestApp::new(1).await;
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+        app.is_logged_in(0, &auth_token).await.unwrap();
+        app.register_fail_expired_taken(0, 2, "hey2", "hey2@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+        app.register_fail_404(0, "hey2").await.unwrap();
+        app.register_fail_invalid(0, "pr", "prime@heyadora.com", "wowowowwoW12222pp")
+            .await
+            .unwrap();
+        app.logout(0, &auth_token).await.unwrap();
+        app.is_logged_out(0, &auth_token).await.unwrap();
+        let auth_token = app
+            .login(0, "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+        app.is_logged_in(0, &auth_token).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn api_post_test() {
+        let app = ApiTestApp::new(1).await;
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+
+        app.add_post(0, &auth_token).await.unwrap();
+        app.expect_posts(0, 0, 1, 0, 1).await.unwrap();
+        app.add_post(1, &auth_token).await.unwrap();
+        app.expect_posts(0, 1, 2, 0, 1).await.unwrap();
+        app.expect_posts(1, 0, 1, 1, 2).await.unwrap();
+        app.expect_posts(2, 0, 0, 2, 2).await.unwrap();
     }
 
     // #[test(tokio::test)]
-    #[tokio::test]
-    async fn full_api_test() {
-        let file = rolling::daily("./logs", "log");
-        let _ = tracing_subscriber::fmt()
-            .event_format(
-                tracing_subscriber::fmt::format()
-                    .with_file(true)
-                    .with_line_number(true),
-            )
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            // .with_writer(file)
-            .try_init();
-
-        let current_time = Duration::from_nanos(1);
-        let time_mut = Arc::new(Mutex::new(current_time));
-        let app_state = AppState::new_testng(time_mut.clone()).await;
-        let my_app = create_api_router(app_state.clone()).with_state(app_state.clone());
-
-        let time = app_state.clock.now().await.as_nanos();
-
-        let server = TestServer::builder()
-            .http_transport()
-            .build(my_app)
-            .unwrap();
-
-        let api = ApiTest::new(server);
-
-        let mut imgbuf = image::ImageBuffer::new(250, 250);
-        // Iterate over the coordinates and pixels of the image
-        for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
-            let r = (0.3 * x as f32) as u8;
-            let b = (0.3 * y as f32) as u8;
-            *pixel = image::Rgb([r, 0, b]);
-        }
-
-        let path = "../target/tmp/img.png";
-        imgbuf.save(path).unwrap();
-        let img = tokio::fs::read(path).await.unwrap();
-
-        let result = api
-            .send_email_invite("hey1@hey.com")
-            .send_native()
-            .await
-            .unwrap();
-        trace!("{result:#?}");
-
-        let invite = app_state
-            .db
-            .get_invite_valid(
-                current_time.as_nanos(),
-                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
-                "hey1@hey.com",
-                // 0,
-            )
-            .await
-            .unwrap();
-
-        trace!("good invite {invite:#?}");
-
-        let bad_invite_token = encode_token(
-            &app_state.settings.auth.secret,
-            EmailToken::new("123", "hey1@hey.com", time),
-        )
-        .unwrap();
-
-        let bad_invite = app_state
-            .db
-            .add_invite(
-                time,
-                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
-                &bad_invite_token,
-                "hey1@hey.com",
-                time + 1,
-            )
-            .await
-            .unwrap();
-        trace!("bad invite added: {bad_invite:#?}");
-
-        {
-            *time_mut.lock().await = Duration::from_secs(10);
-            let result = api
-                .register("hey", &invite.token_raw, "*wowowowwoW12222pp")
-                .send_native()
-                .await;
-
-            assert!(matches!(
-                result,
-                Err(ServerErr::RegistrationErr(
-                    ServerRegistrationErr::TokenExpired
-                ))
-            ));
-            *time_mut.lock().await = Duration::from_nanos(1);
-            // match result {
-            //      => {
-            //         assert!(username.is_some());
-            //         assert!(email.is_none());
-            //         assert!(password.is_some());
-            //     }
-            //     etc => panic!("expexted register err, got: {etc:?}"),
-            // }
-        }
-        {
-            let result = api
-                .register("he", &invite.token_raw, "wowowowwoW12222pp")
-                .send_native()
-                .await;
-
-            match result {
-                Err(ServerErr::RegistrationErr(
-                    ServerRegistrationErr::ServerRegistrationInvalidInput {
-                        username,
-                        email,
-                        password,
-                    },
-                )) => {
-                    assert!(username.is_some());
-                    assert!(email.is_none());
-                    assert!(password.is_some());
-                }
-                etc => panic!("expexted register err, got: {etc:?}"),
-            }
-        }
-
-        let (token, decoded_token, result) = api
-            .register("hey", &invite.token_raw, "wowowowwoW12222pp*")
-            .send_native_and_extract_auth(&app_state.settings.auth.secret)
-            .await;
-
-        let result = api
-            .send_email_invite("hey1@hey.com")
-            .send_native()
-            .await
-            .unwrap();
-        assert_eq!(result, ServerRes::Ok);
-
-        let token_raw = token.unwrap();
-
-        let all_invites = app_state.db.get_invite_all().await.unwrap();
-
-        trace!("all invites: {all_invites:#?}");
-
-        {
-            let result = api
-                .register("he", &bad_invite_token, "wowowowwoW12222pp")
-                .send_native()
-                .await;
-
-            assert!(matches!(
-                result,
-                Err(ServerErr::RegistrationErr(
-                    ServerRegistrationErr::TokenNotFound,
-                ))
-            ));
-        }
-
-        let all_users = app_state.db.get_all_user().await.unwrap();
-        let all_sessions = app_state.db.get_session_all().await.unwrap();
-
-        trace!("ALL USERS {all_users:#?}");
-        assert!(all_users.len() == 1);
-
-        trace!("ALL SESSIONS {all_sessions:#?}");
-        assert!(all_users.len() == 1);
-
-        trace!("{token_raw:#?}");
-
-        let result = api
-            .logout()
-            .send_native_with_token(&token_raw)
-            .await
-            .unwrap();
-
-        assert_eq!(result, ServerRes::Ok);
-
-        let result = api
-            .login("hey1@hey.com3", "wowowowwoW12222pp*")
-            .send_native()
-            .await;
-
-        assert!(matches!(
-            result,
-            Err(ServerErr::LoginErr(ServerLoginErr::WrongCredentials))
-        ));
-
-        let (token, decoded_token, result) = api
-            .login("hey1@hey.com", "wowowowwoW12222pp*")
-            .send_native_and_extract_auth(&app_state.settings.auth.secret)
-            .await;
-
-        let token_raw = token.unwrap();
-
-        let result = api
-            .add_post(
-                "title1",
-                "wow",
-                Vec::from([ServerReqImg {
-                    path: path.to_string(),
-                    data: img.clone(),
-                }]),
-            )
-            .send_native_with_token(token_raw.clone())
-            .await
-            .unwrap();
-        trace!("{result:#?}");
-
-        let result = api.get_posts_older(2, 25).send_native().await.unwrap();
-        match result {
-            crate::api::ServerRes::Posts(posts) => {
-                assert!(posts.len() == 1);
-            }
-            wrong => {
-                panic!("{}", format!("expected posts, got {:?}", wrong));
-            }
-        }
-
-        let result = api.get_posts_older(1, 25).send_native().await.unwrap();
-        match result {
-            crate::api::ServerRes::Posts(posts) => {
-                assert!(posts.len() == 0);
-            }
-            wrong => {
-                panic!("{}", format!("expected posts, got {:?}", wrong));
-            }
-        }
-
-        *time_mut.lock().await = Duration::from_nanos(2);
-
-        let result = api
-            .add_post(
-                "title2",
-                "wow",
-                Vec::from([ServerReqImg {
-                    path: path.to_string(),
-                    data: img.clone(),
-                }]),
-            )
-            .send_native_with_token(token_raw.clone())
-            .await
-            .unwrap();
-
-        *time_mut.lock().await = Duration::from_nanos(3);
-
-        let result = api
-            .add_post(
-                "title3",
-                "wow",
-                Vec::from([ServerReqImg {
-                    path: path.to_string(),
-                    data: img.clone(),
-                }]),
-            )
-            .send_native_with_token(token_raw.clone())
-            .await
-            .unwrap();
-
-        let result = api.get_posts_older(2, 25).send_native().await.unwrap();
-        match result {
-            crate::api::ServerRes::Posts(posts) => {
-                assert!(posts.len() == 1);
-                assert_eq!(posts[0].created_at, 1);
-            }
-            wrong => {
-                panic!("{}", format!("expected posts, got {:?}", wrong));
-            }
-        }
-
-        let result = api.get_posts_newer(2, 25).send_native().await.unwrap();
-        match result {
-            crate::api::ServerRes::Posts(posts) => {
-                assert!(posts.len() == 1);
-                assert_eq!(posts[0].created_at, 3);
-            }
-            wrong => {
-                panic!("{}", format!("expected posts, got {:?}", wrong));
-            }
-        }
-
-        *time_mut.lock().await = Duration::from_nanos(4);
-
-        let result = api
-            .add_post(
-                "title4",
-                "wow",
-                Vec::from([ServerReqImg {
-                    path: path.to_string(),
-                    data: img.clone(),
-                }]),
-            )
-            .send_native_with_token(token_raw.clone())
-            .await
-            .unwrap();
-
-        let result = api.get_posts_newer(2, 25).send_native().await.unwrap();
-        match result {
-            crate::api::ServerRes::Posts(posts) => {
-                assert!(posts.len() == 2);
-                assert_eq!(posts[0].created_at, 4);
-                assert_eq!(posts[1].created_at, 3);
-            }
-            wrong => {
-                panic!("{}", format!("expected posts, got {:?}", wrong));
-            }
-        }
-
-        let result = api.get_posts_older(3, 25).send_native().await.unwrap();
-        match result {
-            crate::api::ServerRes::Posts(posts) => {
-                assert!(posts.len() == 2);
-                assert_eq!(posts[0].created_at, 2);
-                assert_eq!(posts[1].created_at, 1);
-            }
-            wrong => {
-                panic!("{}", format!("expected posts, got {:?}", wrong));
-            }
-        }
-
-        let result = api.get_posts_newer(2, 1).send_native().await.unwrap();
-        match result {
-            crate::api::ServerRes::Posts(posts) => {
-                assert!(posts.len() == 1);
-                assert_eq!(posts[0].created_at, 3);
-            }
-            wrong => {
-                panic!("{}", format!("expected posts, got {:?}", wrong));
-            }
-        }
-
-        let result = api
-            .get_user_posts_newer(2, 10, "hey")
-            .send_native()
-            .await
-            .unwrap();
-        match result {
-            crate::api::ServerRes::Posts(posts) => {
-                assert!(posts.len() == 2);
-            }
-            wrong => {
-                panic!("{}", format!("expected posts, got {:?}", wrong));
-            }
-        }
-
-        let result = api
-            .get_user_posts_newer_or_equal(2, 10, "hey")
-            .send_native()
-            .await
-            .unwrap();
-        match result {
-            crate::api::ServerRes::Posts(posts) => {
-                assert_eq!(posts.len(), 3);
-            }
-            wrong => {
-                panic!("{}", format!("expected posts, got {:?}", wrong));
-            }
-        }
-
-        let result = api
-            .get_user_posts_older(2, 10, "hey")
-            .send_native()
-            .await
-            .unwrap();
-        match result {
-            crate::api::ServerRes::Posts(posts) => {
-                assert_eq!(posts.len(), 1);
-            }
-            wrong => {
-                panic!("{}", format!("expected posts, got {:?}", wrong));
-            }
-        }
-
-        let result = api
-            .get_user_posts_older_or_equal(2, 10, "hey")
-            .send_native()
-            .await
-            .unwrap();
-        match result {
-            crate::api::ServerRes::Posts(posts) => {
-                assert_eq!(posts.len(), 2);
-            }
-            wrong => {
-                panic!("{}", format!("expected posts, got {:?}", wrong));
-            }
-        }
-
-        let result = api
-            .send_email_invite("hey2@hey.com")
-            .send_native()
-            .await
-            .unwrap();
-        trace!("{result:#?}");
-
-        *time_mut.lock().await = Duration::from_nanos(5);
-
-        let invite2 = app_state
-            .db
-            .get_invite_valid(
-                current_time.as_nanos(),
-                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
-                "hey2@hey.com",
-                // 0,
-            )
-            .await
-            .unwrap();
-
-        let (token2, decoded_token2, result2) = api
-            .register("hey2", &invite2.token_raw, "wowowowwoW12222pp*")
-            .send_native_and_extract_auth(&app_state.settings.auth.secret)
-            .await;
-
-        let token_raw2 = token2.unwrap();
-
-        *time_mut.lock().await = Duration::from_nanos(6);
-
-        let result = api
-            .add_post(
-                "420",
-                "wow",
-                Vec::from([ServerReqImg {
-                    path: path.to_string(),
-                    data: img.clone(),
-                }]),
-            )
-            .send_native_with_token(token_raw2.clone())
-            .await
-            .unwrap();
-
-        let result = api
-            .get_user_posts_newer(2, 10, "hey2")
-            .send_native()
-            .await
-            .unwrap();
-        match result {
-            crate::api::ServerRes::Posts(posts) => {
-                assert_eq!(posts.len(), 1);
-            }
-            wrong => {
-                panic!("{}", format!("expected posts, got {:?}", wrong));
-            }
-        }
-
-        let result = api
-            .get_user_posts_older(7, 10, "hey2")
-            .send_native()
-            .await
-            .unwrap();
-        match result {
-            crate::api::ServerRes::Posts(posts) => {
-                assert_eq!(posts.len(), 1);
-            }
-            wrong => {
-                panic!("{}", format!("expected posts, got {:?}", wrong));
-            }
-        }
-
-        let result = api.get_user_posts_newer(2, 10, "hey99").send_native().await;
-        assert!(matches!(
-            result,
-            Err(ServerErr::GetErr(ServerGetErr::NotFound))
-        ));
-
-        let result = api
-            .get_user_posts_newer_or_equal(2, 10, "hey99")
-            .send_native()
-            .await;
-        assert!(matches!(
-            result,
-            Err(ServerErr::GetErr(ServerGetErr::NotFound))
-        ));
-
-        let result = api
-            .change_username("wowowowwoW12222pp*", "bye")
-            .send_native_with_token(token_raw.clone())
-            .await
-            .unwrap();
-        match result {
-            crate::api::ServerRes::User { username } => {
-                assert_eq!(username, "bye");
-            }
-            wrong => {
-                panic!("{}", format!("expected User, got {:?}", wrong));
-            }
-        }
-
-        let result = api
-            .profile()
-            .send_native_with_token(token_raw.clone())
-            .await
-            .unwrap();
-
-        match result {
-            crate::api::ServerRes::Acc { username, email } => {
-                assert_eq!(username, "bye");
-            }
-            wrong => {
-                panic!("{}", format!("expected Acc, got {:?}", wrong));
-            }
-        }
-    }
+    // #[tokio::test]
+    // async fn full_api_test() {
+    //     let file = rolling::daily("./logs", "log");
+    //     let _ = tracing_subscriber::fmt()
+    //         .event_format(
+    //             tracing_subscriber::fmt::format()
+    //                 .with_file(true)
+    //                 .with_line_number(true),
+    //         )
+    //         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+    //         // .with_writer(file)
+    //         .try_init();
+    //
+    //     let time_mut = Arc::new(Mutex::new(1));
+    //     let app_state = AppState::new_testng(time_mut.clone(), 1).await;
+    //     let my_app = create_api_router(app_state.clone()).with_state(app_state.clone());
+    //
+    //     let time = app_state.clock.now().await;
+    //     let secret = app_state.get_secret().await;
+    //
+    //     let server = TestServer::builder()
+    //         .http_transport()
+    //         .build(my_app)
+    //         .unwrap();
+    //
+    //     let api = ApiTest::new(server);
+    //
+    //     let mut imgbuf = image::ImageBuffer::new(250, 250);
+    //     // Iterate over the coordinates and pixels of the image
+    //     for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
+    //         let r = (0.3 * x as f32) as u8;
+    //         let b = (0.3 * y as f32) as u8;
+    //         *pixel = image::Rgb([r, 0, b]);
+    //     }
+    //
+    //     let path = "../target/tmp/img.png";
+    //     imgbuf.save(path).unwrap();
+    //     let img = tokio::fs::read(path).await.unwrap();
+    //
+    //     let result = api
+    //         .send_email_invite("hey1@hey.com")
+    //         .send_native()
+    //         .await
+    //         .unwrap();
+    //     trace!("{result:#?}");
+    //
+    //     let invite = app_state
+    //         .db
+    //         .get_invite_valid(
+    //             time,
+    //             // DBEmailTokenKind::RequestConfirmRegistrationEmail,
+    //             "hey1@hey.com",
+    //             // 0,
+    //         )
+    //         .await
+    //         .unwrap();
+    //
+    //     trace!("good invite {invite:#?}");
+    //
+    //     let bad_invite_token =
+    //         encode_token(&secret, EmailToken::new("123", "hey1@hey.com", time)).unwrap();
+    //
+    //     let bad_invite = app_state
+    //         .db
+    //         .add_invite(
+    //             time,
+    //             // DBEmailTokenKind::RequestConfirmRegistrationEmail,
+    //             &bad_invite_token,
+    //             "hey1@hey.com",
+    //             time + 1,
+    //         )
+    //         .await
+    //         .unwrap();
+    //     trace!("bad invite added: {bad_invite:#?}");
+    //
+    //     {
+    //         *time_mut.lock().await = Duration::from_secs(10).as_nanos();
+    //         let result = api
+    //             .register("hey", &invite.token_raw, "*wowowowwoW12222pp")
+    //             .send_native()
+    //             .await;
+    //
+    //         assert!(matches!(
+    //             result,
+    //             Err(ServerErr::RegistrationErr(
+    //                 ServerRegistrationErr::TokenExpired
+    //             ))
+    //         ));
+    //         *time_mut.lock().await = Duration::from_nanos(0).as_nanos();
+    //         // match result {
+    //         //      => {
+    //         //         assert!(username.is_some());
+    //         //         assert!(email.is_none());
+    //         //         assert!(password.is_some());
+    //         //     }
+    //         //     etc => panic!("expexted register err, got: {etc:?}"),
+    //         // }
+    //     }
+    //     {
+    //         let result = api
+    //             .register("he", &invite.token_raw, "wowowowwoW12222pp")
+    //             .send_native()
+    //             .await;
+    //
+    //         match result {
+    //             Err(ServerErr::RegistrationErr(
+    //                 ServerRegistrationErr::ServerRegistrationInvalidInput {
+    //                     username,
+    //                     email,
+    //                     password,
+    //                 },
+    //             )) => {
+    //                 assert!(username.is_some());
+    //                 assert!(email.is_none());
+    //                 assert!(password.is_some());
+    //             }
+    //             etc => panic!("expexted register err, got: {etc:?}"),
+    //         }
+    //     }
+    //
+    //     let (token, decoded_token, result) = api
+    //         .register("hey", &invite.token_raw, "wowowowwoW12222pp*")
+    //         .send_native_and_extract_auth(&secret)
+    //         .await;
+    //
+    //     let result = api
+    //         .send_email_invite("hey1@hey.com")
+    //         .send_native()
+    //         .await
+    //         .unwrap();
+    //     assert_eq!(result, ServerRes::Ok);
+    //
+    //     let token_raw = token.unwrap();
+    //
+    //     let all_invites = app_state.db.get_invite_all().await.unwrap();
+    //
+    //     trace!("all invites: {all_invites:#?}");
+    //
+    //     {
+    //         let result = api
+    //             .register("he", &bad_invite_token, "wowowowwoW12222pp")
+    //             .send_native()
+    //             .await;
+    //
+    //         assert!(matches!(
+    //             result,
+    //             Err(ServerErr::RegistrationErr(
+    //                 ServerRegistrationErr::TokenNotFound,
+    //             ))
+    //         ));
+    //     }
+    //
+    //     let all_users = app_state.db.get_all_user().await.unwrap();
+    //     let all_sessions = app_state.db.get_session_all().await.unwrap();
+    //
+    //     trace!("ALL USERS {all_users:#?}");
+    //     assert!(all_users.len() == 1);
+    //
+    //     trace!("ALL SESSIONS {all_sessions:#?}");
+    //     assert!(all_users.len() == 1);
+    //
+    //     trace!("{token_raw:#?}");
+    //
+    //     let result = api
+    //         .logout()
+    //         .send_native_with_token(&token_raw)
+    //         .await
+    //         .unwrap();
+    //
+    //     assert_eq!(result, ServerRes::Ok);
+    //
+    //     let result = api
+    //         .login("hey1@hey.com3", "wowowowwoW12222pp*")
+    //         .send_native()
+    //         .await;
+    //
+    //     assert!(matches!(
+    //         result,
+    //         Err(ServerErr::LoginErr(ServerLoginErr::WrongCredentials))
+    //     ));
+    //
+    //     let (token, decoded_token, result) = api
+    //         .login("hey1@hey.com", "wowowowwoW12222pp*")
+    //         .send_native_and_extract_auth(&secret)
+    //         .await;
+    //
+    //     let token_raw = token.unwrap();
+    //
+    //     let result = api
+    //         .add_post(
+    //             "title1",
+    //             "wow",
+    //             Vec::from([ServerReqImg {
+    //                 path: path.to_string(),
+    //                 data: img.clone(),
+    //             }]),
+    //         )
+    //         .send_native_with_token(token_raw.clone())
+    //         .await
+    //         .unwrap();
+    //     trace!("{result:#?}");
+    //
+    //     let result = api.get_posts_older(2, 25).send_native().await.unwrap();
+    //     match result {
+    //         crate::api::ServerRes::Posts(posts) => {
+    //             assert!(posts.len() == 1);
+    //         }
+    //         wrong => {
+    //             panic!("{}", format!("expected posts, got {:?}", wrong));
+    //         }
+    //     }
+    //
+    //     let result = api.get_posts_older(1, 25).send_native().await.unwrap();
+    //     match result {
+    //         crate::api::ServerRes::Posts(posts) => {
+    //             assert!(posts.len() == 0);
+    //         }
+    //         wrong => {
+    //             panic!("{}", format!("expected posts, got {:?}", wrong));
+    //         }
+    //     }
+    //
+    //     *time_mut.lock().await = Duration::from_nanos(2).as_nanos();
+    //
+    //     let result = api
+    //         .add_post(
+    //             "title2",
+    //             "wow",
+    //             Vec::from([ServerReqImg {
+    //                 path: path.to_string(),
+    //                 data: img.clone(),
+    //             }]),
+    //         )
+    //         .send_native_with_token(token_raw.clone())
+    //         .await
+    //         .unwrap();
+    //
+    //     *time_mut.lock().await = Duration::from_nanos(3).as_nanos();
+    //
+    //     let result = api
+    //         .add_post(
+    //             "title3",
+    //             "wow",
+    //             Vec::from([ServerReqImg {
+    //                 path: path.to_string(),
+    //                 data: img.clone(),
+    //             }]),
+    //         )
+    //         .send_native_with_token(token_raw.clone())
+    //         .await
+    //         .unwrap();
+    //
+    //     let result = api.get_posts_older(2, 25).send_native().await.unwrap();
+    //     match result {
+    //         crate::api::ServerRes::Posts(posts) => {
+    //             assert!(posts.len() == 1);
+    //             assert_eq!(posts[0].created_at, 1);
+    //         }
+    //         wrong => {
+    //             panic!("{}", format!("expected posts, got {:?}", wrong));
+    //         }
+    //     }
+    //
+    //     let result = api.get_posts_newer(2, 25).send_native().await.unwrap();
+    //     match result {
+    //         crate::api::ServerRes::Posts(posts) => {
+    //             assert!(posts.len() == 1);
+    //             assert_eq!(posts[0].created_at, 3);
+    //         }
+    //         wrong => {
+    //             panic!("{}", format!("expected posts, got {:?}", wrong));
+    //         }
+    //     }
+    //
+    //     *time_mut.lock().await = Duration::from_nanos(4).as_nanos();
+    //
+    //     let result = api
+    //         .add_post(
+    //             "title4",
+    //             "wow",
+    //             Vec::from([ServerReqImg {
+    //                 path: path.to_string(),
+    //                 data: img.clone(),
+    //             }]),
+    //         )
+    //         .send_native_with_token(token_raw.clone())
+    //         .await
+    //         .unwrap();
+    //
+    //     let result = api.get_posts_newer(2, 25).send_native().await.unwrap();
+    //     match result {
+    //         crate::api::ServerRes::Posts(posts) => {
+    //             assert!(posts.len() == 2);
+    //             assert_eq!(posts[0].created_at, 4);
+    //             assert_eq!(posts[1].created_at, 3);
+    //         }
+    //         wrong => {
+    //             panic!("{}", format!("expected posts, got {:?}", wrong));
+    //         }
+    //     }
+    //
+    //     let result = api.get_posts_older(3, 25).send_native().await.unwrap();
+    //     match result {
+    //         crate::api::ServerRes::Posts(posts) => {
+    //             assert!(posts.len() == 2);
+    //             assert_eq!(posts[0].created_at, 2);
+    //             assert_eq!(posts[1].created_at, 1);
+    //         }
+    //         wrong => {
+    //             panic!("{}", format!("expected posts, got {:?}", wrong));
+    //         }
+    //     }
+    //
+    //     let result = api.get_posts_newer(2, 1).send_native().await.unwrap();
+    //     match result {
+    //         crate::api::ServerRes::Posts(posts) => {
+    //             assert!(posts.len() == 1);
+    //             assert_eq!(posts[0].created_at, 3);
+    //         }
+    //         wrong => {
+    //             panic!("{}", format!("expected posts, got {:?}", wrong));
+    //         }
+    //     }
+    //
+    //     let result = api
+    //         .get_user_posts_newer(2, 10, "hey")
+    //         .send_native()
+    //         .await
+    //         .unwrap();
+    //     match result {
+    //         crate::api::ServerRes::Posts(posts) => {
+    //             assert!(posts.len() == 2);
+    //         }
+    //         wrong => {
+    //             panic!("{}", format!("expected posts, got {:?}", wrong));
+    //         }
+    //     }
+    //
+    //     let result = api
+    //         .get_user_posts_newer_or_equal(2, 10, "hey")
+    //         .send_native()
+    //         .await
+    //         .unwrap();
+    //     match result {
+    //         crate::api::ServerRes::Posts(posts) => {
+    //             assert_eq!(posts.len(), 3);
+    //         }
+    //         wrong => {
+    //             panic!("{}", format!("expected posts, got {:?}", wrong));
+    //         }
+    //     }
+    //
+    //     let result = api
+    //         .get_user_posts_older(2, 10, "hey")
+    //         .send_native()
+    //         .await
+    //         .unwrap();
+    //     match result {
+    //         crate::api::ServerRes::Posts(posts) => {
+    //             assert_eq!(posts.len(), 1);
+    //         }
+    //         wrong => {
+    //             panic!("{}", format!("expected posts, got {:?}", wrong));
+    //         }
+    //     }
+    //
+    //     let result = api
+    //         .get_user_posts_older_or_equal(2, 10, "hey")
+    //         .send_native()
+    //         .await
+    //         .unwrap();
+    //     match result {
+    //         crate::api::ServerRes::Posts(posts) => {
+    //             assert_eq!(posts.len(), 2);
+    //         }
+    //         wrong => {
+    //             panic!("{}", format!("expected posts, got {:?}", wrong));
+    //         }
+    //     }
+    //
+    //     let result = api
+    //         .send_email_invite("hey2@hey.com")
+    //         .send_native()
+    //         .await
+    //         .unwrap();
+    //     trace!("{result:#?}");
+    //
+    //     *time_mut.lock().await = Duration::from_nanos(5).as_nanos();
+    //
+    //     let invite2 = app_state
+    //         .db
+    //         .get_invite_valid(
+    //             *time_mut.lock().await,
+    //             // DBEmailTokenKind::RequestConfirmRegistrationEmail,
+    //             "hey2@hey.com",
+    //             // 0,
+    //         )
+    //         .await
+    //         .unwrap();
+    //
+    //     let (token2, decoded_token2, result2) = api
+    //         .register("hey2", &invite2.token_raw, "wowowowwoW12222pp*")
+    //         .send_native_and_extract_auth(&secret)
+    //         .await;
+    //
+    //     let token_raw2 = token2.unwrap();
+    //
+    //     *time_mut.lock().await = Duration::from_nanos(6).as_nanos();
+    //
+    //     let result = api
+    //         .add_post(
+    //             "420",
+    //             "wow",
+    //             Vec::from([ServerReqImg {
+    //                 path: path.to_string(),
+    //                 data: img.clone(),
+    //             }]),
+    //         )
+    //         .send_native_with_token(token_raw2.clone())
+    //         .await
+    //         .unwrap();
+    //
+    //     let result = api
+    //         .get_user_posts_newer(2, 10, "hey2")
+    //         .send_native()
+    //         .await
+    //         .unwrap();
+    //     match result {
+    //         crate::api::ServerRes::Posts(posts) => {
+    //             assert_eq!(posts.len(), 1);
+    //         }
+    //         wrong => {
+    //             panic!("{}", format!("expected posts, got {:?}", wrong));
+    //         }
+    //     }
+    //
+    //     let result = api
+    //         .get_user_posts_older(7, 10, "hey2")
+    //         .send_native()
+    //         .await
+    //         .unwrap();
+    //     match result {
+    //         crate::api::ServerRes::Posts(posts) => {
+    //             assert_eq!(posts.len(), 1);
+    //         }
+    //         wrong => {
+    //             panic!("{}", format!("expected posts, got {:?}", wrong));
+    //         }
+    //     }
+    //
+    //     let result = api.get_user_posts_newer(2, 10, "hey99").send_native().await;
+    //     assert!(matches!(
+    //         result,
+    //         Err(ServerErr::GetErr(ServerGetErr::NotFound))
+    //     ));
+    //
+    //     let result = api
+    //         .get_user_posts_newer_or_equal(2, 10, "hey99")
+    //         .send_native()
+    //         .await;
+    //     assert!(matches!(
+    //         result,
+    //         Err(ServerErr::GetErr(ServerGetErr::NotFound))
+    //     ));
+    //
+    //     let result = api
+    //         .change_username("wowowowwoW12222pp*", "bye")
+    //         .send_native_with_token(token_raw.clone())
+    //         .await
+    //         .unwrap();
+    //     match result {
+    //         crate::api::ServerRes::User { username } => {
+    //             assert_eq!(username, "bye");
+    //         }
+    //         wrong => {
+    //             panic!("{}", format!("expected User, got {:?}", wrong));
+    //         }
+    //     }
+    //
+    //     let result = api
+    //         .profile()
+    //         .send_native_with_token(token_raw.clone())
+    //         .await
+    //         .unwrap();
+    //
+    //     match result {
+    //         crate::api::ServerRes::Acc { username, email } => {
+    //             assert_eq!(username, "bye");
+    //         }
+    //         wrong => {
+    //             panic!("{}", format!("expected Acc, got {:?}", wrong));
+    //         }
+    //     }
+    // }
 }

@@ -326,7 +326,10 @@ pub mod path {
 
     use crate::{
         api::EmailChangeStage,
-        view::app::{hook::EmailChangeFormStage, page::settings::{ SelectedForm, UsernameChangeStage}},
+        view::app::{
+            hook::EmailChangeFormStage,
+            page::settings::{SelectedForm, UsernameChangeStage},
+        },
     };
 
     pub const PATH_API: &'static str = "/api";
@@ -341,6 +344,8 @@ pub mod path {
     pub const PATH_API_CHANGE_EMAIL_STATUS: &'static str = "/change_email_status";
     // pub const PATH_API_CHANGE_EMAIL: &'static str = "/change_email";
     pub const PATH_API_SEND_EMAIL_INVITE: &'static str = "/send_email_invite";
+    pub const PATH_API_RESEND_EMAIL_CHANGE: &'static str = "/resend_email_change";
+    pub const PATH_API_RESEND_EMAIL_NEW: &'static str = "/resend_email_new";
     pub const PATH_API_SEND_EMAIL_CHANGE: &'static str = "/send_email_change";
     pub const PATH_API_SEND_EMAIL_NEW: &'static str = "/send_email_new";
     // pub const PATH_API_EMAIL_NEW: &'static str = "/email_change";
@@ -398,45 +403,97 @@ pub mod path {
         PATH_SETTINGS.to_string()
     }
 
-    pub fn link_settings_form_email_current_send() -> String {
-        link_settings_form_email(EmailChangeFormStage::CurrentSendConfirm, None, None)
+    pub fn link_settings_form_email_current_send(stage_error: Option<String>) -> String {
+        link_settings_form_email(
+            EmailChangeFormStage::CurrentSendConfirm,
+            None,
+            None,
+            stage_error,
+        )
     }
 
-    pub fn link_settings_form_email_current_click() -> String {
-        link_settings_form_email(EmailChangeFormStage::CurrentClickConfirm, None, None)
+    pub fn link_settings_form_email_current_click(stage_error: Option<String>) -> String {
+        link_settings_form_email(
+            EmailChangeFormStage::CurrentClickConfirm,
+            None,
+            None,
+            stage_error,
+        )
     }
 
-    pub fn link_settings_form_email_current_confirm(confirm_token: impl Into<String>) -> String {
-        link_settings_form_email(EmailChangeFormStage::CurrentConfirm, None, Some(confirm_token.into()))
+    pub fn link_settings_form_email_current_confirm(
+        confirm_token: impl Into<String>,
+        stage_error: Option<String>,
+    ) -> String {
+        link_settings_form_email(
+            EmailChangeFormStage::CurrentConfirm,
+            None,
+            Some(confirm_token.into()),
+            stage_error,
+        )
     }
 
-    pub fn link_settings_form_email_new_send() -> String {
-        link_settings_form_email(EmailChangeFormStage::NewEnterEmail, None, None)
+    pub fn link_settings_form_email_new_send(stage_error: Option<String>) -> String {
+        link_settings_form_email(EmailChangeFormStage::NewEnterEmail, None, None, stage_error)
     }
 
-    pub fn link_settings_form_email_new_click(new_email: impl Into<String>) -> String {
-        link_settings_form_email(EmailChangeFormStage::NewClickConfirm, Some(new_email.into()), None)
+    pub fn link_settings_form_email_new_click(
+        new_email: impl Into<String>,
+        stage_error: Option<String>,
+    ) -> String {
+        link_settings_form_email(
+            EmailChangeFormStage::NewClickConfirm,
+            Some(new_email.into()),
+            None,
+            stage_error,
+        )
     }
 
-    pub fn link_settings_form_email_new_confirm(new_email: impl Into<String>, confirm_token: impl Into<String>) -> String {
-        link_settings_form_email(EmailChangeFormStage::NewConfirmEmail, Some(new_email.into()), Some(confirm_token.into()))
+    pub fn link_settings_form_email_new_confirm(
+        new_email: impl Into<String>,
+        confirm_token: impl Into<String>,
+        stage_error: Option<String>,
+    ) -> String {
+        link_settings_form_email(
+            EmailChangeFormStage::NewConfirmEmail,
+            Some(new_email.into()),
+            Some(confirm_token.into()),
+            stage_error,
+        )
     }
 
-    pub fn link_settings_form_email_final_confirm(new_email: impl Into<String>) -> String {
-        link_settings_form_email(EmailChangeFormStage::FinalConfirm, Some(new_email.into()), None)
+    pub fn link_settings_form_email_final_confirm(
+        new_email: impl Into<String>,
+        stage_error: Option<String>,
+    ) -> String {
+        link_settings_form_email(
+            EmailChangeFormStage::FinalConfirm,
+            Some(new_email.into()),
+            None,
+            stage_error,
+        )
     }
 
-    pub fn link_settings_form_email_completed(new_email: impl Into<String>) -> String {
-        link_settings_form_email(EmailChangeFormStage::Completed, Some(new_email.into()), None)
+    pub fn link_settings_form_email_completed(
+        new_email: impl Into<String>,
+        stage_error: Option<String>,
+    ) -> String {
+        link_settings_form_email(
+            EmailChangeFormStage::Completed,
+            Some(new_email.into()),
+            None,
+            stage_error,
+        )
     }
 
     pub fn link_settings_form_email(
         stage: EmailChangeFormStage,
         new_email: Option<String>,
         confirm_token: Option<String>,
+        stage_error: Option<String>,
     ) -> String {
         format!(
-            "{}?selected_form={}&email_stage={}{}{}{}{}",
+            "{}?selected_form={}&email_stage={}{}{}{}{}{}{}",
             PATH_SETTINGS,
             SelectedForm::ChangeEmail,
             stage.to_string(),
@@ -452,6 +509,12 @@ pub mod path {
                 ""
             },
             confirm_token.unwrap_or_default(),
+            if stage_error.is_some() {
+                "&stage_error="
+            } else {
+                ""
+            },
+            stage_error.unwrap_or_default(),
         )
     }
 
