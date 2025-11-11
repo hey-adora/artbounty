@@ -405,11 +405,13 @@ pub mod settings {
         // let change_email_step_err = RwSignal::new(String::new());
 
         let change_email = use_change_email(api, change_email_new_email_input);
+        let change_email_info = change_email.get_general_info();
         let change_email_errors = change_email.get_stage_error();
         let change_email_new = change_email.get_email();
         let change_email_form_stage = change_email.get_form_stage();
         let change_email_btn_stage = change_email.get_btn_stage();
         let change_email_run = change_email.get_run();
+        let change_email_cancel = change_email.get_cancel();
         // let change_email_run = change_email.on_email_change.clone();
 
         let on_change_username = {
@@ -492,6 +494,14 @@ pub mod settings {
             }
         };
 
+        // let view_general_info = move || {
+        //     let info = change_email_info();
+        //     let has_info = !info.is_empty();
+        //     view! {
+        //         <div class=move || format!("text-[1rem] text-base0c {}", if has_info { "visible" } else {"hidden"} )> { info } </div>
+        //     }
+        // };
+
         let view_stage_errors = move |stage: EmailChangeFormStage| {
             view! {
                 <div class=move || format!("text-[1rem] text-base08 {}", if change_email_form_stage() == stage { "visible" } else {"hidden"} )>
@@ -523,7 +533,7 @@ pub mod settings {
                         <label for="current_email" class="text-[1.2rem] ">"Email"</label>
                         <div class="flex">
                             <input value=move || global_state.get_email_tracked() id="current_email" name="current_email" disabled type="text" class="bg-base01 text-base0B w-full pl-2 " />
-                            <a href=link_settings_form_email(EmailChangeFormStage::CurrentSendConfirm, None, None, None) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
+                            <a href=link_settings_form_email(EmailChangeFormStage::CurrentSendConfirm, None, None, None, None) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
                         </div>
                     </form>
 
@@ -596,6 +606,13 @@ pub mod settings {
                 <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if get_query_selected_form() == SelectedForm::ChangeEmail { "flex" } else { "hidden" } )>
                     <div class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full gap-[2rem] py-[2rem] border-0 border-base05 bg-base01">
                         <h2 class="text-[1.5rem] text-base0F text-center ">"Email Change"</h2>
+                        { move || {
+                            let info = change_email_info();
+                            let has_info = !info.is_empty();
+                            view! {
+                                <div class=move || format!("text-[1rem] text-center text-base0C {}", if has_info { "visible" } else {"hidden"} )> { info } </div>
+                            }
+                        } }
                         <ol class="text-[1.2rem] list-decimal grid gap-2">
                             <li>
                                 {move || view_current_stage_label(EmailChangeFormStage::CurrentSendConfirm) }
@@ -635,8 +652,10 @@ pub mod settings {
                             </li>
                             <li>
                                 {move || view_current_stage_label(EmailChangeFormStage::FinalConfirm) }
-                                "Final confirm."
-                                <span class="text-base0E">{move || format!("from {} to {}.", get_current_email_or_default(), change_email_new())}</span>
+                                "Final confirm from "
+                                <span class="text-base0E">{move || get_current_email_or_default()}</span>
+                                " to "
+                                <span class="text-base0E">{move || change_email_new()}</span>
                             </li>
                             <li>
                                 <div>
@@ -653,6 +672,9 @@ pub mod settings {
                         </div>
                         <div class=move || format!("w-full flex gap-4 justify-end {}", if api.is_pending_tracked() {"hidden"} else {"visible"})>
                             <a href=link_settings() class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Close"</a>
+                            <form method="POST" action="" on:submit=change_email_cancel class=move || format!(" {}", if change_email_form_stage() > EmailChangeFormStage::CurrentSendConfirm && change_email_form_stage() < EmailChangeFormStage::Completed { "visible" } else { "hidden" })>
+                                <input type="submit" value="Cancel" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
+                            </form>
                             <form method="POST" action="" on:submit=change_email_run class=move || format!(" {}", if change_email_btn_stage() == BtnStage::Resend { "visible" } else { "hidden" })>
                                 <input type="submit" value="Resend" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
                             </form>

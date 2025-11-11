@@ -268,7 +268,7 @@ pub mod app_state {
             to_email: impl Into<String>,
             confim_token: impl Into<String>,
         ) -> Result<(), ServerErr> {
-            let link = link_settings_form_email_current_confirm(confim_token.into(), None);
+            let link = link_settings_form_email_current_confirm(confim_token.into(), None, None);
             let link = format!("{}{}", &self.get_address().await, link);
             self.db
                 .add_sent_email(
@@ -292,7 +292,7 @@ pub mod app_state {
         ) -> Result<(), ServerErr> {
             let to_email = to_email.into();
             let link =
-                link_settings_form_email_new_confirm(to_email.clone(), &confim_token.into(), None);
+                link_settings_form_email_new_confirm(to_email.clone(), &confim_token.into(), None, None);
             let link = format!("{}{}", &self.get_address().await, link,);
             self.db
                 .add_sent_email(
@@ -824,20 +824,21 @@ impl EmailChangeStage {
         &self,
         new_email: Option<String>,
         stage_error: Option<String>,
+        general_info: Option<String>,
     ) -> Result<String, String> {
         match self {
             EmailChangeStage::ConfirmEmail => {
-                Ok(link_settings_form_email_current_click(stage_error))
+                Ok(link_settings_form_email_current_click(stage_error, general_info))
             }
-            EmailChangeStage::EnterNewEmail => Ok(link_settings_form_email_new_send(stage_error)),
+            EmailChangeStage::EnterNewEmail => Ok(link_settings_form_email_new_send(stage_error, general_info)),
             EmailChangeStage::ConfirmNewEmail => new_email
-                .map(|new_email| link_settings_form_email_new_click(new_email, stage_error))
+                .map(|new_email| link_settings_form_email_new_click(new_email, stage_error, general_info))
                 .ok_or("missing email for ConfirmNewEmail".to_string()),
             EmailChangeStage::ReadyToComplete => new_email
-                .map(|new_email| link_settings_form_email_final_confirm(new_email, stage_error))
+                .map(|new_email| link_settings_form_email_final_confirm(new_email, stage_error, general_info))
                 .ok_or("missing email for ReadyToComplete".to_string()),
             EmailChangeStage::Complete => new_email
-                .map(|new_email| link_settings_form_email_completed(new_email, stage_error))
+                .map(|new_email| link_settings_form_email_completed(new_email, stage_error, general_info))
                 .ok_or("missing email for Complete".to_string()),
         }
     }
@@ -1287,6 +1288,9 @@ pub trait Api {
     //         },
     //     )
     // }
+    fn cancel_email_change(&self) -> ApiReq {
+        self.into_req(crate::path::PATH_API_CANCEL_EMAIL_CHANGE, ServerReq::None)
+    }
 
     fn confirm_email_change(&self, confirm_token: impl Into<String>) -> ApiReq {
         self.into_req(
@@ -1520,7 +1524,7 @@ impl ApiReq {
 
     pub fn send_web<F, Fut>(self, fut: F)
     where
-        F: Fn(Result<ServerRes, ServerErr>) -> Fut + 'static,
+        F: FnOnce(Result<ServerRes, ServerErr>) -> Fut + 'static,
         Fut: Future<Output = ()>,
     {
         let req = self.server_req;
@@ -3345,25 +3349,29 @@ mod tests {
 
         pub async fn expect_posts(
             &self,
-            time: u128,
+            server_time: u128,
             post_count_newer: usize,
             post_count_newer_or_equal: usize,
             post_count_older: usize,
             post_count_older_or_equal: usize,
         ) -> Option<()> {
-            let (matched_newer, len_newer) =
-                match self.api.get_posts_newer(time, 1000).send_native().await {
-                    Ok(crate::api::ServerRes::Posts(posts)) => {
-                        let len = posts.len();
-                        let result = len == post_count_newer;
-                        (result, len)
-                    }
-                    wrong => (false, 0),
-                };
+            let (matched_newer, len_newer) = match self
+                .api
+                .get_posts_newer(server_time, 1000)
+                .send_native()
+                .await
+            {
+                Ok(crate::api::ServerRes::Posts(posts)) => {
+                    let len = posts.len();
+                    let result = len == post_count_newer;
+                    (result, len)
+                }
+                wrong => (false, 0),
+            };
 
             let (matched_newer_or_equal, len_newer_or_equal) = match self
                 .api
-                .get_posts_newer_or_equal(time, 1000)
+                .get_posts_newer_or_equal(server_time, 1000)
                 .send_native()
                 .await
             {
@@ -3375,19 +3383,23 @@ mod tests {
                 wrong => (false, 0),
             };
 
-            let (matched_older, len_older) =
-                match self.api.get_posts_older(time, 1000).send_native().await {
-                    Ok(crate::api::ServerRes::Posts(posts)) => {
-                        let len = posts.len();
-                        let result = len == post_count_older;
-                        (result, len)
-                    }
-                    wrong => (false, 0),
-                };
+            let (matched_older, len_older) = match self
+                .api
+                .get_posts_older(server_time, 1000)
+                .send_native()
+                .await
+            {
+                Ok(crate::api::ServerRes::Posts(posts)) => {
+                    let len = posts.len();
+                    let result = len == post_count_older;
+                    (result, len)
+                }
+                wrong => (false, 0),
+            };
 
             let (matched_older_or_equal, len_older_or_equal) = match self
                 .api
-                .get_posts_older_or_equal(time, 1000)
+                .get_posts_older_or_equal(server_time, 1000)
                 .send_native()
                 .await
             {
@@ -3425,12 +3437,12 @@ mod tests {
 
         pub async fn register(
             &self,
-            time: u128,
+            server_time: u128,
             username: impl Into<String>,
             email: impl Into<String>,
             password: impl Into<String>,
         ) -> Option<String> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
             let secret = self.state.get_secret().await;
 
             let username = username.into();
@@ -3471,13 +3483,13 @@ mod tests {
 
         pub async fn register_fail_expired_taken(
             &self,
-            time: u128,
-            time_future: u128,
+            server_time: u128,
+            leap_time: u128,
             username: impl Into<String>,
             email: impl Into<String>,
             password: impl Into<String>,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
             let username = username.into();
             let email = email.into();
             let password = password.into();
@@ -3492,9 +3504,14 @@ mod tests {
             let all = self.state.db.get_invite_all().await.unwrap();
             trace!("----- ALL INVITES ------\n{all:#?}");
 
-            let invite = self.state.db.get_invite_valid(time, email).await.unwrap();
+            let invite = self
+                .state
+                .db
+                .get_invite_valid(server_time, email)
+                .await
+                .unwrap();
 
-            self.set_time(time_future).await;
+            self.set_time(leap_time).await;
 
             let result = self
                 .api
@@ -3508,17 +3525,17 @@ mod tests {
                     ServerRegistrationErr::TokenExpired
                 ))
             );
-            self.set_time(time).await;
+            self.set_time(server_time).await;
 
             if matched { Some(()) } else { None }
         }
 
         pub async fn register_fail_404(
             &self,
-            time: u128,
+            server_time: u128,
             username: impl Into<String>,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
             let username = username.into();
             let email = format!("{username}@hey.com");
             let password = "passworD1%%%";
@@ -3540,12 +3557,12 @@ mod tests {
         }
         pub async fn register_fail_invalid(
             &self,
-            time: u128,
+            server_time: u128,
             username: impl Into<String>,
             email: impl Into<String>,
             password: impl Into<String>,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
             let username = username.into();
             let email = email.into();
             let password = password.into();
@@ -3556,7 +3573,12 @@ mod tests {
                 .send_native()
                 .await
                 .unwrap();
-            let invite = self.state.db.get_invite_valid(time, email).await.unwrap();
+            let invite = self
+                .state
+                .db
+                .get_invite_valid(server_time, email)
+                .await
+                .unwrap();
 
             let result = self
                 .api
@@ -3580,8 +3602,12 @@ mod tests {
             if matched { Some(()) } else { None }
         }
 
-        pub async fn is_logged_in(&self, time: u128, auth_token: impl AsRef<str>) -> Option<()> {
-            self.set_time(time).await;
+        pub async fn is_logged_in(
+            &self,
+            server_time: u128,
+            auth_token: impl AsRef<str>,
+        ) -> Option<()> {
+            self.set_time(server_time).await;
 
             let result = self.api.profile().send_native_with_token(&auth_token).await;
             let matched = match result {
@@ -3592,8 +3618,12 @@ mod tests {
             if matched { Some(()) } else { None }
         }
 
-        pub async fn is_logged_out(&self, time: u128, auth_token: impl AsRef<str>) -> Option<()> {
-            self.set_time(time).await;
+        pub async fn is_logged_out(
+            &self,
+            server_time: u128,
+            auth_token: impl AsRef<str>,
+        ) -> Option<()> {
+            self.set_time(server_time).await;
 
             let result = self.api.profile().send_native_with_token(&auth_token).await;
             let matched = result
@@ -3604,8 +3634,8 @@ mod tests {
             if matched { Some(()) } else { None }
         }
 
-        pub async fn logout(&self, time: u128, auth_token: impl AsRef<str>) -> Option<()> {
-            self.set_time(time).await;
+        pub async fn logout(&self, server_time: u128, auth_token: impl AsRef<str>) -> Option<()> {
+            self.set_time(server_time).await;
 
             let result = self.api.logout().send_native_with_token(&auth_token).await;
 
@@ -3619,11 +3649,11 @@ mod tests {
 
         pub async fn login(
             &self,
-            time: u128,
+            server_time: u128,
             email: impl Into<String>,
             password: impl Into<String>,
         ) -> Option<String> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
 
             let email = email.into();
             let password = password.into();
@@ -3640,10 +3670,10 @@ mod tests {
 
         pub async fn req_email_change(
             &self,
-            time: u128,
+            server_time: u128,
             auth_token: impl AsRef<str>,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
 
             let result = self
                 .api
@@ -3662,10 +3692,10 @@ mod tests {
 
         pub async fn req_email_change_fail_stage(
             &self,
-            time: u128,
+            server_time: u128,
             auth_token: impl AsRef<str>,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
 
             let result = self
                 .api
@@ -3682,11 +3712,11 @@ mod tests {
 
         pub async fn req_email_new(
             &self,
-            time: u128,
+            server_time: u128,
             auth_token: impl AsRef<str>,
             new_email: impl AsRef<str>,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
 
             let result = self
                 .api
@@ -3705,11 +3735,11 @@ mod tests {
 
         pub async fn req_email_new_fail_taken(
             &self,
-            time: u128,
+            server_time: u128,
             auth_token: impl AsRef<str>,
             new_email: impl AsRef<str>,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
 
             let result = self
                 .api
@@ -3729,11 +3759,11 @@ mod tests {
 
         pub async fn req_email_new_fail_stage(
             &self,
-            time: u128,
+            server_time: u128,
             auth_token: impl AsRef<str>,
             new_email: impl AsRef<str>,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
 
             let result = self
                 .api
@@ -3753,11 +3783,11 @@ mod tests {
 
         pub async fn req_email_new_fail_invalid(
             &self,
-            time: u128,
+            server_time: u128,
             auth_token: impl AsRef<str>,
             new_email: impl AsRef<str>,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
 
             let result = self
                 .api
@@ -3775,11 +3805,11 @@ mod tests {
 
         pub async fn req_email_change_complete(
             &self,
-            time: u128,
+            server_time: u128,
             auth_token: impl AsRef<str>,
             new_email: impl AsRef<str>,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
 
             let result = self
                 .api
@@ -3798,11 +3828,11 @@ mod tests {
 
         pub async fn confirm_email_change(
             &self,
-            time: u128,
+            server_time: u128,
             auth_token: impl AsRef<str>,
             db_user: &DBUser,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
 
             let confirm_token = self
                 .state
@@ -3827,11 +3857,11 @@ mod tests {
 
         pub async fn confirm_email_change_fail_stage(
             &self,
-            time: u128,
+            server_time: u128,
             auth_token: impl AsRef<str>,
             db_user: &DBUser,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
 
             let result = self
                 .api
@@ -3851,11 +3881,11 @@ mod tests {
 
         pub async fn confirm_email_change_fail_invalid(
             &self,
-            time: u128,
+            server_time: u128,
             auth_token: impl AsRef<str>,
             db_user: &DBUser,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
 
             let confirm_token = self.state.db.get_email_change(0, db_user.id.clone()).await;
 
@@ -3880,12 +3910,12 @@ mod tests {
         }
         pub async fn confirm_email_new(
             &self,
-            time: u128,
+            serevr_time: u128,
             auth_token: impl AsRef<str>,
             db_user: &DBUser,
             new_email: impl AsRef<str>,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(serevr_time).await;
 
             let confirm_token = self
                 .state
@@ -3910,11 +3940,11 @@ mod tests {
 
         pub async fn confirm_email_new_fail_stage(
             &self,
-            time: u128,
+            server_time: u128,
             auth_token: impl AsRef<str>,
             db_user: &DBUser,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
 
             let result = self
                 .api
@@ -3934,11 +3964,11 @@ mod tests {
 
         pub async fn confirm_email_new_fail_invalid(
             &self,
-            time: u128,
+            server_time: u128,
             auth_token: impl AsRef<str>,
             db_user: &DBUser,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
 
             let result = self
                 .api
@@ -3958,12 +3988,12 @@ mod tests {
 
         pub async fn status_email_change(
             &self,
-            time: u128,
+            server_time: u128,
             auth_token: impl AsRef<str>,
             expected_status: Option<EmailChangeStage>,
             expected_email: Option<String>,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
 
             let result = self
                 .api
@@ -3989,12 +4019,12 @@ mod tests {
 
         pub async fn resend_change(
             &self,
-            time: u128,
+            server_time: u128,
             auth_token: impl AsRef<str>,
             expected_rec_email: impl Into<String>,
             expected_new_email: Option<String>,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
 
             let result = self
                 .api
@@ -4023,12 +4053,12 @@ mod tests {
 
         pub async fn resend_new(
             &self,
-            time: u128,
+            server_time: u128,
             auth_token: impl AsRef<str>,
             expected_rec_email: impl Into<String>,
             expected_new_email: Option<String>,
         ) -> Option<()> {
-            self.set_time(time).await;
+            self.set_time(server_time).await;
 
             let result = self
                 .api
@@ -4052,6 +4082,22 @@ mod tests {
             // let db_matched = db_result.map(|v| v.body.contains("a"));
 
             if matched { Some(()) } else { None }
+        }
+
+        pub async fn cancel_email_change(
+            &self,
+            server_time: u128,
+            auth_token: impl AsRef<str>,
+        ) -> anyhow::Result<()> {
+            self.set_time(server_time).await;
+
+            let result = self
+                .api
+                .cancel_email_change()
+                .send_native_with_token(auth_token)
+                .await?;
+
+            Ok(())
         }
     }
 
@@ -4078,7 +4124,6 @@ mod tests {
         app.status_email_change(0, &auth_token, None, None)
             .await
             .unwrap();
-
         app.req_email_new_fail_invalid(0, &auth_token, "hey3@hey.com")
             .await;
         app.confirm_email_new_fail_invalid(0, &auth_token, &db_user)
@@ -4086,7 +4131,12 @@ mod tests {
         app.confirm_email_change_fail_invalid(0, &auth_token, &db_user)
             .await;
 
-        // ###
+        // ### START
+        app.req_email_change(0, &auth_token).await.unwrap();
+        app.req_email_change_fail_stage(0, &auth_token)
+            .await
+            .unwrap();
+        app.cancel_email_change(0, &auth_token).await.unwrap();
         app.req_email_change(0, &auth_token).await.unwrap();
 
         app.req_email_new_fail_stage(0, &auth_token, "hey3@hey.com")
