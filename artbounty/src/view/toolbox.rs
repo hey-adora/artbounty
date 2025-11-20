@@ -5,10 +5,147 @@ pub mod prelude {
     pub use super::file::{self, GetFileStream, GetFiles, GetStreamChunk, PushChunkToVec};
     pub use super::intersection_observer::{self, AddIntersectionObserver, IntersectionOptions};
     pub use super::interval::{self};
+    pub use super::leptos_helpers::{FnGet, Hidden, QueryFn, ToFnOne, ToFnZero};
     pub use super::mutation_observer::{self, AddMutationObserver, MutationObserverOptions};
     pub use super::random::{random_u8, random_u32, random_u32_ranged, random_u64};
     pub use super::resize_observer::{self, AddResizeObserver, GetContentBoxSize};
     pub use super::url::set_query;
+}
+
+pub mod leptos_helpers {
+    use leptos::prelude::*;
+
+    // pub trait ToFnVoid<'a> {
+    //     fn to_fn(&self)
+    //     -> impl Fn()+ Send + Sync + Clone + Copy + 'static + use<'a, Self>;
+    // }
+    //
+    // impl<'a> ToFnVoid<'a> for StoredValue<Box<dyn Fn() + Sync + Send + 'static>> {
+    //     fn to_fn(&self) -> impl Fn() + Send + Sync + Clone + Copy + 'static + use<'a> {
+    //         let f = self.clone();
+    //         move || (f.read_value())()
+    //     }
+    //pub trait FnGet<T: Send + Sync + Clone + 'static> {
+    // }
+    pub trait Hidden {
+        fn hide_if_true(&self) -> &'static str;
+        fn hide_if_false(&self) -> &'static str;
+    }
+
+    impl<T: FnGet<bool>> Hidden for T {
+        fn hide_if_true(&self) -> &'static str {
+            if self.get() { "hidden" } else {"visible"}
+        }
+        fn hide_if_false(&self) -> &'static str {
+            if self.get() { "visible" } else {"hidden"}
+        }
+    }
+
+    pub trait QueryFn<'a, M, T: 'static> {
+        fn to_query_fn<F: Fn(M) -> T + Send + Sync + Copy + 'static>(
+            &self,
+            f: F,
+        ) -> impl Fn() -> T + Send + Sync + Clone + Copy + 'static + use<'a, Self, M, T, F>
+        where
+            Self: Sized;
+    }
+
+    impl<'a, M: 'static + Send + Sync + Clone, T: 'static> QueryFn<'a, M, T> for Memo<M> {
+        fn to_query_fn<F: Fn(M) -> T + Send + Sync + Copy + 'static>(
+            &self,
+            f: F,
+        ) -> impl Fn() -> T + Send + Sync + Clone + Copy + 'static + use<'a, T, F, M>
+        where
+            Self: Sized,
+        {
+            let s = self.clone();
+            move || f(s.get())
+        }
+    }
+
+    // pub trait QueryFnOrDefault<'a, M, T: 'static> {
+    //     fn to_query_fn_default<F: Fn(M) -> T + Send + Sync + Copy + 'static>(
+    //         &self,
+    //         f: F,
+    //     ) -> impl Fn() -> T + Send + Sync + Clone + Copy + 'static + use<'a, Self, M, T, F>
+    //     where
+    //         Self: Sized;
+    // }
+    //
+    // impl<'a, M: 'static + Send + Sync + Clone, T: 'static> QueryFnOrDefault<'a, M, T> for Memo<M> {
+    //     fn to_query_fn_default<F: Fn(M) -> T + Send + Sync + Copy + 'static>(
+    //         &self,
+    //         f: F,
+    //     ) -> impl Fn() -> T + Send + Sync + Clone + Copy + 'static + use<'a, Self, M, T, F>
+    //     where
+    //         Self: Sized,
+    //     {
+    //         //
+    //     }
+    // }
+
+    pub trait FnGet<T: Send + Sync + Clone + 'static> {
+        fn get(&self) -> T;
+    }
+
+    impl<T: Send + Sync + Clone + 'static> FnGet<T>
+        for StoredValue<Box<dyn Fn() -> T + Sync + Send + 'static>>
+    {
+        fn get(&self) -> T {
+            self.to_fn()()
+        }
+    }
+
+    pub trait ToFnZero<'a, T: 'static> {
+        fn to_fn(&self)
+        -> impl Fn() -> T + Send + Sync + Clone + Copy + 'static + use<'a, Self, T>;
+    }
+
+    impl<'a, T: 'static> ToFnZero<'a, T> for StoredValue<Box<dyn Fn() -> T + Sync + Send + 'static>> {
+        fn to_fn(&self) -> impl Fn() -> T + Send + Sync + Clone + Copy + 'static + use<'a, T> {
+            let f = self.clone();
+            move || (f.read_value())()
+        }
+    }
+
+    pub trait ToFnOne<'a, T: 'static, P1> {
+        fn to_fn(
+            &self,
+        ) -> impl Fn(P1) -> T + Send + Sync + Clone + Copy + 'static + use<'a, Self, T, P1>;
+    }
+
+    impl<'a, T: 'static, P1: 'static> ToFnOne<'a, T, P1>
+        for StoredValue<Box<dyn Fn(P1) -> T + Sync + Send + 'static>>
+    {
+        fn to_fn(
+            &self,
+        ) -> impl Fn(P1) -> T + Send + Sync + Clone + Copy + 'static + use<'a, T, P1> {
+            let f = self.clone();
+            move |v: P1| (f.read_value())(v)
+        }
+    }
+
+    pub trait ToFnTwo<'a, T: 'static, P1, P2> {
+        fn to_fn(
+            &self,
+        ) -> impl Fn(P1, P2) -> T + Send + Sync + Clone + Copy + 'static + use<'a, Self, T, P1, P2>;
+    }
+
+    fn foo() {
+        let v: StoredValue<Box<dyn Fn() -> String + Sync + Send + 'static>> =
+            StoredValue::new(Box::new(Box::new(move || String::new())));
+        let a = v.to_fn();
+
+        let v: StoredValue<Box<dyn Fn(u64) -> String + Sync + Send + 'static>> =
+            StoredValue::new(Box::new(Box::new(move |v: u64| String::new())));
+        let a = v.to_fn();
+
+        let v: StoredValue<Box<dyn Fn(u64) + Sync + Send + 'static>> =
+            StoredValue::new(Box::new(Box::new(move |v: u64| {
+                //
+            })));
+        let a = v.to_fn();
+    }
 }
 
 pub mod api {
@@ -364,6 +501,7 @@ pub mod interval {
         }
     }
 
+    // TODO remove this bs
     impl IntervalHandle {
         pub fn new() -> Self {
             Self(StoredValue::new(None))

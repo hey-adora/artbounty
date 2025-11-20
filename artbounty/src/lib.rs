@@ -9,6 +9,24 @@ pub mod api;
 pub mod db;
 pub mod view;
 
+pub fn get_timestamp() -> u128 {
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "ssr")] {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+            time.as_nanos()
+        } else {
+            use wasm_bindgen::JsValue;
+            use web_sys::js_sys::Date;
+            // let time = Date::new(&JsValue::null());
+            let time = Date::new_0();
+            let time = time.get_time() as u64;
+            let time = time as u128 * 1000000;
+            time
+        }
+    }
+}
+
 pub mod valid {
     use tracing::trace;
 
@@ -405,6 +423,7 @@ pub mod path {
     }
 
     pub fn link_settings_form_email_current_send(
+        expires: u128,
         stage_error: Option<String>,
         general_info: Option<String>,
     ) -> String {
@@ -414,10 +433,12 @@ pub mod path {
             None,
             stage_error,
             general_info,
+            Some(expires),
         )
     }
 
     pub fn link_settings_form_email_current_click(
+        expires: u128,
         stage_error: Option<String>,
         general_info: Option<String>,
     ) -> String {
@@ -427,10 +448,12 @@ pub mod path {
             None,
             stage_error,
             general_info,
+            Some(expires),
         )
     }
 
     pub fn link_settings_form_email_current_confirm(
+        expires: u128,
         confirm_token: impl Into<String>,
         stage_error: Option<String>,
         general_info: Option<String>,
@@ -441,10 +464,12 @@ pub mod path {
             Some(confirm_token.into()),
             stage_error,
             general_info,
+            Some(expires),
         )
     }
 
     pub fn link_settings_form_email_new_send(
+        expires: u128,
         stage_error: Option<String>,
 
         general_info: Option<String>,
@@ -455,10 +480,12 @@ pub mod path {
             None,
             stage_error,
             general_info,
+            Some(expires),
         )
     }
 
     pub fn link_settings_form_email_new_click(
+        expires: u128,
         new_email: impl Into<String>,
         stage_error: Option<String>,
         general_info: Option<String>,
@@ -469,10 +496,12 @@ pub mod path {
             None,
             stage_error,
             general_info,
+            Some(expires),
         )
     }
 
     pub fn link_settings_form_email_new_confirm(
+        expires: u128,
         new_email: impl Into<String>,
         confirm_token: impl Into<String>,
         stage_error: Option<String>,
@@ -484,10 +513,12 @@ pub mod path {
             Some(confirm_token.into()),
             stage_error,
             general_info,
+            Some(expires),
         )
     }
 
     pub fn link_settings_form_email_final_confirm(
+        expires: u128,
         new_email: impl Into<String>,
         stage_error: Option<String>,
         general_info: Option<String>,
@@ -498,10 +529,12 @@ pub mod path {
             None,
             stage_error,
             general_info,
+            Some(expires),
         )
     }
 
     pub fn link_settings_form_email_completed(
+        expires: u128,
         new_email: impl Into<String>,
         stage_error: Option<String>,
         general_info: Option<String>,
@@ -512,6 +545,7 @@ pub mod path {
             None,
             stage_error,
             general_info,
+            Some(expires),
         )
     }
 
@@ -528,9 +562,10 @@ pub mod path {
         confirm_token: Option<String>,
         stage_error: Option<String>,
         general_info: Option<String>,
+        expires: Option<u128>,
     ) -> String {
         format!(
-            "{}?selected_form={}&email_stage={}{}{}{}{}{}{}{}{}",
+            "{}?selected_form={}&email_stage={}{}{}{}{}{}{}{}{}{}",
             PATH_SETTINGS,
             SelectedForm::ChangeEmail,
             stage.to_string(),
@@ -558,6 +593,10 @@ pub mod path {
                 ""
             },
             general_info.unwrap_or_default(),
+            match expires {
+                Some(v) => format!("&expires={v}"),
+                None => "".to_string()
+            }
         )
     }
 

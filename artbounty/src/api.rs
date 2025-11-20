@@ -28,11 +28,10 @@ pub mod app_state {
     use crate::{
         api::{
             EmailChangeNewErr, EmailChangeStage, EmailToken, ServerErr, ServerTokenErr,
-            clock::{Clock, get_nanos, get_timestamp},
-            encode_token,
-            settings::Settings,
+            clock::Clock, encode_token, settings::Settings,
         },
         db::{self, DB404Err, DBEmailChange, DBSentEmailReason, DBUser, DbEngine},
+        get_timestamp,
         path::{link_settings_form_email_current_confirm, link_settings_form_email_new_confirm},
     };
 
@@ -47,7 +46,7 @@ pub mod app_state {
         pub async fn new(time: u128) -> Self {
             let settings = Settings::new_from_file();
             let db = db::new_local(time, &settings.db.path).await;
-            let f = move || async move { get_nanos() };
+            let f = move || async move { get_timestamp() };
             let clock = Clock::new(f);
 
             Self {
@@ -267,8 +266,14 @@ pub mod app_state {
             time: u128,
             to_email: impl Into<String>,
             confim_token: impl Into<String>,
+            expires: impl Into<u128>,
         ) -> Result<(), ServerErr> {
-            let link = link_settings_form_email_current_confirm(confim_token.into(), None, None);
+            let link = link_settings_form_email_current_confirm(
+                expires.into(),
+                confim_token.into(),
+                None,
+                None,
+            );
             let link = format!("{}{}", &self.get_address().await, link);
             self.db
                 .add_sent_email(
@@ -289,10 +294,16 @@ pub mod app_state {
             time: u128,
             to_email: impl Into<String>,
             confim_token: impl Into<String>,
+            expires: impl Into<u128>,
         ) -> Result<(), ServerErr> {
             let to_email = to_email.into();
-            let link =
-                link_settings_form_email_new_confirm(to_email.clone(), &confim_token.into(), None, None);
+            let link = link_settings_form_email_new_confirm(
+                expires.into(),
+                to_email.clone(),
+                &confim_token.into(),
+                None,
+                None,
+            );
             let link = format!("{}{}", &self.get_address().await, link,);
             self.db
                 .add_sent_email(
@@ -409,20 +420,14 @@ pub mod clock {
         // }
     }
 
-    #[cfg(feature = "ssr")]
-    pub fn get_timestamp() -> std::time::Duration {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap()
-    }
-
-    #[cfg(feature = "ssr")]
-    pub fn get_nanos() -> u128 {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    }
+    // #[cfg(feature = "ssr")]
+    // pub fn get_nanos() -> u128 {
+    //     use std::time::{SystemTime, UNIX_EPOCH};
+    //     SystemTime::now()
+    //         .duration_since(UNIX_EPOCH)
+    //         .unwrap()
+    //         .as_nanos()
+    // }
 }
 
 derive_alias! {
@@ -527,6 +532,7 @@ pub enum ServerRes {
     EmailChangeStage {
         stage: Option<EmailChangeStage>,
         new_email: Option<String>,
+        expires: Option<u128>,
     },
     Ok,
 }
@@ -822,23 +828,51 @@ pub enum EmailChangeStage {
 impl EmailChangeStage {
     pub fn link(
         &self,
+        expires: u128,
         new_email: Option<String>,
         stage_error: Option<String>,
         general_info: Option<String>,
     ) -> Result<String, String> {
         match self {
-            EmailChangeStage::ConfirmEmail => {
-                Ok(link_settings_form_email_current_click(stage_error, general_info))
-            }
-            EmailChangeStage::EnterNewEmail => Ok(link_settings_form_email_new_send(stage_error, general_info)),
+            EmailChangeStage::ConfirmEmail => Ok(link_settings_form_email_current_click(
+                expires,
+                stage_error,
+                general_info,
+            )),
+            EmailChangeStage::EnterNewEmail => Ok(link_settings_form_email_new_send(
+                expires,
+                stage_error,
+                general_info,
+            )),
             EmailChangeStage::ConfirmNewEmail => new_email
-                .map(|new_email| link_settings_form_email_new_click(new_email, stage_error, general_info))
+                .map(|new_email| {
+                    link_settings_form_email_new_click(
+                        expires,
+                        new_email,
+                        stage_error,
+                        general_info,
+                    )
+                })
                 .ok_or("missing email for ConfirmNewEmail".to_string()),
             EmailChangeStage::ReadyToComplete => new_email
-                .map(|new_email| link_settings_form_email_final_confirm(new_email, stage_error, general_info))
+                .map(|new_email| {
+                    link_settings_form_email_final_confirm(
+                        expires,
+                        new_email,
+                        stage_error,
+                        general_info,
+                    )
+                })
                 .ok_or("missing email for ReadyToComplete".to_string()),
             EmailChangeStage::Complete => new_email
-                .map(|new_email| link_settings_form_email_completed(new_email, stage_error, general_info))
+                .map(|new_email| {
+                    link_settings_form_email_completed(
+                        expires,
+                        new_email,
+                        stage_error,
+                        general_info,
+                    )
+                })
                 .ok_or("missing email for Complete".to_string()),
         }
     }
@@ -2228,6 +2262,7 @@ pub mod backend {
         Ok(ServerRes::EmailChangeStage {
             stage: Some(EmailChangeStage::Complete),
             new_email: Some(new.email.clone()),
+            expires: Some(email_change.expires),
         })
     }
 
@@ -2744,6 +2779,7 @@ pub mod backend {
         Ok(ServerRes::EmailChangeStage {
             stage: Some(stage),
             new_email: None,
+            expires: Some(email_change.expires),
         })
     }
 
@@ -2792,6 +2828,7 @@ pub mod backend {
         Ok(ServerRes::EmailChangeStage {
             stage: Some(stage),
             new_email: email_change.new.map(|v| v.email),
+            expires: Some(email_change.expires),
         })
     }
 
@@ -2842,12 +2879,14 @@ pub mod backend {
             time,
             email_change.current.email,
             email_change.current.token_raw,
+            email_change.expires,
         )
         .await?;
 
         Ok(ServerRes::EmailChangeStage {
             stage: Some(stage),
             new_email: email_change.new.as_ref().map(|v| v.email.clone()),
+            expires: Some(email_change.expires),
         })
     }
 
@@ -2878,12 +2917,18 @@ pub mod backend {
         )?;
         let new_email = email_change.new.unwrap().email;
 
-        app.send_email_new(time, new_email.clone(), email_change.current.token_raw)
-            .await?;
+        app.send_email_new(
+            time,
+            new_email.clone(),
+            email_change.current.token_raw,
+            email_change.expires,
+        )
+        .await?;
 
         Ok(ServerRes::EmailChangeStage {
             stage: Some(stage),
             new_email: Some(new_email.clone()),
+            expires: Some(email_change.expires),
         })
     }
 
@@ -2910,6 +2955,7 @@ pub mod backend {
         Ok(ServerRes::EmailChangeStage {
             stage: Some(EmailChangeStage::Complete),
             new_email: None,
+            expires: Some(email_change.expires),
         })
     }
 
@@ -2927,6 +2973,7 @@ pub mod backend {
             new_email: stage
                 .as_ref()
                 .and_then(|v| v.0.new.as_ref().map(|v| v.email.clone())),
+            expires: stage.as_ref().map(|v| v.0.expires),
         })
     }
 
@@ -2962,12 +3009,14 @@ pub mod backend {
             time,
             email_change.current.email,
             email_change.current.token_raw,
+            email_change.expires,
         )
         .await?;
 
         Ok(ServerRes::EmailChangeStage {
             stage: Some(stage),
             new_email: None,
+            expires: Some(email_change.expires),
         })
     }
 
@@ -3016,14 +3065,20 @@ pub mod backend {
             .new
             .as_ref()
             .ok_or_else(|| EmailChangeNewErr::InvalidStage(format!("expected NewConfirm")))?;
-        app.send_email_new(time, email.clone(), token.token_raw.clone())
-            .await?;
+        app.send_email_new(
+            time,
+            email.clone(),
+            token.token_raw.clone(),
+            email_change.expires,
+        )
+        .await?;
 
         let stage = EmailChangeStage::from(&result);
 
         Ok(ServerRes::EmailChangeStage {
             stage: Some(stage),
             new_email: Some(email),
+            expires: Some(email_change.expires),
         })
     }
 
@@ -3672,6 +3727,7 @@ mod tests {
             &self,
             server_time: u128,
             auth_token: impl AsRef<str>,
+            expires: u128,
         ) -> Option<()> {
             self.set_time(server_time).await;
 
@@ -3685,6 +3741,7 @@ mod tests {
                 == Ok(ServerRes::EmailChangeStage {
                     stage: Some(EmailChangeStage::ConfirmEmail),
                     new_email: None,
+                    expires: Some(expires),
                 });
 
             if matched { Some(()) } else { None }
@@ -3715,6 +3772,7 @@ mod tests {
             server_time: u128,
             auth_token: impl AsRef<str>,
             new_email: impl AsRef<str>,
+            expires: u128,
         ) -> Option<()> {
             self.set_time(server_time).await;
 
@@ -3728,6 +3786,7 @@ mod tests {
                 == Ok(ServerRes::EmailChangeStage {
                     stage: Some(EmailChangeStage::ConfirmNewEmail),
                     new_email: Some(new_email.as_ref().to_string()),
+                    expires: Some(expires),
                 });
 
             if matched { Some(()) } else { None }
@@ -3808,6 +3867,7 @@ mod tests {
             server_time: u128,
             auth_token: impl AsRef<str>,
             new_email: impl AsRef<str>,
+            expires: u128,
         ) -> Option<()> {
             self.set_time(server_time).await;
 
@@ -3821,6 +3881,7 @@ mod tests {
                 == Ok(ServerRes::EmailChangeStage {
                     stage: Some(EmailChangeStage::Complete),
                     new_email: Some(new_email.as_ref().to_string()),
+                    expires: Some(expires),
                 });
 
             if matched { Some(()) } else { None }
@@ -3831,6 +3892,7 @@ mod tests {
             server_time: u128,
             auth_token: impl AsRef<str>,
             db_user: &DBUser,
+            expires: u128,
         ) -> Option<()> {
             self.set_time(server_time).await;
 
@@ -3851,6 +3913,7 @@ mod tests {
                 == Ok(ServerRes::EmailChangeStage {
                     stage: Some(EmailChangeStage::EnterNewEmail),
                     new_email: None,
+                    expires: Some(expires),
                 });
             if matched { Some(()) } else { None }
         }
@@ -3914,6 +3977,7 @@ mod tests {
             auth_token: impl AsRef<str>,
             db_user: &DBUser,
             new_email: impl AsRef<str>,
+            expires: u128,
         ) -> Option<()> {
             self.set_time(serevr_time).await;
 
@@ -3934,6 +3998,7 @@ mod tests {
                 == Ok(ServerRes::EmailChangeStage {
                     stage: Some(EmailChangeStage::ReadyToComplete),
                     new_email: Some(new_email.as_ref().to_string()),
+                    expires: Some(expires),
                 });
             if matched { Some(()) } else { None }
         }
@@ -3992,6 +4057,7 @@ mod tests {
             auth_token: impl AsRef<str>,
             expected_status: Option<EmailChangeStage>,
             expected_email: Option<String>,
+            expires: Option<u128>,
         ) -> Option<()> {
             self.set_time(server_time).await;
 
@@ -4001,11 +4067,15 @@ mod tests {
                 .send_native_with_token(auth_token.as_ref())
                 .await;
 
-            let matched = result
-                == Ok(ServerRes::EmailChangeStage {
-                    stage: expected_status,
-                    new_email: expected_email,
-                });
+            let expected = Ok(ServerRes::EmailChangeStage {
+                stage: expected_status,
+                new_email: expected_email,
+                expires: expires,
+            });
+            let matched = result == expected;
+            if !matched {
+                error!("{result:#?} != {expected:#?}");
+            }
             // assert_eq!(result, );
             // let matched = matches!(
             //     result,
@@ -4023,6 +4093,7 @@ mod tests {
             auth_token: impl AsRef<str>,
             expected_rec_email: impl Into<String>,
             expected_new_email: Option<String>,
+            expires: u128,
         ) -> Option<()> {
             self.set_time(server_time).await;
 
@@ -4036,6 +4107,7 @@ mod tests {
                 == Ok(ServerRes::EmailChangeStage {
                     stage: Some(EmailChangeStage::ConfirmEmail),
                     new_email: expected_new_email,
+                    expires: Some(expires),
                 });
 
             let db_result = self
@@ -4057,6 +4129,7 @@ mod tests {
             auth_token: impl AsRef<str>,
             expected_rec_email: impl Into<String>,
             expected_new_email: Option<String>,
+            expires: u128,
         ) -> Option<()> {
             self.set_time(server_time).await;
 
@@ -4070,6 +4143,7 @@ mod tests {
                 == Ok(ServerRes::EmailChangeStage {
                     stage: Some(EmailChangeStage::ConfirmNewEmail),
                     new_email: expected_new_email,
+                    expires: Some(expires),
                 });
 
             // let db_result = self
@@ -4121,7 +4195,7 @@ mod tests {
             .unwrap();
         let db_user = app.state.db.get_user_by_username("hey").await.unwrap();
 
-        app.status_email_change(0, &auth_token, None, None)
+        app.status_email_change(0, &auth_token, None, None, None)
             .await
             .unwrap();
         app.req_email_new_fail_invalid(0, &auth_token, "hey3@hey.com")
@@ -4132,25 +4206,31 @@ mod tests {
             .await;
 
         // ### START
-        app.req_email_change(0, &auth_token).await.unwrap();
+        app.req_email_change(0, &auth_token, 1).await.unwrap();
         app.req_email_change_fail_stage(0, &auth_token)
             .await
             .unwrap();
         app.cancel_email_change(0, &auth_token).await.unwrap();
-        app.req_email_change(0, &auth_token).await.unwrap();
+        app.req_email_change(0, &auth_token, 1).await.unwrap();
 
         app.req_email_new_fail_stage(0, &auth_token, "hey3@hey.com")
             .await
             .unwrap();
-        app.status_email_change(0, &auth_token, Some(EmailChangeStage::ConfirmEmail), None)
-            .await
-            .unwrap();
-        app.resend_change(0, &auth_token, "hey@heyadora.com", None)
+        app.status_email_change(
+            0,
+            &auth_token,
+            Some(EmailChangeStage::ConfirmEmail),
+            None,
+            Some(1),
+        )
+        .await
+        .unwrap();
+        app.resend_change(0, &auth_token, "hey@heyadora.com", None, 1)
             .await
             .unwrap();
 
         // ###
-        app.confirm_email_change(0, &auth_token, &db_user)
+        app.confirm_email_change(0, &auth_token, &db_user, 1)
             .await
             .unwrap();
 
@@ -4160,12 +4240,18 @@ mod tests {
         app.req_email_new_fail_taken(0, &auth_token, "hey3@heyadora.com")
             .await
             .unwrap();
-        app.status_email_change(0, &auth_token, Some(EmailChangeStage::EnterNewEmail), None)
-            .await
-            .unwrap();
+        app.status_email_change(
+            0,
+            &auth_token,
+            Some(EmailChangeStage::EnterNewEmail),
+            None,
+            Some(1),
+        )
+        .await
+        .unwrap();
 
         // ###
-        app.req_email_new(0, &auth_token, "hey2@hey.com")
+        app.req_email_new(0, &auth_token, "hey2@hey.com", 1)
             .await
             .unwrap();
 
@@ -4177,6 +4263,7 @@ mod tests {
             &auth_token,
             Some(EmailChangeStage::ConfirmNewEmail),
             Some("hey2@hey.com".to_string()),
+            Some(1),
         )
         .await
         .unwrap();
@@ -4185,12 +4272,13 @@ mod tests {
             &auth_token,
             "hey@heyadora.com",
             Some("hey2@hey.com".to_string()),
+            1,
         )
         .await
         .unwrap();
 
         // ###
-        app.confirm_email_new(0, &auth_token, &db_user, "hey2@hey.com")
+        app.confirm_email_new(0, &auth_token, &db_user, "hey2@hey.com", 1)
             .await
             .unwrap();
 
@@ -4202,12 +4290,13 @@ mod tests {
             &auth_token,
             Some(EmailChangeStage::ReadyToComplete),
             Some("hey2@hey.com".to_string()),
+            Some(1),
         )
         .await
         .unwrap();
 
         // ###
-        app.req_email_change_complete(0, &auth_token, "hey2@hey.com")
+        app.req_email_change_complete(0, &auth_token, "hey2@hey.com", 1)
             .await
             .unwrap();
 
@@ -4220,7 +4309,7 @@ mod tests {
         app.req_email_new_fail_stage(0, &auth_token, "hey2@hey.com")
             .await
             .unwrap();
-        app.status_email_change(0, &auth_token, None, None)
+        app.status_email_change(0, &auth_token, None, None, None)
             .await
             .unwrap();
     }
