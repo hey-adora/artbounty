@@ -45,6 +45,7 @@ ab_glyph = "0.2.31"
 webp = "0.3.0"
 resend-rs = "0.15.0"
 chrono = { version = "0.4.41", features = ["rkyv", "rkyv-validation"] }
+humantime = "2.3.0"
 config = "0.15.14"
 bytes = "1"
 biscotti = "0.4.0"
