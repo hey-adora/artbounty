@@ -73,6 +73,7 @@ pub enum EmailChangeFormStage {
     Completed,
 }
 
+
 impl EmailChangeFormStage {
     pub fn link(
         &self,
@@ -86,7 +87,7 @@ impl EmailChangeFormStage {
         let err_email = String::from("missing email");
         let link = match self {
             Self::CurrentSendConfirm => {
-                link_settings_form_email_current_send(expires, stage_error, general_info)
+                link_settings_form_email_current_send(stage_error, general_info)
             }
             Self::CurrentClickConfirm => {
                 link_settings_form_email_current_click(expires, stage_error, general_info)
@@ -384,11 +385,7 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
             {
                 api.change_email_status().send_web(async move |result| {
                     let result = match result {
-                        Ok(ServerRes::EmailChangeStage {
-                            stage,
-                            new_email,
-                            expires,
-                        }) => Ok((stage, new_email, expires.unwrap_or_default())),
+                        Ok(ServerRes::EmailChangeStage(stage)) => Ok(stage),
                         Ok(err) => {
                             error!("expected EmailChangeState, received {err:?}");
                             Err("SERVER ERROR, wrong response.".to_string())
@@ -399,17 +396,12 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
                         }
                     };
                     let link = match result {
-                        Ok((Some(stage), new_email, expires)) => Some(
-                            stage
-                                .link(expires, new_email, None, None)
-                                .unwrap_or_else(|err| create_err_link(err)),
-                        ),
-                        Ok(_) => None,
-                        Err(err) => Some(create_err_link(format!("error getting status {err}"))),
+                        Ok(stage) => stage.link(None, None),
+                        Err(err) => create_err_link(format!("error getting status {err}")),
                     };
-                    let Some(link) = link else {
-                        return;
-                    };
+                    // let Some(link) = link else {
+                    //     return;
+                    // };
                     navigate(&link, NavigateOptions::default());
                 });
             }
@@ -423,22 +415,15 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
             let navigate = navigate.clone();
             api.cancel_email_change().send_web(async move |result| {
                 let result = match result {
-                    Ok(ServerRes::EmailChangeStage {
-                        stage,
-                        new_email,
-                        expires,
-                    }) => Ok((
-                        "Succesfully canceled".to_string(),
-                        expires.unwrap_or_default(),
-                    )),
+                    Ok(ServerRes::EmailChangeStage(EmailChangeStage::Complete { .. })) => {
+                        Ok("Succesfully canceled".to_string())
+                    }
                     Ok(err) => Err(format!("unexpected response: {err:?}, expected Ok")),
                     Err(err) => Err(format!("unexpected response: {err}")),
                 };
 
                 let link = match result {
-                    Ok((msg, expires)) => {
-                        link_settings_form_email_current_send(0, None, Some(msg))
-                    }
+                    Ok(msg) => link_settings_form_email_current_send(None, Some(msg)),
                     Err(msg) => create_err_link(msg),
                 };
 
@@ -460,11 +445,7 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
                     //
                     async move {
                         let result = match result {
-                            Ok(ServerRes::EmailChangeStage {
-                                stage,
-                                new_email,
-                                expires,
-                            }) => Ok((stage, new_email, expires.unwrap_or_default())),
+                            Ok(ServerRes::EmailChangeStage(stage)) => Ok(stage),
                             Ok(err) => {
                                 error!("expected EmailChangeState, received {err:?}");
                                 Err("SERVER ERROR, wrong response.".to_string())
@@ -477,11 +458,7 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
                                 let result =
                                     ApiWebTmp::new().change_email_status().send_native().await;
                                 match result {
-                                    Ok(ServerRes::EmailChangeStage {
-                                        stage,
-                                        new_email,
-                                        expires,
-                                    }) => Ok((stage, new_email, expires.unwrap_or_default())),
+                                    Ok(ServerRes::EmailChangeStage(stage)) => Ok(stage),
                                     Ok(err) => {
                                         error!("expected EmailChangeState, received {err:?}");
                                         Err("SERVER ERROR, wrong response.".to_string())
@@ -498,20 +475,17 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
                             }
                         };
 
-                        let link = result
-                            .and_then(|(stage, new_email, expires)| {
-                                stage
-                                    .ok_or(
-                                        "Email change expired/canceled, restart the proccess."
-                                            .to_string(),
-                                    )
-                                    .and_then(|v| v.link(expires, new_email, None, None))
-                            })
-                            .unwrap_or_else(|err| {
-                                EmailChangeFormStage::CurrentSendConfirm
-                                    .link(None, None, Some(err), None, 0)
-                                    .unwrap()
-                            });
+                        let link = match result {
+                            Ok(v) => v.link(None, None),
+                            Err(err) => create_err_link(err),
+                        };
+                        // let link = result
+                        //     .map(|v| v.link(None, None))
+                        //     .unwrap_or_else(|err| {
+                        //         EmailChangeFormStage::CurrentSendConfirm
+                        //             .link(None, None, Some(err), None, 0)
+                        //             .unwrap()
+                        //     });
                         navigate(&link, NavigateOptions::default());
                     }
                 }

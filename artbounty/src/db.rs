@@ -960,10 +960,11 @@ impl<C: Connection> Db<C> {
     pub async fn update_email_change_add_new(
         &self,
         time: u128,
-        email_change: RecordId,
+        email_change: impl AsRef<str>,
         new_email: impl Into<String>,
         token_raw: impl Into<String>,
     ) -> Result<DBEmailChange, EmailIsTakenErr> {
+        let email_change = RecordId::from_str(email_change.as_ref())?;
         let new_email = new_email.into();
         self.db
             .query(
@@ -1333,7 +1334,10 @@ mod tests {
             .unwrap();
         assert_eq!(all_emails[0].body, "wowza2");
 
-        let latest_email = db.get_sent_email_by_email_latest("prime@heyadora.com").await.unwrap();
+        let latest_email = db
+            .get_sent_email_by_email_latest("prime@heyadora.com")
+            .await
+            .unwrap();
         assert_eq!(latest_email.body, "wowza2");
     }
 
@@ -1581,7 +1585,7 @@ mod tests {
         {
             let email_change = db.get_email_change(0, user.id.clone()).await.unwrap();
             let result = db
-                .update_email_change_add_new(0, email_change.id.clone(), "hey3@hey.com", "token2")
+                .update_email_change_add_new(0, email_change.id.to_string(), "hey3@hey.com", "token2")
                 .await;
             assert!(matches!(result, Err(EmailIsTakenErr::EmailIsTaken(_))));
         }
@@ -1590,7 +1594,7 @@ mod tests {
         {
             let email_change = db.get_email_change(0, user.id.clone()).await.unwrap();
             let result = db
-                .update_email_change_add_new(0, email_change.id.clone(), "hey2@hey.com", "token2")
+                .update_email_change_add_new(0, email_change.id.to_string(), "hey2@hey.com", "token2")
                 .await
                 .unwrap();
         }
