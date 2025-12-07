@@ -57,6 +57,15 @@ impl GlobalState {
             acc.username = username;
         });
     }
+    pub fn change_email(&self, email: impl Into<String>) {
+        let email = email.into();
+        self.acc.update(|v| {
+            let Some(acc) = v else {
+                return;
+            };
+            acc.email = email;
+        });
+    }
     pub fn update_auth(&self) {
         let this = self.clone();
         ApiWebTmp::new()
