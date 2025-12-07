@@ -18,7 +18,8 @@ pub mod post {
     #[component]
     pub fn Page() -> impl IntoView {
         let main_ref = NodeRef::new();
-        let api = ApiWeb::new();
+        let api = ApiWeb::new(); 
+
         let param = use_params::<PostParams>();
         let param_username = move || param.read().as_ref().ok().and_then(|v| v.username.clone());
         let param_post = move || param.read().as_ref().ok().and_then(|v| v.post.clone());
@@ -191,6 +192,7 @@ pub mod post {
                             // <div class="h-[5rem] bg-base05"></div>
                             // <div class="h-[5rem] bg-base05"></div>
                         </div>
+
 
                         <div class="flex flex-col gap-2">
                             <div class="flex justify-between">

@@ -423,7 +423,6 @@ pub mod path {
     }
 
     pub fn link_settings_form_email_current_send(
-        expires: u128,
         stage_error: Option<String>,
         general_info: Option<String>,
     ) -> String {
@@ -433,7 +432,7 @@ pub mod path {
             None,
             stage_error,
             general_info,
-            Some(expires),
+            None,
         )
     }
 
