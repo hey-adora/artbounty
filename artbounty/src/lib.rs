@@ -533,7 +533,6 @@ pub mod path {
     }
 
     pub fn link_settings_form_email_completed(
-        expires: u128,
         new_email: impl Into<String>,
         stage_error: Option<String>,
         general_info: Option<String>,
@@ -544,7 +543,7 @@ pub mod path {
             None,
             stage_error,
             general_info,
-            Some(expires),
+            None,
         )
     }
 

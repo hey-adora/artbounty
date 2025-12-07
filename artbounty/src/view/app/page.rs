@@ -407,27 +407,6 @@ pub mod settings {
         // let change_email_step_err = RwSignal::new(String::new());
 
         let change_email = use_change_email(api, change_email_new_email_input);
-        // let a = change_email.query.to_query_fn(|v| v.);
-        // let change_email_info = change_email.get_general_info();
-        // let change_email_errors = change_email.get_stage_error();
-
-        // let change_email_info = change_email.callback_general_info.to_fn();
-        // let change_email_errors = change_email.callback_stage_err.to_fn();
-        // let change_email_new = change_email.callback_stage_err.to_fn();
-        // // .query
-        // // .to_query_fn(|v| v.general_info.unwrap_or_default());
-        // // let change_email_errors = change_email
-        // //     .query
-        // //     .to_query_fn(|v| v.stage_error.unwrap_or_default());
-        // // let change_email_new = change_email
-        // //     .query
-        // //     .to_query_fn(|v| v.new_email.unwrap_or(String::from("new email")));
-        // // let change_email_new = change_email.get_email();
-        // let change_email_form_stage = change_email.get_form_stage();
-        // let change_email_btn_stage = change_email.callback_btn_stage.to_fn();
-        // let change_email_run = change_email.get_run();
-        // let change_email_cancel = change_email.get_cancel();
-        // let change_email_run = change_email.on_email_change.clone();
 
         let on_change_username = {
             let navigate = navigate.clone();

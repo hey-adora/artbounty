@@ -872,7 +872,7 @@ impl EmailChangeStage {
                 id,
                 new_email,
                 expires,
-            } => link_settings_form_email_completed(expires, new_email, stage_error, general_info),
+            } => link_settings_form_email_completed(new_email, stage_error, general_info),
         }
     }
 }

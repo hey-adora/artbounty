@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::get_timestamp;
+use crate::view::app::GlobalState;
 use crate::view::toolbox::prelude::*;
 use humantime::format_duration;
 use jiff::Span;
@@ -38,16 +39,6 @@ pub struct ParamsChangeEmail {
     pub expires: Option<u128>,
 }
 
-// #[derive(Clone, Default, PartialEq)]
-// pub struct ChangeEmailView {
-//     pub new_email: Memo<String>,
-//     pub confirm_token: Memo<String>,
-//     pub email_stage: Memo<EmailChangeFormStage>,
-//     pub general_info: Memo<String>,
-//     pub stage_error: Memo<String>,
-//     pub expires: Memo<u128>,
-// }
-
 #[derive(
     Clone,
     Debug,
@@ -72,7 +63,6 @@ pub enum EmailChangeFormStage {
     FinalConfirm,
     Completed,
 }
-
 
 impl EmailChangeFormStage {
     pub fn link(
@@ -121,7 +111,6 @@ impl EmailChangeFormStage {
                 general_info,
             ),
             Self::Completed => link_settings_form_email_completed(
-                expires,
                 new_email.ok_or(err_email)?,
                 stage_error,
                 general_info,
@@ -130,17 +119,6 @@ impl EmailChangeFormStage {
         Ok(link)
     }
 }
-
-// impl From<EmailChangeFormStage> for EmailChangeStage {
-//     fn from(value: EmailChangeFormStage) -> Self {
-//         match value {
-//             EmailChangeFormStage::CurrentSendConfirm | EmailChangeFormStage::CurrentClickConfirm | EmailChangeFormStage::CurrentConfirm => EmailChangeStage::ConfirmEmail,
-//             EmailChangeFormStage::NewEnterEmail | EmailChangeFormStage::NewClickConfirm | EmailChangeFormStage::NewConfirmEmail  => EmailChangeStage::EnterNewEmail,
-//             EmailChangeFormStage::NewEnterEmail | EmailChangeFormStage::NewClickConfirm | EmailChangeFormStage::NewConfirmEmail  => EmailChangeStage::EnterNewEmail,
-//             EmailChangeFormStage::  => EmailChangeStage::EnterNewEmail,
-//         }
-//     }
-// }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BtnStage {
@@ -152,8 +130,6 @@ pub enum BtnStage {
 
 #[derive(Clone, Copy)]
 pub struct EmailChange {
-    // pub view: ChangeEmailView,
-    // pub callback_btn_stage: F_BTN_STAGE,
     pub get_new_email: StoredValue<Box<dyn Fn() -> String + Sync + Send + 'static>>,
     pub check_new_email: StoredValue<Box<dyn Fn() -> bool + Sync + Send + 'static>>,
     pub get_token: StoredValue<Box<dyn Fn() -> String + Sync + Send + 'static>>,
@@ -172,61 +148,11 @@ pub struct EmailChange {
     pub post_run: StoredValue<Box<dyn Fn(SubmitEvent) + Sync + Send + 'static>>,
 }
 
-// impl EmailChange {
-//     pub fn get_email<'a>(
-//         &self,
-//     ) -> impl Fn() -> String + Send + Sync + Clone + Copy + 'static + use<'a> {
-//         let q = self.query.clone();
-//         move || q.get().new_email.unwrap_or(String::from("new email"))
-//     }
-//     pub fn get_general_info<'a>(
-//         &self,
-//     ) -> impl Fn() -> String + Send + Sync + Clone + Copy + 'static + use<'a> {
-//         let q = self.query.clone();
-//         move || q.get().general_info.unwrap_or_default()
-//     }
-//     pub fn get_stage_error<'a>(
-//         &self,
-//     ) -> impl Fn() -> String + Send + Sync + Clone + Copy + 'static + use<'a> {
-//         let q = self.query.clone();
-//         move || q.get().stage_error.unwrap_or_default()
-//     }
-//     pub fn get_form_stage<'a>(
-//         &self,
-//     ) -> impl Fn() -> EmailChangeFormStage + Send + Sync + Clone + Copy + 'static + use<'a> {
-//         let q = self.query.clone();
-//         move || q.get().email_stage.unwrap_or_default()
-//     }
-//     pub fn get_btn_stage<'a>(
-//         &self,
-//     ) -> impl Fn() -> BtnStage + Send + Sync + Clone + Copy + 'static + use<'a> {
-//         let f = self.callback_btn_stage.clone();
-//         move || (f.read_value())()
-//     }
-//     pub fn get_run<'a>(
-//         &self,
-//     ) -> impl Fn(SubmitEvent) + Send + Sync + Clone + Copy + 'static + use<'a> {
-//         let f = self.callback_run.clone();
-//         move |e: SubmitEvent| (f.read_value())(e)
-//     }
-//     pub fn get_cancel<'a>(
-//         &self,
-//     ) -> impl Fn(SubmitEvent) + Send + Sync + Clone + Copy + 'static + use<'a> {
-//         let f = self.callback_cancel.clone();
-//         move |e: SubmitEvent| (f.read_value())(e)
-//     }
-// }
-
 pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> EmailChange {
-    // let errors = RwSignal::new(String::new());
-    // let btn_stage = RwSignal::new(BtnStage::Confirm);
-
-    // let a = Box::new(0);
-    // let b = a;
-    // let c = a;
     const EXPIRED_STR: &'static str = "expired";
 
-    let time_until_expires = RwSignal::new(String::from(EXPIRED_STR));
+    let global_state = expect_context::<GlobalState>();
+    let time_until_expires = RwSignal::new(String::new());
     let query = use_query::<ParamsChangeEmail>();
     let fn_get_new_email = move || {
         query
@@ -306,17 +232,7 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
             EmailChangeFormStage::Completed => BtnStage::None,
         }
     };
-    // let view_query = Memo::new(move |_| {
-    //     let v = query.get().ok().unwrap_or_default();
-    //     ChangeEmailView {
-    //         new_email: v.new_email.unwrap_or(String::from("new email")),
-    //         confirm_token: v.confirm_token.unwrap_or_default(),
-    //         email_stage: v.email_stage.unwrap_or_default(),
-    //         general_info: v.general_info.unwrap_or_default(),
-    //         stage_error: v.stage_error.unwrap_or_default(),
-    //         expires: v.expires.unwrap_or_default(),
-    //     }
-    // });
+
     let get_query = move || query.get().ok().unwrap_or_default();
     let get_query_untracked = move || query.get_untracked().ok().unwrap_or_default();
     let get_query_email_stage = move || get_query().email_stage.unwrap_or_default();
@@ -350,10 +266,13 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
     let _ = interval::new(
         move || {
             let time = get_timestamp();
-            // let time = Duration::from_nanos(time as u64);
-            let expires = get_query_untracked().expires.unwrap_or_default();
-            // let expires = get_query_untracked().expires.unwrap_or_default();
-            // let expires = Duration::from_nanos(expires as u64);
+            let Some(expires) = get_query_untracked().expires else {
+                let is_empty = time_until_expires.with_untracked(|v| v.is_empty());
+                if !is_empty {
+                    time_until_expires.update(|v| v.clear());
+                }
+                return;
+            };
             let elapsed = expires.saturating_sub(time);
             let output = if elapsed == 0 {
                 EXPIRED_STR.to_string()
@@ -362,16 +281,6 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
                 format_duration(elapsed).to_string()
             };
             let _ = time_until_expires.try_set(output);
-
-            // let printer = SpanPrinter::new().designator(Designator::HumanTime);
-            // let span = Span::new().nanoseconds(time as i64);
-            // let output = printer.span_to_string(&span);
-
-            // use std::time::{SystemTime, UNIX_EPOCH};
-            // let r = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-            // trace!("wtf {output:?}");
-            // let query = get_query_untracked();
-            // query.expires.map(|time| timestamp)
         },
         Duration::from_secs(1),
     );
@@ -399,9 +308,6 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
                         Ok(stage) => stage.link(None, None),
                         Err(err) => create_err_link(format!("error getting status {err}")),
                     };
-                    // let Some(link) = link else {
-                    //     return;
-                    // };
                     navigate(&link, NavigateOptions::default());
                 });
             }
@@ -415,10 +321,10 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
             let navigate = navigate.clone();
             api.cancel_email_change().send_web(async move |result| {
                 let result = match result {
-                    Ok(ServerRes::EmailChangeStage(EmailChangeStage::Complete { .. })) => {
+                    Ok(ServerRes::EmailChangeStage(EmailChangeStage::Cancelled)) => {
                         Ok("Succesfully canceled".to_string())
                     }
-                    Ok(err) => Err(format!("unexpected response: {err:?}, expected Ok")),
+                    Ok(err) => Err(format!("unexpected response: {err:?}, expected Cancelled")),
                     Err(err) => Err(format!("unexpected response: {err}")),
                 };
 
@@ -436,8 +342,6 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
         move |e: SubmitEvent| {
             e.prevent_default();
             let navigate = navigate.clone();
-            //navigate(&link, NavigateOptions::default());
-            // errors.set("".to_string());
             let handler = {
                 let navigate = navigate.clone();
                 move |result: Result<ServerRes, ServerErr>| {
@@ -475,22 +379,18 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
                             }
                         };
 
+                        if let Ok(EmailChangeStage::Complete { new_email, .. }) = &result {
+                            global_state.change_email(new_email);
+                        }
+
                         let link = match result {
                             Ok(v) => v.link(None, None),
                             Err(err) => create_err_link(err),
                         };
-                        // let link = result
-                        //     .map(|v| v.link(None, None))
-                        //     .unwrap_or_else(|err| {
-                        //         EmailChangeFormStage::CurrentSendConfirm
-                        //             .link(None, None, Some(err), None, 0)
-                        //             .unwrap()
-                        //     });
                         navigate(&link, NavigateOptions::default());
                     }
                 }
             };
-            //
             let error = match get_query_email_stage_untracked() {
                 EmailChangeFormStage::CurrentSendConfirm => {
                     api.send_email_change().send_web(handler.clone());
@@ -557,7 +457,6 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
         }
     };
     EmailChange {
-        // query: view_query,
         get_new_email: StoredValue::new(Box::new(fn_get_new_email)),
         check_new_email: StoredValue::new(Box::new(fn_check_new_email)),
         get_token: StoredValue::new(Box::new(fn_get_confirm_token)),
