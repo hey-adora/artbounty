@@ -32,6 +32,7 @@ use crate::valid::auth::proccess_email;
 
 #[derive(Params, PartialEq, Clone, Default)]
 pub struct ParamsChangeEmail {
+    pub old_email: Option<String>,
     pub new_email: Option<String>,
     pub confirm_token: Option<String>,
     pub change_id: Option<String>,
@@ -97,6 +98,7 @@ pub enum EmailChangeFormStage {
 impl EmailChangeFormStage {
     pub fn link(
         &self,
+        old_email: String,
         email_change_id: Option<String>,
         token: Option<String>,
         new_email: Option<String>,
@@ -109,17 +111,19 @@ impl EmailChangeFormStage {
         let err_id = String::from("missing id");
         let link = match self {
             Self::CurrentSendConfirm => {
-                link_settings_form_email_current_send(stage_error, general_info)
+                link_settings_form_email_current_send(old_email, stage_error, general_info)
             }
             Self::CurrentClickConfirm => link_settings_form_email_current_click(
                 email_change_id.ok_or(err_id)?,
                 expires,
+                old_email,
                 stage_error,
                 general_info,
             ),
             Self::CurrentConfirm => link_settings_form_email_current_confirm(
                 email_change_id.ok_or(err_id)?,
                 expires,
+                old_email,
                 token.ok_or(err_token)?,
                 stage_error,
                 general_info,
@@ -127,12 +131,14 @@ impl EmailChangeFormStage {
             Self::NewEnterEmail => link_settings_form_email_new_send(
                 email_change_id.ok_or(err_id)?,
                 expires,
+                old_email,
                 stage_error,
                 general_info,
             ),
             Self::NewClickConfirm => link_settings_form_email_new_click(
                 email_change_id.ok_or(err_id)?,
                 expires,
+                old_email,
                 new_email.ok_or(err_email)?,
                 stage_error,
                 general_info,
@@ -140,6 +146,7 @@ impl EmailChangeFormStage {
             Self::NewConfirmEmail => link_settings_form_email_new_confirm(
                 email_change_id.ok_or(err_id)?,
                 expires,
+                old_email,
                 new_email.ok_or(err_email)?,
                 token.ok_or(err_token)?,
                 stage_error,
@@ -148,12 +155,14 @@ impl EmailChangeFormStage {
             Self::FinalConfirm => link_settings_form_email_final_confirm(
                 email_change_id.ok_or(err_id)?,
                 expires,
+                old_email,
                 new_email.ok_or(err_email)?,
                 stage_error,
                 general_info,
             ),
             Self::Completed => link_settings_form_email_completed(
                 email_change_id.ok_or(err_id)?,
+                old_email,
                 new_email.ok_or(err_email)?,
                 stage_error,
                 general_info,
@@ -173,6 +182,8 @@ pub enum BtnStage {
 
 #[derive(Clone, Copy)]
 pub struct EmailChange {
+    pub get_old_email: StoredValue<Box<dyn Fn() -> String + Sync + Send + 'static>>,
+    pub check_old_email: StoredValue<Box<dyn Fn() -> bool + Sync + Send + 'static>>,
     pub get_new_email: StoredValue<Box<dyn Fn() -> String + Sync + Send + 'static>>,
     pub check_new_email: StoredValue<Box<dyn Fn() -> bool + Sync + Send + 'static>>,
     pub get_token: StoredValue<Box<dyn Fn() -> String + Sync + Send + 'static>>,
@@ -197,6 +208,16 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
     let global_state = expect_context::<GlobalState>();
     let time_until_expires = RwSignal::new(String::new());
     let query = use_query::<ParamsChangeEmail>();
+    let fn_get_old_email = move || {
+        query
+            .with(|v| v.as_ref().ok().and_then(|v| v.old_email.clone()))
+            .unwrap_or_else(|| "404".to_string())
+    };
+    let fn_check_old_email = move || {
+        query
+            .with(|v| v.as_ref().ok().map(|v| v.old_email.is_some()))
+            .unwrap_or_default()
+    };
     let fn_get_new_email = move || {
         query
             .with(|v| v.as_ref().ok().and_then(|v| v.new_email.clone()))
@@ -287,6 +308,7 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
             .email_stage
             .unwrap_or_default()
             .link(
+                query.old_email.unwrap_or(String::from("404")),
                 query.change_id,
                 query.confirm_token,
                 query.new_email,
@@ -297,6 +319,7 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
             .unwrap_or_else(|err| {
                 EmailChangeFormStage::CurrentSendConfirm
                     .link(
+                        String::from("404"),
                         None,
                         None,
                         None,
@@ -371,15 +394,19 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
             };
             api.cancel_email_change(id).send_web(async move |result| {
                 let result = match result {
-                    Ok(ServerRes::EmailChangeStage(EmailChangeStage::Cancelled)) => {
-                        Ok("Succesfully canceled".to_string())
-                    }
+                    Ok(ServerRes::EmailChangeStage(EmailChangeStage::Cancelled {
+                        id,
+                        old_email,
+                        expires,
+                    })) => Ok((old_email, "Succesfully canceled".to_string())),
                     Ok(err) => Err(format!("unexpected response: {err:?}, expected Cancelled")),
                     Err(err) => Err(format!("unexpected response: {err}")),
                 };
 
                 let link = match result {
-                    Ok(msg) => link_settings_form_email_current_send(None, Some(msg)),
+                    Ok((old_email, msg)) => {
+                        link_settings_form_email_current_send(old_email, None, Some(msg))
+                    }
                     Err(msg) => create_err_link(msg),
                 };
 
@@ -560,6 +587,8 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
         }
     };
     EmailChange {
+        get_old_email: StoredValue::new(Box::new(fn_get_old_email)),
+        check_old_email: StoredValue::new(Box::new(fn_check_old_email)),
         get_new_email: StoredValue::new(Box::new(fn_get_new_email)),
         check_new_email: StoredValue::new(Box::new(fn_check_new_email)),
         get_token: StoredValue::new(Box::new(fn_get_confirm_token)),

@@ -423,12 +423,14 @@ pub mod path {
     }
 
     pub fn link_settings_form_email_current_send(
+        old_email: impl Into<String>,
         stage_error: Option<String>,
         general_info: Option<String>,
     ) -> String {
         link_settings_form_email(
             EmailChangeFormStage::CurrentSendConfirm,
             None,
+            Some(old_email.into()),
             None,
             None,
             stage_error,
@@ -440,12 +442,14 @@ pub mod path {
     pub fn link_settings_form_email_current_click(
         email_change_id: String,
         expires: u128,
+        old_email: impl Into<String>,
         stage_error: Option<String>,
         general_info: Option<String>,
     ) -> String {
         link_settings_form_email(
             EmailChangeFormStage::CurrentClickConfirm,
             Some(email_change_id),
+            Some(old_email.into()),
             None,
             None,
             stage_error,
@@ -457,6 +461,7 @@ pub mod path {
     pub fn link_settings_form_email_current_confirm(
         email_change_id: String,
         expires: u128,
+        old_email: impl Into<String>,
         confirm_token: impl Into<String>,
         stage_error: Option<String>,
         general_info: Option<String>,
@@ -464,6 +469,7 @@ pub mod path {
         link_settings_form_email(
             EmailChangeFormStage::CurrentConfirm,
             Some(email_change_id),
+            Some(old_email.into()),
             None,
             Some(confirm_token.into()),
             stage_error,
@@ -475,6 +481,7 @@ pub mod path {
     pub fn link_settings_form_email_new_send(
         email_change_id: String,
         expires: u128,
+        old_email: impl Into<String>,
         stage_error: Option<String>,
 
         general_info: Option<String>,
@@ -482,6 +489,7 @@ pub mod path {
         link_settings_form_email(
             EmailChangeFormStage::NewEnterEmail,
             Some(email_change_id),
+            Some(old_email.into()),
             None,
             None,
             stage_error,
@@ -493,6 +501,7 @@ pub mod path {
     pub fn link_settings_form_email_new_click(
         email_change_id: String,
         expires: u128,
+        old_email: impl Into<String>,
         new_email: impl Into<String>,
         stage_error: Option<String>,
         general_info: Option<String>,
@@ -500,6 +509,7 @@ pub mod path {
         link_settings_form_email(
             EmailChangeFormStage::NewClickConfirm,
             Some(email_change_id),
+            Some(old_email.into()),
             Some(new_email.into()),
             None,
             stage_error,
@@ -511,6 +521,7 @@ pub mod path {
     pub fn link_settings_form_email_new_confirm(
         email_change_id: String,
         expires: u128,
+        old_email: impl Into<String>,
         new_email: impl Into<String>,
         confirm_token: impl Into<String>,
         stage_error: Option<String>,
@@ -519,6 +530,7 @@ pub mod path {
         link_settings_form_email(
             EmailChangeFormStage::NewConfirmEmail,
             Some(email_change_id),
+            Some(old_email.into()),
             Some(new_email.into()),
             Some(confirm_token.into()),
             stage_error,
@@ -530,6 +542,7 @@ pub mod path {
     pub fn link_settings_form_email_final_confirm(
         email_change_id: String,
         expires: u128,
+        old_email: impl Into<String>,
         new_email: impl Into<String>,
         stage_error: Option<String>,
         general_info: Option<String>,
@@ -537,6 +550,7 @@ pub mod path {
         link_settings_form_email(
             EmailChangeFormStage::FinalConfirm,
             Some(email_change_id),
+            Some(old_email.into()),
             Some(new_email.into()),
             None,
             stage_error,
@@ -547,6 +561,7 @@ pub mod path {
 
     pub fn link_settings_form_email_completed(
         email_change_id: String,
+        old_email: impl Into<String>,
         new_email: impl Into<String>,
         stage_error: Option<String>,
         general_info: Option<String>,
@@ -554,6 +569,7 @@ pub mod path {
         link_settings_form_email(
             EmailChangeFormStage::Completed,
             Some(email_change_id),
+            Some(old_email.into()),
             Some(new_email.into()),
             None,
             stage_error,
@@ -572,6 +588,7 @@ pub mod path {
     pub fn link_settings_form_email(
         stage: EmailChangeFormStage,
         email_change_id: Option<String>,
+        old_email: Option<String>,
         new_email: Option<String>,
         confirm_token: Option<String>,
         stage_error: Option<String>,
@@ -587,12 +604,14 @@ pub mod path {
                 Some(v) => format!("&change_id={v}"),
                 None => "".to_string(),
             },
-            if new_email.is_some() {
-                "&new_email="
-            } else {
-                ""
+            match old_email {
+                Some(v) => format!("&old_email={v}"),
+                None => "".to_string(),
             },
-            new_email.unwrap_or_default(),
+            match new_email {
+                Some(v) => format!("&new_email={v}"),
+                None => "".to_string(),
+            },
             if confirm_token.is_some() {
                 "&confirm_token="
             } else {

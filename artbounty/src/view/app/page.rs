@@ -230,10 +230,7 @@ pub mod settings {
         Api, ApiWeb, EmailChangeStage, ServerAddPostErr, ServerErr, ServerReqImg, ServerRes,
     };
     use crate::path::{
-        link_post, link_reg, link_settings, link_settings_form_email,
-        link_settings_form_email_completed, link_settings_form_email_current_click,
-        link_settings_form_email_final_confirm, link_settings_form_email_new_click,
-        link_settings_form_email_new_send, link_settings_form_username,
+        link_post, link_reg, link_settings, link_settings_form_email, link_settings_form_email_completed, link_settings_form_email_current_click, link_settings_form_email_current_send, link_settings_form_email_final_confirm, link_settings_form_email_new_click, link_settings_form_email_new_send, link_settings_form_username
     };
     use crate::valid::auth::{
         proccess_email, proccess_post_description, proccess_post_title, proccess_username,
@@ -528,7 +525,7 @@ pub mod settings {
                         <label for="current_email" class="text-[1.2rem] ">"Email"</label>
                         <div class="flex">
                             <input value=move || global_state.get_email_tracked() id="current_email" name="current_email" disabled type="text" class="bg-base01 text-base0B w-full pl-2 " />
-                            <a href=link_settings_form_email(EmailChangeFormStage::CurrentSendConfirm, None, None, None, None, None, None) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
+                            <a href=move || link_settings_form_email_current_send(get_current_email_or_default(), None, None) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
                         </div>
                     </form>
 
@@ -607,13 +604,13 @@ pub mod settings {
                             <li>
                                 {move || view_current_stage_label(EmailChangeFormStage::CurrentSendConfirm) }
                                 "Send confirmation email to "
-                                <span class="text-base0E">{move || format!("{}.", get_current_email_or_default())}</span>
+                                <span class="text-base0E">{move || format!("{}.", change_email.get_old_email.get())}</span>
                                 {move || view_stage_errors(EmailChangeFormStage::CurrentSendConfirm)}
                             </li>
                             <li>
                                 {move || view_current_stage_label(EmailChangeFormStage::CurrentClickConfirm) }
                                 "Click on confirmation link that was sent to "
-                                <span class="text-base0E">{move || format!("{}.", get_current_email_or_default())}</span>
+                                <span class="text-base0E">{move || format!("{}.", change_email.get_old_email.get())}</span>
                                 {move || view_stage_errors(EmailChangeFormStage::CurrentClickConfirm)}
                             </li>
                             <li>
@@ -643,7 +640,7 @@ pub mod settings {
                             <li>
                                 {move || view_current_stage_label(EmailChangeFormStage::FinalConfirm) }
                                 "Final confirm from "
-                                <span class="text-base0E">{move || get_current_email_or_default()}</span>
+                                <span class="text-base0E">{move || change_email.get_old_email.get()}</span>
                                 " to "
                                 <span class="text-base0E">{move || change_email.get_new_email.get()}</span>
                             </li>
@@ -653,7 +650,7 @@ pub mod settings {
                                     "Finish."
                                 </div>
                                 <div class=move || format!("text-[1rem] text-base09 {}", if change_email.get_form_stage.get() >= EmailChangeFormStage::Completed { "visible" } else {"hidden"} )>
-                                    <span class="text-base0E">{move || format!("Email changed from {} to {}.", get_current_email_or_default(), change_email.get_new_email.get())}</span>
+                                    <span class="text-base0E">{move || format!("Email changed from {} to {}.", change_email.get_old_email.get(), change_email.get_new_email.get())}</span>
                                 </div>
                             </li>
                         </ol>
