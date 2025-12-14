@@ -273,12 +273,14 @@ pub mod app_state {
             to_email: impl Into<String>,
             id: &RecordId,
             confim_token: impl Into<String>,
+            old_email: impl Into<String>,
             expires: impl Into<u128>,
         ) -> Result<(), ServerErr> {
             let id = id.key().to_string();
             let link = link_settings_form_email_current_confirm(
                 id,
                 expires.into(),
+                old_email.into(),
                 confim_token.into(),
                 None,
                 None,
@@ -304,6 +306,7 @@ pub mod app_state {
             to_email: impl Into<String>,
             id: &RecordId,
             confim_token: impl Into<String>,
+            old_email: impl Into<String>,
             expires: impl Into<u128>,
         ) -> Result<(), ServerErr> {
             let to_email = to_email.into();
@@ -311,8 +314,9 @@ pub mod app_state {
             let link = link_settings_form_email_new_confirm(
                 id,
                 expires.into(),
+                old_email.into(),
                 to_email.clone(),
-                &confim_token.into(),
+                confim_token.into(),
                 None,
                 None,
             );
@@ -830,69 +834,103 @@ pub enum EmailChangeStage {
     // None,
     ConfirmEmail {
         id: String,
+        old_email: String,
         expires: u128,
     },
     EnterNewEmail {
         id: String,
+        old_email: String,
         expires: u128,
     },
     ConfirmNewEmail {
         id: String,
+        old_email: String,
         new_email: String,
         expires: u128,
     },
     ReadyToComplete {
         id: String,
+        old_email: String,
         new_email: String,
         expires: u128,
     },
     Complete {
         id: String,
+        old_email: String,
         new_email: String,
         expires: u128,
     },
-    Cancelled,
+    Cancelled {
+        id: String,
+        old_email: String,
+        expires: u128,
+    },
 }
 
 impl EmailChangeStage {
     pub fn link(self, stage_error: Option<String>, general_info: Option<String>) -> String {
         match self {
-            EmailChangeStage::Cancelled => {
-                link_settings_form_email_current_send(stage_error, general_info)
-            }
-            EmailChangeStage::ConfirmEmail { id, expires } => {
-                link_settings_form_email_current_click(id, expires, stage_error, general_info)
-            }
-            EmailChangeStage::EnterNewEmail { id, expires } => {
-                link_settings_form_email_new_send(id, expires, stage_error, general_info)
+            EmailChangeStage::Cancelled {
+                id,
+                old_email,
+                expires,
+            } => link_settings_form_email_current_send(old_email, stage_error, general_info),
+            EmailChangeStage::ConfirmEmail {
+                id,
+                old_email,
+                expires,
+            } => link_settings_form_email_current_click(
+                id,
+                expires,
+                old_email,
+                stage_error,
+                general_info,
+            ),
+            EmailChangeStage::EnterNewEmail {
+                id,
+                old_email,
+                expires,
+            } => {
+                link_settings_form_email_new_send(id, expires, old_email, stage_error, general_info)
             }
             EmailChangeStage::ConfirmNewEmail {
                 id,
+                old_email,
                 new_email,
                 expires,
             } => link_settings_form_email_new_click(
                 id,
                 expires,
+                old_email,
                 new_email,
                 stage_error,
                 general_info,
             ),
             EmailChangeStage::ReadyToComplete {
                 id,
+                old_email,
                 new_email,
                 expires,
             } => link_settings_form_email_final_confirm(
                 id,
                 expires,
+                old_email,
                 new_email,
                 stage_error,
                 general_info,
             ),
             EmailChangeStage::Complete {
                 id,
+                old_email,
                 new_email,
                 expires,
-            } => link_settings_form_email_completed(id, new_email, stage_error, general_info),
+            } => link_settings_form_email_completed(
+                id,
+                old_email,
+                new_email,
+                stage_error,
+                general_info,
+            ),
         }
     }
 }
@@ -920,10 +958,15 @@ impl From<&crate::db::email_change::DBEmailChange> for EmailChangeStage {
             // && value.current.token_used
             && !value.new.as_ref().map(|v| v.token_used).unwrap_or_default()
         {
-            EmailChangeStage::Cancelled
+            EmailChangeStage::Cancelled {
+                id: value.id.key().to_string(),
+                old_email: value.current.email.clone(),
+                expires: value.expires,
+            }
         } else if value.completed {
             EmailChangeStage::Complete {
                 id: value.id.key().to_string(),
+                old_email: value.current.email.clone(),
                 new_email: value.new.as_ref().unwrap().email.clone(),
                 expires: value.expires,
             }
@@ -932,23 +975,27 @@ impl From<&crate::db::email_change::DBEmailChange> for EmailChangeStage {
         {
             EmailChangeStage::ReadyToComplete {
                 id: value.id.key().to_string(),
+                old_email: value.current.email.clone(),
                 new_email: new.email.clone(),
                 expires: value.expires,
             }
         } else if let Some(new) = &value.new {
             EmailChangeStage::ConfirmNewEmail {
                 id: value.id.key().to_string(),
+                old_email: value.current.email.clone(),
                 new_email: new.email.clone(),
                 expires: value.expires,
             }
         } else if value.current.token_used {
             EmailChangeStage::EnterNewEmail {
                 id: value.id.key().to_string(),
+                old_email: value.current.email.clone(),
                 expires: value.expires,
             }
         } else {
             EmailChangeStage::ConfirmEmail {
                 id: value.id.key().to_string(),
+                old_email: value.current.email.clone(),
                 expires: value.expires,
             }
         };
@@ -2306,9 +2353,10 @@ pub mod backend {
 
             app.send_email_change(
                 time,
-                email_change.current.email,
+                email_change.current.email.clone(),
                 &email_change.id,
                 email_change.current.token_raw,
+                email_change.current.email,
                 email_change.expires,
             )
             .await?;
@@ -2413,7 +2461,7 @@ pub mod backend {
 
             let stage = EmailChangeStage::from(&result);
             let (id, expires) = match stage {
-                EmailChangeStage::EnterNewEmail { id, expires } => {
+                EmailChangeStage::EnterNewEmail { id, old_email, expires } => {
                     (create_email_change_id(id), expires)
                 }
                 err => {
@@ -2466,6 +2514,7 @@ pub mod backend {
                 email.clone(),
                 &result.id,
                 result.new.as_ref().unwrap().token_raw.clone(),
+                result.current.email,
                 expires,
             )
             .await?;
@@ -2709,9 +2758,10 @@ pub mod backend {
 
             app.send_email_change(
                 time,
-                result.current.email,
+                result.current.email.clone(),
                 &result.id,
                 result.current.token_raw,
+                result.current.email,
                 result.expires,
             )
             .await?;
@@ -2778,6 +2828,7 @@ pub mod backend {
                 new.email.clone(),
                 &result.id,
                 new.token_raw.clone(),
+                result.current.email,
                 result.expires,
             )
             .await?;
@@ -4065,6 +4116,7 @@ mod tests {
                 match result {
                     Ok(ServerRes::EmailChangeStage(EmailChangeStage::ConfirmEmail {
                         id,
+                        old_email,
                         expires,
                     })) => Some(id),
                     _ => unreachable!(),
