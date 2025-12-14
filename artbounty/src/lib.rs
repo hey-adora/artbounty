@@ -430,6 +430,7 @@ pub mod path {
             EmailChangeFormStage::CurrentSendConfirm,
             None,
             None,
+            None,
             stage_error,
             general_info,
             None,
@@ -437,12 +438,14 @@ pub mod path {
     }
 
     pub fn link_settings_form_email_current_click(
+        email_change_id: String,
         expires: u128,
         stage_error: Option<String>,
         general_info: Option<String>,
     ) -> String {
         link_settings_form_email(
             EmailChangeFormStage::CurrentClickConfirm,
+            Some(email_change_id),
             None,
             None,
             stage_error,
@@ -452,6 +455,7 @@ pub mod path {
     }
 
     pub fn link_settings_form_email_current_confirm(
+        email_change_id: String,
         expires: u128,
         confirm_token: impl Into<String>,
         stage_error: Option<String>,
@@ -459,6 +463,7 @@ pub mod path {
     ) -> String {
         link_settings_form_email(
             EmailChangeFormStage::CurrentConfirm,
+            Some(email_change_id),
             None,
             Some(confirm_token.into()),
             stage_error,
@@ -468,6 +473,7 @@ pub mod path {
     }
 
     pub fn link_settings_form_email_new_send(
+        email_change_id: String,
         expires: u128,
         stage_error: Option<String>,
 
@@ -475,6 +481,7 @@ pub mod path {
     ) -> String {
         link_settings_form_email(
             EmailChangeFormStage::NewEnterEmail,
+            Some(email_change_id),
             None,
             None,
             stage_error,
@@ -484,6 +491,7 @@ pub mod path {
     }
 
     pub fn link_settings_form_email_new_click(
+        email_change_id: String,
         expires: u128,
         new_email: impl Into<String>,
         stage_error: Option<String>,
@@ -491,6 +499,7 @@ pub mod path {
     ) -> String {
         link_settings_form_email(
             EmailChangeFormStage::NewClickConfirm,
+            Some(email_change_id),
             Some(new_email.into()),
             None,
             stage_error,
@@ -500,6 +509,7 @@ pub mod path {
     }
 
     pub fn link_settings_form_email_new_confirm(
+        email_change_id: String,
         expires: u128,
         new_email: impl Into<String>,
         confirm_token: impl Into<String>,
@@ -508,6 +518,7 @@ pub mod path {
     ) -> String {
         link_settings_form_email(
             EmailChangeFormStage::NewConfirmEmail,
+            Some(email_change_id),
             Some(new_email.into()),
             Some(confirm_token.into()),
             stage_error,
@@ -517,6 +528,7 @@ pub mod path {
     }
 
     pub fn link_settings_form_email_final_confirm(
+        email_change_id: String,
         expires: u128,
         new_email: impl Into<String>,
         stage_error: Option<String>,
@@ -524,6 +536,7 @@ pub mod path {
     ) -> String {
         link_settings_form_email(
             EmailChangeFormStage::FinalConfirm,
+            Some(email_change_id),
             Some(new_email.into()),
             None,
             stage_error,
@@ -533,12 +546,14 @@ pub mod path {
     }
 
     pub fn link_settings_form_email_completed(
+        email_change_id: String,
         new_email: impl Into<String>,
         stage_error: Option<String>,
         general_info: Option<String>,
     ) -> String {
         link_settings_form_email(
             EmailChangeFormStage::Completed,
+            Some(email_change_id),
             Some(new_email.into()),
             None,
             stage_error,
@@ -556,6 +571,7 @@ pub mod path {
 
     pub fn link_settings_form_email(
         stage: EmailChangeFormStage,
+        email_change_id: Option<String>,
         new_email: Option<String>,
         confirm_token: Option<String>,
         stage_error: Option<String>,
@@ -563,10 +579,14 @@ pub mod path {
         expires: Option<u128>,
     ) -> String {
         format!(
-            "{}?selected_form={}&email_stage={}{}{}{}{}{}{}{}{}{}",
+            "{}?selected_form={}&email_stage={}{}{}{}{}{}{}{}{}{}{}",
             PATH_SETTINGS,
             SelectedForm::ChangeEmail,
             stage.to_string(),
+            match email_change_id {
+                Some(v) => format!("&change_id={v}"),
+                None => "".to_string(),
+            },
             if new_email.is_some() {
                 "&new_email="
             } else {
@@ -593,7 +613,7 @@ pub mod path {
             general_info.unwrap_or_default(),
             match expires {
                 Some(v) => format!("&expires={v}"),
-                None => "".to_string()
+                None => "".to_string(),
             }
         )
     }
@@ -641,3 +661,83 @@ pub mod path {
         )
     }
 }
+// #[cfg(test)]
+// mod tests {
+//     use test_log::test;
+//     use tracing::trace;
+//
+//     #[derive(
+//         Clone,
+//         Debug,
+//         PartialEq,
+//         PartialOrd,
+//         Default,
+//         serde::Serialize,
+//         serde::Deserialize,
+//         strum::EnumString,
+//         strum::EnumIter,
+//         strum::Display,
+//     )]
+//     #[strum(serialize_all = "lowercase")]
+//     pub enum Foo {
+//         #[default]
+//         CurrentSendConfirm,
+//         CurrentClickConfirm {
+//             data: String,
+//         },
+//         CurrentConfirm,
+//         NewEnterEmail,
+//         NewClickConfirm,
+//         NewConfirmEmail,
+//         FinalConfirm,
+//         Completed,
+//     }
+//
+//     #[derive(
+//         Clone, Debug, PartialEq, PartialOrd, Default, serde::Serialize, serde::Deserialize,
+//     )]
+//     struct Bar {
+//         one: usize,
+//         two: usize,
+//     }
+//
+//     #[test]
+//     fn url_test() {
+//         // let a = serde_urlencoded::to_string(Foo::CurrentClickConfirm {
+//         //     data: "wowza".to_string(),
+//         // });
+//         let foo = Foo::CurrentClickConfirm {
+//             data: "wowza".to_string(),
+//         };
+//         let fff = serde_json::to_string(&foo).unwrap();
+//         trace!("{fff}");
+//         // let fff = [(
+//         //     "wtf",
+//         //     r#"
+//         //         {
+//         //           "firstName": "John",
+//         //           "lastName": "Doe",
+//         //           "isStudent": false,
+//         //           "age": 30
+//         //         }
+//         //     "#,
+//         // )];
+//         // let meal = &[
+//         //     ("bread", "baguette"),
+//         //     ("cheese", "comté"),
+//         //     ("meat", "ham"),
+//         //     ("fat", "butter"),
+//         // ];
+//         // let a = serde_urlencoded::to_string(Foo::CurrentSendConfirm);
+//         // let b = serde_urlencoded::to_string(Bar { one: 1, two: 2 });
+//         let c = serde_urlencoded::to_string([("wtf", fff)]);
+//         let d = serde_urlencoded::to_string([("huh", foo.clone())]);
+//         let g = serde_qs::to_string(&[("huh", foo)]);
+//
+//         // trace!("{a:?}");
+//         trace!("{c:?}");
+//         // trace!("{c:?}");
+//         trace!("{d:?}");
+//         trace!("{g:?}");
+//     }
+// }

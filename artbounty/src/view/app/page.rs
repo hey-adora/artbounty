@@ -1,5 +1,5 @@
 pub mod post {
-    use crate::api::{Api, ApiWeb, ServerErr, ServerGetErr};
+    use crate::api::{Api, ApiWeb, ServerErr, Server404Err};
     use crate::path::{link_home, link_img, link_user};
     use crate::view::app::components::nav::Nav;
     use crate::view::toolbox::prelude::*;
@@ -100,7 +100,7 @@ pub mod post {
                     Ok(res) => {
                         error!("wrong res, expected Post, got {:?}", res);
                     }
-                    Err(ServerErr::GetErr(ServerGetErr::NotFound)) => {
+                    Err(ServerErr::NotFoundErr(Server404Err::NotFound)) => {
                         not_found.set(true);
                     }
                     Err(err) => {
@@ -509,6 +509,7 @@ pub mod settings {
         let email_change_input_disabled =
             move || change_email.get_form_stage.get() > EmailChangeFormStage::NewEnterEmail;
 
+
         //top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2
         view! {
             <main node_ref=main_ref class="text-base05 grid grid-rows-[auto_1fr] h-screen relative">
@@ -527,7 +528,7 @@ pub mod settings {
                         <label for="current_email" class="text-[1.2rem] ">"Email"</label>
                         <div class="flex">
                             <input value=move || global_state.get_email_tracked() id="current_email" name="current_email" disabled type="text" class="bg-base01 text-base0B w-full pl-2 " />
-                            <a href=link_settings_form_email(EmailChangeFormStage::CurrentSendConfirm, None, None, None, None, None) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
+                            <a href=link_settings_form_email(EmailChangeFormStage::CurrentSendConfirm, None, None, None, None, None, None) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
                         </div>
                     </form>
 
@@ -876,7 +877,7 @@ pub mod profile {
     use crate::api::Api;
     use crate::api::ApiWeb;
     use crate::api::ServerErr;
-    use crate::api::ServerGetErr;
+    use crate::api::Server404Err;
     use crate::api::ServerRes;
     use crate::view::app::components::gallery::Gallery;
     use crate::view::app::components::nav::Nav;
@@ -917,7 +918,7 @@ pub mod profile {
                         user_username.set(Some(format!("expected Uesr, received {res:?}")));
                         error!("expected Uesr, received {res:?}");
                     }
-                    Err(ServerErr::GetErr(ServerGetErr::NotFound)) => {
+                    Err(ServerErr::NotFoundErr(Server404Err::NotFound)) => {
                         user_username.set(Some("Not Found".to_string()));
                     }
                     Err(err) => {

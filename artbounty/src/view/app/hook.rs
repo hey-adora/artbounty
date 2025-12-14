@@ -4,6 +4,7 @@ use std::time::Duration;
 use crate::get_timestamp;
 use crate::view::app::GlobalState;
 use crate::view::toolbox::prelude::*;
+use gloo::history::query;
 use humantime::format_duration;
 use jiff::Span;
 use jiff::{
@@ -33,11 +34,40 @@ use crate::valid::auth::proccess_email;
 pub struct ParamsChangeEmail {
     pub new_email: Option<String>,
     pub confirm_token: Option<String>,
+    pub change_id: Option<String>,
     pub email_stage: Option<EmailChangeFormStage>,
+    // pub email_stage2: Option<EmailChangeFormStage2>,
     pub general_info: Option<String>,
     pub stage_error: Option<String>,
     pub expires: Option<u128>,
 }
+
+// #[derive(
+//     Clone,
+//     Debug,
+//     PartialEq,
+//     PartialOrd,
+//     Default,
+//     serde::Serialize,
+//     serde::Deserialize,
+//     strum::EnumString,
+//     strum::EnumIter,
+//     strum::Display,
+// )]
+// #[strum(serialize_all = "lowercase")]
+// pub enum EmailChangeFormStage2 {
+//     #[default]
+//     CurrentSendConfirm,
+//     CurrentClickConfirm {
+//         data: String
+//     },
+//     CurrentConfirm,
+//     NewEnterEmail,
+//     NewClickConfirm,
+//     NewConfirmEmail,
+//     FinalConfirm,
+//     Completed,
+// }
 
 #[derive(
     Clone,
@@ -67,6 +97,7 @@ pub enum EmailChangeFormStage {
 impl EmailChangeFormStage {
     pub fn link(
         &self,
+        email_change_id: Option<String>,
         token: Option<String>,
         new_email: Option<String>,
         stage_error: Option<String>,
@@ -75,29 +106,39 @@ impl EmailChangeFormStage {
     ) -> Result<String, String> {
         let err_token = String::from("missing token");
         let err_email = String::from("missing email");
+        let err_id = String::from("missing id");
         let link = match self {
             Self::CurrentSendConfirm => {
                 link_settings_form_email_current_send(stage_error, general_info)
             }
-            Self::CurrentClickConfirm => {
-                link_settings_form_email_current_click(expires, stage_error, general_info)
-            }
+            Self::CurrentClickConfirm => link_settings_form_email_current_click(
+                email_change_id.ok_or(err_id)?,
+                expires,
+                stage_error,
+                general_info,
+            ),
             Self::CurrentConfirm => link_settings_form_email_current_confirm(
+                email_change_id.ok_or(err_id)?,
                 expires,
                 token.ok_or(err_token)?,
                 stage_error,
                 general_info,
             ),
-            Self::NewEnterEmail => {
-                link_settings_form_email_new_send(expires, stage_error, general_info)
-            }
+            Self::NewEnterEmail => link_settings_form_email_new_send(
+                email_change_id.ok_or(err_id)?,
+                expires,
+                stage_error,
+                general_info,
+            ),
             Self::NewClickConfirm => link_settings_form_email_new_click(
+                email_change_id.ok_or(err_id)?,
                 expires,
                 new_email.ok_or(err_email)?,
                 stage_error,
                 general_info,
             ),
             Self::NewConfirmEmail => link_settings_form_email_new_confirm(
+                email_change_id.ok_or(err_id)?,
                 expires,
                 new_email.ok_or(err_email)?,
                 token.ok_or(err_token)?,
@@ -105,12 +146,14 @@ impl EmailChangeFormStage {
                 general_info,
             ),
             Self::FinalConfirm => link_settings_form_email_final_confirm(
+                email_change_id.ok_or(err_id)?,
                 expires,
                 new_email.ok_or(err_email)?,
                 stage_error,
                 general_info,
             ),
             Self::Completed => link_settings_form_email_completed(
+                email_change_id.ok_or(err_id)?,
                 new_email.ok_or(err_email)?,
                 stage_error,
                 general_info,
@@ -235,15 +278,16 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
 
     let get_query = move || query.get().ok().unwrap_or_default();
     let get_query_untracked = move || query.get_untracked().ok().unwrap_or_default();
-    let get_query_email_stage = move || get_query().email_stage.unwrap_or_default();
-    let get_query_email_stage_untracked =
-        move || get_query_untracked().email_stage.unwrap_or_default();
+    // let get_query_email_stage = move || get_query().email_stage.unwrap_or_default();
+    // let get_query_email_stage_untracked =
+    //     move || get_query_untracked().email_stage.unwrap_or_default();
     let create_err_link = move |err: String| -> String {
         let query = get_query_untracked();
         query
             .email_stage
             .unwrap_or_default()
             .link(
+                query.change_id,
                 query.confirm_token,
                 query.new_email,
                 Some(err),
@@ -253,6 +297,7 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
             .unwrap_or_else(|err| {
                 EmailChangeFormStage::CurrentSendConfirm
                     .link(
+                        None,
                         None,
                         None,
                         Some(err),
@@ -289,10 +334,11 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
         move || {
             let navigate = navigate.clone();
             let query = get_query();
-            if query.email_stage == Some(EmailChangeFormStage::CurrentSendConfirm)
+            if let Some(id) = query.change_id
+                && query.email_stage == Some(EmailChangeFormStage::CurrentSendConfirm)
                 && query.general_info.is_none()
             {
-                api.change_email_status().send_web(async move |result| {
+                api.change_email_status(id).send_web(async move |result| {
                     let result = match result {
                         Ok(ServerRes::EmailChangeStage(stage)) => Ok(stage),
                         Ok(err) => {
@@ -318,8 +364,12 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
         let navigate = navigate.clone();
         move |e: SubmitEvent| {
             e.prevent_default();
+            let query = get_query_untracked();
             let navigate = navigate.clone();
-            api.cancel_email_change().send_web(async move |result| {
+            let Some(id) = query.change_id else {
+                return;
+            };
+            api.cancel_email_change(id).send_web(async move |result| {
                 let result = match result {
                     Ok(ServerRes::EmailChangeStage(EmailChangeStage::Cancelled)) => {
                         Ok("Succesfully canceled".to_string())
@@ -342,8 +392,12 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
         move |e: SubmitEvent| {
             e.prevent_default();
             let navigate = navigate.clone();
+            let query = get_query_untracked();
+            let email_stage = query.email_stage.clone().unwrap_or_default();
+
             let handler = {
                 let navigate = navigate.clone();
+                let query = query.clone();
                 move |result: Result<ServerRes, ServerErr>| {
                     let navigate = navigate.clone();
                     //
@@ -359,16 +413,32 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
                             | Err(ServerErr::EmailChangeToken(
                                 EmailChangeTokenErr::InvalidStage(_),
                             )) => {
-                                let result =
-                                    ApiWebTmp::new().change_email_status().send_native().await;
-                                match result {
-                                    Ok(ServerRes::EmailChangeStage(stage)) => Ok(stage),
-                                    Ok(err) => {
-                                        error!("expected EmailChangeState, received {err:?}");
-                                        Err("SERVER ERROR, wrong response.".to_string())
+                                let id = query
+                                    .change_id
+                                    .ok_or(String::from("missing id param from url"));
+
+                                match id {
+                                    Ok(id) => {
+                                        let result = ApiWebTmp::new()
+                                            .change_email_status(id)
+                                            .send_native()
+                                            .await;
+                                        match result {
+                                            Ok(ServerRes::EmailChangeStage(stage)) => Ok(stage),
+                                            Ok(err) => {
+                                                error!(
+                                                    "expected EmailChangeState, received {err:?}"
+                                                );
+                                                Err("SERVER ERROR, wrong response.".to_string())
+                                            }
+                                            Err(err) => {
+                                                error!("received {err:?}");
+                                                Err(err.to_string())
+                                            }
+                                        }
                                     }
                                     Err(err) => {
-                                        error!("received {err:?}");
+                                        error!("{err:?}");
                                         Err(err.to_string())
                                     }
                                 }
@@ -391,14 +461,23 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
                     }
                 }
             };
-            let error = match get_query_email_stage_untracked() {
+            let error = match email_stage {
                 EmailChangeFormStage::CurrentSendConfirm => {
                     api.send_email_change().send_web(handler.clone());
                     None
                 }
                 EmailChangeFormStage::CurrentClickConfirm => {
-                    api.resend_email_change().send_web(handler.clone());
-                    None
+                    let id = query
+                        .change_id
+                        .ok_or(String::from("missing id param from url"));
+
+                    match id {
+                        Ok(id) => {
+                            api.resend_email_change(id).send_web(handler.clone());
+                            None
+                        }
+                        Err(err) => Some(err),
+                    }
                 }
                 EmailChangeFormStage::CurrentConfirm => {
                     let confirm_token = get_query_untracked()
@@ -417,19 +496,34 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
                     let new_email = input_new_email
                         .get_untracked()
                         .ok_or("missing the input box.".to_string())
-                        .and_then(|v| proccess_email(v.value()));
+                        .and_then(|v| proccess_email(v.value()))
+                        .and_then(|v| {
+                            query
+                                .change_id
+                                .ok_or(String::from("missing id param from url"))
+                                .map(|id| (id, v))
+                        });
 
                     match new_email {
-                        Ok(new_email) => {
-                            api.send_email_new(new_email).send_web(handler.clone());
+                        Ok((id, new_email)) => {
+                            api.send_email_new(id, new_email).send_web(handler.clone());
                             None
                         }
                         Err(err) => Some(err),
                     }
                 }
                 EmailChangeFormStage::NewClickConfirm => {
-                    api.resend_email_new().send_web(handler.clone());
-                    None
+                    let id = query
+                        .change_id
+                        .ok_or(String::from("missing id param from url"));
+
+                    match id {
+                        Ok(id) => {
+                            api.resend_email_new(id).send_web(handler.clone());
+                            None
+                        }
+                        Err(err) => Some(err),
+                    }
                 }
                 EmailChangeFormStage::NewConfirmEmail => {
                     let confirm_token = get_query_untracked()
@@ -445,8 +539,17 @@ pub fn use_change_email(api: ApiWeb, input_new_email: NodeRef<html::Input>) -> E
                     }
                 }
                 EmailChangeFormStage::FinalConfirm => {
-                    api.change_email().send_web(handler.clone());
-                    None
+                    let id = query
+                        .change_id
+                        .ok_or(String::from("missing id param from url"));
+
+                    match id {
+                        Ok(id) => {
+                            api.change_email(id).send_web(handler.clone());
+                            None
+                        }
+                        Err(err) => Some(err),
+                    }
                 }
                 EmailChangeFormStage::Completed => None,
             };

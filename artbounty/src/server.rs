@@ -25,7 +25,9 @@ pub async fn server() {
     };
 
     use crate::{
-        api::app_state::{self, AppState}, get_timestamp, view::{app::App, shell}
+        api::app_state::{self, AppState},
+        get_timestamp,
+        view::{app::App, shell},
     };
 
     tracing_subscriber::fmt()
@@ -113,18 +115,18 @@ pub fn create_api_router(
 
     // use crate::api::{self, auth_middleware};
     let api_router_public = Router::new()
-        .route(PATH_API_LOGIN, post(api::backend::login))
-        .route(PATH_API_REGISTER, post(api::backend::register))
+        .route(PATH_API_LOGIN, post(api::backend::auth::login))
+        .route(PATH_API_LOGOUT, post(api::backend::auth::logout))
+        .route(PATH_API_REGISTER, post(api::backend::auth::register))
         .route(
             PATH_API_INVITE_DECODE,
-            post(api::backend::decode_email_token),
+            post(api::backend::auth::decode_email_token),
         )
         .route(
             PATH_API_SEND_EMAIL_INVITE,
             post(api::backend::send_email_invite),
         )
         .route(PATH_API_USER, post(api::backend::get_user))
-        .route(PATH_API_LOGOUT, post(api::backend::logout))
         .route(PATH_API_POST_GET, post(api::backend::get_post))
         .route(PATH_API_POST_GET_OLDER, post(api::backend::get_posts_older))
         .route(PATH_API_POST_GET_NEWER, post(api::backend::get_posts_newer))
@@ -158,36 +160,42 @@ pub fn create_api_router(
             PATH_API_CHANGE_USERNAME,
             post(api::backend::change_username),
         )
-        .route(PATH_API_CHANGE_EMAIL, post(api::backend::change_email))
+        .route(
+            PATH_API_CHANGE_EMAIL,
+            post(api::backend::change_email::change_email),
+        )
         .route(
             PATH_API_RESEND_EMAIL_CHANGE,
-            post(api::backend::resend_email_change),
+            post(api::backend::change_email::resend_email_change),
         )
         .route(
             PATH_API_RESEND_EMAIL_NEW,
-            post(api::backend::resend_email_new),
+            post(api::backend::change_email::resend_email_new),
         )
         .route(
             PATH_API_SEND_EMAIL_CHANGE,
-            post(api::backend::send_email_change),
+            post(api::backend::change_email::send_email_change),
         )
-        .route(PATH_API_SEND_EMAIL_NEW, post(api::backend::send_email_new))
+        .route(
+            PATH_API_SEND_EMAIL_NEW,
+            post(api::backend::change_email::send_email_new),
+        )
         .route(
             PATH_API_CHANGE_EMAIL_STATUS,
-            post(api::backend::status_email_change),
+            post(api::backend::change_email::status_email_change),
         )
         // .route(PATH_API_CHANGE_EMAIL, post(api::backend::change_email))
         .route(
             PATH_API_CANCEL_EMAIL_CHANGE,
-            post(api::backend::cancel_email_change),
+            post(api::backend::change_email::cancel_email_change),
         )
         .route(
             PATH_API_CONFIRM_EMAIL_CHANGE,
-            post(api::backend::confirm_email_change),
+            post(api::backend::change_email::confirm_email_change),
         )
         .route(
             PATH_API_CONFIRM_EMAIL_NEW,
-            post(api::backend::confirm_email_new),
+            post(api::backend::change_email::confirm_email_new),
         )
         // .route(
         //     PATH_API_EMAIL_CHANGE,
