@@ -30,7 +30,7 @@ pub mod app_state {
             EmailChangeNewErr, EmailChangeStage, EmailToken, ServerErr, ServerTokenErr,
             clock::Clock, encode_token, settings::Settings,
         },
-        db::{self, DB404Err, DBEmailChange, DBSentEmailReason, DBUser, DbEngine},
+        db::{self, DB404Err, DBSentEmailReason, DBUser, DbEngine},
         get_timestamp,
         path::{link_settings_form_email_current_confirm, link_settings_form_email_new_confirm},
         view::app::hook::EmailChangeFormStage,
@@ -248,33 +248,36 @@ pub mod app_state {
         //         })
         // }
 
-        pub async fn add_email_change(
-            &self,
-            time: u128,
-            db_user: &DBUser,
-        ) -> Result<DBEmailChange, ServerErr> {
-            let (confirm_token, exp) = self.new_token(&db_user.email).await?;
-
-            self.db
-                .add_email_change(
-                    time,
-                    db_user.id.clone(),
-                    db_user.email.clone(),
-                    confirm_token.clone(),
-                    exp,
-                )
-                .await
-                .map_err(|_| ServerErr::DbErr)
-        }
+        // pub async fn add_email_change(
+        //     &self,
+        //     time: u128,
+        //     db_user: &DBUser,
+        // ) -> Result<DBEmailChange, ServerErr> {
+        //     let (confirm_token, exp) = self.new_token(&db_user.email).await?;
+        //
+        //     self.db
+        //         .add_email_change(
+        //             time,
+        //             db_user.id.clone(),
+        //             db_user.email.clone(),
+        //             confirm_token.clone(),
+        //             exp,
+        //         )
+        //         .await
+        //         .map_err(|_| ServerErr::DbErr)
+        // }
 
         pub async fn send_email_change(
             &self,
             time: u128,
             to_email: impl Into<String>,
+            id: &RecordId,
             confim_token: impl Into<String>,
             expires: impl Into<u128>,
         ) -> Result<(), ServerErr> {
+            let id = id.key().to_string();
             let link = link_settings_form_email_current_confirm(
+                id,
                 expires.into(),
                 confim_token.into(),
                 None,
@@ -299,11 +302,14 @@ pub mod app_state {
             &self,
             time: u128,
             to_email: impl Into<String>,
+            id: &RecordId,
             confim_token: impl Into<String>,
             expires: impl Into<u128>,
         ) -> Result<(), ServerErr> {
             let to_email = to_email.into();
+            let id = id.key().to_string();
             let link = link_settings_form_email_new_confirm(
+                id,
                 expires.into(),
                 to_email.clone(),
                 &confim_token.into(),
@@ -469,6 +475,13 @@ pub enum ServerReq {
     // SendEmailInvite {
     //     email: String,
     // },
+    Id {
+        id: String,
+    },
+    EmailAddressWithId {
+        id: String,
+        email: String,
+    },
     EmailAddress {
         email: String,
     },
@@ -573,7 +586,7 @@ pub enum ServerErr {
     DesErr(#[from] ServerDesErr),
 
     #[error("failed to get {0}")]
-    GetErr(#[from] ServerGetErr),
+    NotFoundErr(#[from] Server404Err),
 
     // #[error("confirm action err {0}")]
     // ConfirmEmailChange(#[from] ConfirmEmailChangeErr),
@@ -627,7 +640,7 @@ pub enum ClientErr {
 // }
 
 #[derive(Error, Com!)]
-pub enum ServerGetErr {
+pub enum Server404Err {
     #[error("not found")]
     NotFound,
 }
@@ -814,7 +827,7 @@ pub struct UserPost {
 #[strum(serialize_all = "lowercase")]
 #[repr(u8)]
 pub enum EmailChangeStage {
-    None,
+    // None,
     ConfirmEmail {
         id: String,
         expires: u128,
@@ -844,25 +857,32 @@ pub enum EmailChangeStage {
 impl EmailChangeStage {
     pub fn link(self, stage_error: Option<String>, general_info: Option<String>) -> String {
         match self {
-            EmailChangeStage::None | EmailChangeStage::Cancelled => {
+            EmailChangeStage::Cancelled => {
                 link_settings_form_email_current_send(stage_error, general_info)
             }
             EmailChangeStage::ConfirmEmail { id, expires } => {
-                link_settings_form_email_current_click(expires, stage_error, general_info)
+                link_settings_form_email_current_click(id, expires, stage_error, general_info)
             }
             EmailChangeStage::EnterNewEmail { id, expires } => {
-                link_settings_form_email_new_send(expires, stage_error, general_info)
+                link_settings_form_email_new_send(id, expires, stage_error, general_info)
             }
             EmailChangeStage::ConfirmNewEmail {
                 id,
                 new_email,
                 expires,
-            } => link_settings_form_email_new_click(expires, new_email, stage_error, general_info),
+            } => link_settings_form_email_new_click(
+                id,
+                expires,
+                new_email,
+                stage_error,
+                general_info,
+            ),
             EmailChangeStage::ReadyToComplete {
                 id,
                 new_email,
                 expires,
             } => link_settings_form_email_final_confirm(
+                id,
                 expires,
                 new_email,
                 stage_error,
@@ -872,7 +892,7 @@ impl EmailChangeStage {
                 id,
                 new_email,
                 expires,
-            } => link_settings_form_email_completed(new_email, stage_error, general_info),
+            } => link_settings_form_email_completed(id, new_email, stage_error, general_info),
         }
     }
 }
@@ -894,8 +914,8 @@ impl EmailChangeStage {
 // }
 
 #[cfg(feature = "ssr")]
-impl From<&crate::db::DBEmailChange> for EmailChangeStage {
-    fn from(value: &crate::db::DBEmailChange) -> Self {
+impl From<&crate::db::email_change::DBEmailChange> for EmailChangeStage {
+    fn from(value: &crate::db::email_change::DBEmailChange) -> Self {
         let output = if value.completed
             // && value.current.token_used
             && !value.new.as_ref().map(|v| v.token_used).unwrap_or_default()
@@ -903,7 +923,7 @@ impl From<&crate::db::DBEmailChange> for EmailChangeStage {
             EmailChangeStage::Cancelled
         } else if value.completed {
             EmailChangeStage::Complete {
-                id: value.id.to_string(),
+                id: value.id.key().to_string(),
                 new_email: value.new.as_ref().unwrap().email.clone(),
                 expires: value.expires,
             }
@@ -911,24 +931,24 @@ impl From<&crate::db::DBEmailChange> for EmailChangeStage {
             && new.token_used
         {
             EmailChangeStage::ReadyToComplete {
-                id: value.id.to_string(),
+                id: value.id.key().to_string(),
                 new_email: new.email.clone(),
                 expires: value.expires,
             }
         } else if let Some(new) = &value.new {
             EmailChangeStage::ConfirmNewEmail {
-                id: value.id.to_string(),
+                id: value.id.key().to_string(),
                 new_email: new.email.clone(),
                 expires: value.expires,
             }
         } else if value.current.token_used {
             EmailChangeStage::EnterNewEmail {
-                id: value.id.to_string(),
+                id: value.id.key().to_string(),
                 expires: value.expires,
             }
         } else {
             EmailChangeStage::ConfirmEmail {
-                id: value.id.to_string(),
+                id: value.id.key().to_string(),
                 expires: value.expires,
             }
         };
@@ -1323,49 +1343,6 @@ pub trait Api {
         )
     }
 
-    fn change_email(&self) -> ApiReq {
-        self.into_req(crate::path::PATH_API_CHANGE_EMAIL, ServerReq::None)
-    }
-
-    fn change_email_status(&self) -> ApiReq {
-        self.into_req(crate::path::PATH_API_CHANGE_EMAIL_STATUS, ServerReq::None)
-    }
-
-    // fn change_email(
-    //     &self,
-    //     confirm_token: impl Into<String>,
-    //     new_email: impl Into<String>,
-    // ) -> ApiReq {
-    //     self.into_req(
-    //         crate::path::PATH_API_CONFIRM_EMAIL_CHANGE,
-    //         ServerReq::ChangeEmail {
-    //             new_email: new_email.into(),
-    //             confirm_token: confirm_token.into(),
-    //         },
-    //     )
-    // }
-    fn cancel_email_change(&self) -> ApiReq {
-        self.into_req(crate::path::PATH_API_CANCEL_EMAIL_CHANGE, ServerReq::None)
-    }
-
-    fn confirm_email_change(&self, confirm_token: impl Into<String>) -> ApiReq {
-        self.into_req(
-            crate::path::PATH_API_CONFIRM_EMAIL_CHANGE,
-            ServerReq::ConfirmToken {
-                token: confirm_token.into(),
-            },
-        )
-    }
-
-    fn confirm_email_new(&self, confirm_token: impl Into<String>) -> ApiReq {
-        self.into_req(
-            crate::path::PATH_API_CONFIRM_EMAIL_NEW,
-            ServerReq::ConfirmToken {
-                token: confirm_token.into(),
-            },
-        )
-    }
-
     fn get_user_posts_newer(&self, time: u128, limit: u32, username: impl Into<String>) -> ApiReq {
         self.into_req(
             crate::path::PATH_API_USER_POST_GET_NEWER,
@@ -1490,30 +1467,9 @@ pub trait Api {
         }
     }
 
-    fn resend_email_change(&self) -> ApiReq {
-        self.into_req(crate::path::PATH_API_RESEND_EMAIL_CHANGE, ServerReq::None)
-    }
-
-    fn resend_email_new(&self) -> ApiReq {
-        self.into_req(crate::path::PATH_API_RESEND_EMAIL_NEW, ServerReq::None)
-    }
-
-    fn send_email_change(&self) -> ApiReq {
-        self.into_req(crate::path::PATH_API_SEND_EMAIL_CHANGE, ServerReq::None)
-    }
-
     fn send_email_invite(&self, email: impl Into<String>) -> ApiReq {
         self.into_req(
             crate::path::PATH_API_SEND_EMAIL_INVITE,
-            ServerReq::EmailAddress {
-                email: email.into(),
-            },
-        )
-    }
-
-    fn send_email_new(&self, email: impl Into<String>) -> ApiReq {
-        self.into_req(
-            crate::path::PATH_API_SEND_EMAIL_NEW,
             ServerReq::EmailAddress {
                 email: email.into(),
             },
@@ -1552,6 +1508,75 @@ pub trait Api {
             result: result_signal,
             busy: busy_signal,
         }
+    }
+
+    // change email
+
+    fn send_email_change(&self) -> ApiReq {
+        self.into_req(crate::path::PATH_API_SEND_EMAIL_CHANGE, ServerReq::None)
+    }
+
+    fn confirm_email_change(&self, confirm_token: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_CONFIRM_EMAIL_CHANGE,
+            ServerReq::ConfirmToken {
+                token: confirm_token.into(),
+            },
+        )
+    }
+
+    fn send_email_new(&self, id: impl Into<String>, email: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_SEND_EMAIL_NEW,
+            ServerReq::EmailAddressWithId {
+                id: id.into(),
+                email: email.into(),
+            },
+        )
+    }
+
+    fn confirm_email_new(&self, confirm_token: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_CONFIRM_EMAIL_NEW,
+            ServerReq::ConfirmToken {
+                token: confirm_token.into(),
+            },
+        )
+    }
+
+    fn change_email(&self, id: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_CHANGE_EMAIL,
+            ServerReq::Id { id: id.into() },
+        )
+    }
+
+    fn resend_email_change(&self, id: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_RESEND_EMAIL_CHANGE,
+            ServerReq::Id { id: id.into() },
+        )
+    }
+
+    fn resend_email_new(&self, id: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_RESEND_EMAIL_NEW,
+            ServerReq::Id { id: id.into() },
+        )
+    }
+
+    fn change_email_status(&self, id: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_CHANGE_EMAIL_STATUS,
+            ServerReq::Id { id: id.into() },
+        )
+    }
+
+    fn cancel_email_change(&self, id: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_CANCEL_EMAIL_CHANGE,
+            ServerReq::Id { id: id.into() },
+        )
     }
 }
 
@@ -1958,15 +1983,17 @@ pub mod backend {
     use crate::api::app_state::AppState;
     use crate::api::{
         AuthToken, ChangeUsernameErr, EmailChangeErr, EmailChangeNewErr, EmailChangeStage,
-        EmailChangeTokenErr, EmailToken, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr,
-        ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerGetErr, ServerLoginErr,
-        ServerRegistrationErr, ServerReq, ServerRes, ServerTokenErr, User, UserPost, UserPostFile,
-        auth_token_get, decode_token, encode_token, hash_password, verify_password,
+        EmailChangeTokenErr, EmailToken, Server404Err, ServerAddPostErr, ServerAuthErr,
+        ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta,
+        ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes, ServerTokenErr, User,
+        UserPost, UserPostFile, auth_token_get, decode_token, encode_token, hash_password,
+        verify_password,
     };
-    use crate::db::{AddUserErr, DBChangeEmailErr};
-    use crate::db::{DB404Err, DBChangeUsernameErr};
-    use crate::db::{DBEmailChange, DBUserPostFile};
+    use crate::db::email_change::create_email_change_id;
+    use crate::db::{AddUserErr, email_change::DBChangeEmailErr};
+    use crate::db::{DB404Err, DBChangeUsernameErr, create_user_id};
     use crate::db::{DBUser, EmailIsTakenErr};
+    use crate::db::{DBUserPostFile, email_change::DBEmailChange};
     use crate::path::{
         link_settings_form_email_current_confirm, link_settings_form_email_new_confirm,
     };
@@ -1985,219 +2012,864 @@ pub mod backend {
     use little_exif::{filetype::FileExtension, metadata::Metadata};
     use std::time::Duration;
     use std::{io::Cursor, path::Path, str::FromStr};
+    use surrealdb::RecordId;
     use tokio::fs;
     use tracing::{debug, error, info, trace};
 
-    // auth
-
-    pub async fn register(
-        State(app_state): State<AppState>,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        let ServerReq::Register {
-            username,
-            invite_token,
-            password,
-        } = req
-        else {
-            return Err(ServerDesErr::ServerWrongInput(format!(
-                "expected Register, received: {req:?}"
-            ))
-            .into());
+    pub mod auth {
+        use crate::api::app_state::AppState;
+        use crate::api::{
+            AuthToken, ChangeUsernameErr, EmailChangeErr, EmailChangeNewErr, EmailChangeStage,
+            EmailChangeTokenErr, EmailToken, Server404Err, ServerAddPostErr, ServerAuthErr,
+            ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta,
+            ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes, ServerTokenErr, User,
+            UserPost, UserPostFile, auth_token_get, decode_token, encode_token, hash_password,
+            verify_password,
         };
-        let time_ns = app_state.clock.now().await;
-        let secret = app_state.get_secret().await;
+        use crate::db::AddUserErr;
+        use crate::db::DB404Err;
+        use crate::valid::auth::{proccess_password, proccess_username};
+        use axum::extract::State;
+        use axum_extra::extract::CookieJar;
+        use http::header::COOKIE;
+        use tracing::{debug, error, info, trace};
 
-        let invite_token_decoded = app_state
-            .db
-            .get_invite_any_by_token(
-                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
-                &invite_token,
-            )
-            .await
-            .map_err(|err| match err {
-                DB404Err::DB(_) => ServerErr::DbErr,
-                DB404Err::NotFound => ServerRegistrationErr::TokenNotFound.into(),
-            })
-            .and_then(|invite| {
-                if invite.expires < time_ns {
-                    return Err(ServerRegistrationErr::TokenExpired.into());
-                }
-                if invite.used {
-                    return Err(ServerRegistrationErr::TokenUsed.into());
-                }
-                decode_token::<EmailToken>(&secret, &invite_token, false)
-                    .map_err(|err| ServerRegistrationErr::ServerJWT(err.to_string()).into())
-            })
-            .inspect_err(|err| error!("failed to run use_invite {err}"))?;
+        pub async fn register(
+            State(app_state): State<AppState>,
+            req: ServerReq,
+        ) -> Result<ServerRes, ServerErr> {
+            let ServerReq::Register {
+                username,
+                invite_token,
+                password,
+            } = req
+            else {
+                return Err(ServerDesErr::ServerWrongInput(format!(
+                    "expected Register, received: {req:?}"
+                ))
+                .into());
+            };
+            let time_ns = app_state.clock.now().await;
+            let secret = app_state.get_secret().await;
 
-        let email = invite_token_decoded.claims.email;
-        let username = proccess_username(username);
-        let password = proccess_password(password, None)
-            .and_then(|pss| hash_password(pss).map_err(|_| "hasher error".to_string()));
-
-        let (Ok(username), Ok(password)) = (&username, &password) else {
-            return Err(ServerErr::from(
-                ServerRegistrationErr::ServerRegistrationInvalidInput {
-                    username: username.err(),
-                    email: None,
-                    password: password.err(),
-                },
-            ));
-        };
-
-        let user = app_state
-            .db
-            .add_user(time_ns, username, email, password)
-            .await
-            .map_err(|err| match err {
-                AddUserErr::EmailIsTaken(_) => {
-                    ServerRegistrationErr::ServerRegistrationInvalidInput {
-                        username: None,
-                        email: Some("email is taken".to_string()),
-                        password: None,
+            let invite_token_decoded = app_state
+                .db
+                .get_invite_any_by_token(
+                    // DBEmailTokenKind::RequestConfirmRegistrationEmail,
+                    &invite_token,
+                )
+                .await
+                .map_err(|err| match err {
+                    DB404Err::DB(_) => ServerErr::DbErr,
+                    DB404Err::NotFound => ServerRegistrationErr::TokenNotFound.into(),
+                })
+                .and_then(|invite| {
+                    if invite.expires < time_ns {
+                        return Err(ServerRegistrationErr::TokenExpired.into());
                     }
-                    .into()
-                }
-                AddUserErr::UsernameIsTaken(_) => {
+                    if invite.used {
+                        return Err(ServerRegistrationErr::TokenUsed.into());
+                    }
+                    decode_token::<EmailToken>(&secret, &invite_token, false)
+                        .map_err(|err| ServerRegistrationErr::ServerJWT(err.to_string()).into())
+                })
+                .inspect_err(|err| error!("failed to run use_invite {err}"))?;
+
+            let email = invite_token_decoded.claims.email;
+            let username = proccess_username(username);
+            let password = proccess_password(password, None)
+                .and_then(|pss| hash_password(pss).map_err(|_| "hasher error".to_string()));
+
+            let (Ok(username), Ok(password)) = (&username, &password) else {
+                return Err(ServerErr::from(
                     ServerRegistrationErr::ServerRegistrationInvalidInput {
-                        username: Some("username is taken".to_string()),
+                        username: username.err(),
                         email: None,
-                        password: None,
+                        password: password.err(),
+                    },
+                ));
+            };
+
+            let user = app_state
+                .db
+                .add_user(time_ns, username, email, password)
+                .await
+                .map_err(|err| match err {
+                    AddUserErr::EmailIsTaken(_) => {
+                        ServerRegistrationErr::ServerRegistrationInvalidInput {
+                            username: None,
+                            email: Some("email is taken".to_string()),
+                            password: None,
+                        }
+                        .into()
                     }
-                    .into()
+                    AddUserErr::UsernameIsTaken(_) => {
+                        ServerRegistrationErr::ServerRegistrationInvalidInput {
+                            username: Some("username is taken".to_string()),
+                            email: None,
+                            password: None,
+                        }
+                        .into()
+                    }
+                    _ => ServerErr::DbErr,
+                })?;
+
+            let result = app_state
+                .db
+                .update_invite_used(time_ns, &invite_token)
+                .await
+                .inspect_err(|err| error!("failed to run use_invite {err}"))
+                .map_err(|err| ServerErr::DbErr)?;
+
+            let token = encode_token(&secret, AuthToken::new(username, time_ns))
+                .inspect_err(|err| error!("jwt exploded {err}"))
+                .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
+
+            // let (token, cookie) = create_cookie(&app_state.settings.auth.secret, &user.username, time)
+            //     .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
+
+            let _session = app_state
+                .db
+                .add_session(time_ns, token.clone(), &user.username)
+                .await
+                .map_err(|err| ServerErr::DbErr)?;
+
+            Ok(ServerRes::SetAuthCookie { token })
+        }
+
+        pub async fn login(
+            State(app): State<AppState>,
+            req: ServerReq,
+        ) -> Result<ServerRes, ServerErr> {
+            let ServerReq::Login { email, password } = req else {
+                return Err(ServerDesErr::ServerWrongInput(format!(
+                    "expected Login, received: {req:?}"
+                ))
+                .into());
+            };
+            let time = app.clock.now().await;
+            let time_ns = time;
+            let secret = app.get_secret().await;
+
+            let user = app
+                .db
+                .get_user_by_email(email)
+                .await
+                .inspect_err(|err| trace!("user not found - {err}"))
+                .map_err(|_| ServerErr::LoginErr(ServerLoginErr::WrongCredentials))?;
+
+            verify_password(password, user.password)
+                .inspect_err(|err| trace!("passwords verification failed {err}"))
+                .map_err(|_| ServerErr::LoginErr(ServerLoginErr::WrongCredentials))?;
+
+            let token = encode_token(&secret, AuthToken::new(&user.username, time))
+                .inspect_err(|err| error!("jwt exploded {err}"))
+                .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
+            // let (token, cookie) = create_cookie(&app_state.settings.auth.secret, &user.username, time)
+            //     .map_err(|err| {
+            //         ServerErr::ServerLoginErr(ServerLoginErr::ServerCreateCookieErr(err.to_string()))
+            //     })?;
+
+            let _session = app
+                .db
+                .add_session(time_ns, token.clone(), &user.username)
+                .await
+                .map_err(|err| ServerErr::DbErr)?;
+
+            Ok(ServerRes::SetAuthCookie { token })
+        }
+
+        pub async fn logout(
+            State(app_state): State<AppState>,
+            mut parts: http::request::Parts,
+            jar: CookieJar,
+            req: ServerReq,
+        ) -> Result<ServerRes, ServerErr> {
+            let ServerReq::None = req else {
+                return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                    "expected None, received: {req:?}"
+                ))));
+            };
+
+            let token = auth_token_get(&mut parts.headers, COOKIE).ok_or(ServerErr::AuthErr(
+                ServerAuthErr::ServerUnauthorizedNoCookie,
+            ))?;
+            // {
+            //     let r = parts.headers;
+            //     let r2 = jar.get(AUTHORIZATION.as_str());
+            //     trace!("headers comparison {r:?}");
+            // }
+            // trace!("headers comparison 1111 {jar:?} 222222 {headers:?}");
+            // let token = auth_token_get(&mut parts.headers);
+            // let token = jar
+            //     .get(AUTHORIZATION.as_str())
+            //     // .map(|v| v.value().to_string())
+            //     .inspect(|v| trace!("logout token raw {v:?}"))
+            //     .ok_or(ServerErr::ServerAuthErr(
+            //         ServerAuthErr::ServerUnauthorizedNoCookie,
+            //     ))
+            //     .map(|v| cut_cookie(v.value(), COOKIE_PREFIX, "").to_string())?;
+
+            trace!("logout token {token}");
+
+            app_state
+                .db
+                .get_session(&token)
+                .await
+                .map_err(|_err| ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie))?;
+
+            app_state
+                .db
+                .delete_session(token)
+                .await
+                .map_err(|_err| ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie))?;
+
+            Ok(ServerRes::DeleteAuthCookie)
+        }
+
+        pub async fn decode_email_token(
+            State(app): State<AppState>,
+            req: ServerReq,
+        ) -> Result<ServerRes, ServerErr> {
+            let ServerReq::ConfirmToken { token } = req else {
+                return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                    "expected Register, received: {req:?}"
+                ))));
+            };
+            let secret = app.get_secret().await;
+
+            let token = decode_token::<EmailToken>(&secret, token, false)
+                .map_err(|err| ServerDecodeInviteErr::JWT(err.to_string()))?;
+
+            Ok(ServerRes::InviteToken(token.claims))
+        }
+    }
+
+    pub mod change_email {
+        use crate::api::app_state::AppState;
+        use crate::api::{
+            AuthToken, ChangeUsernameErr, EmailChangeErr, EmailChangeNewErr, EmailChangeStage,
+            EmailChangeTokenErr, EmailToken, Server404Err, ServerAddPostErr, ServerAuthErr,
+            ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta,
+            ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes, ServerTokenErr, User,
+            UserPost, UserPostFile, auth_token_get, decode_token, encode_token, hash_password,
+            verify_password,
+        };
+        use crate::db::email_change::{DBChangeEmailErr, create_email_change_id};
+        use crate::db::{AddUserErr, DBUser};
+        use crate::db::{DB404Err, EmailIsTakenErr};
+        use crate::valid::auth::{proccess_password, proccess_username};
+        use axum::Extension;
+        use axum::extract::State;
+        use axum_extra::extract::CookieJar;
+        use http::header::COOKIE;
+        use tracing::{debug, error, info, trace};
+
+        pub async fn send_email_change(
+            State(app): State<AppState>,
+            auth_token: Extension<AuthToken>,
+            db_user: Extension<DBUser>,
+            req: ServerReq,
+        ) -> Result<ServerRes, ServerErr> {
+            let ServerReq::None = req else {
+                return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                    "expected None, received: {req:?}"
+                ))));
+            };
+
+            let time = app.time().await;
+
+            let (confirm_token, exp) = app.new_token(&db_user.email).await?;
+
+            let email_change = app
+                .db
+                .add_email_change(
+                    time,
+                    db_user.id.clone(),
+                    db_user.email.clone(),
+                    confirm_token.clone(),
+                    exp,
+                )
+                .await
+                .map_err(|_| ServerErr::DbErr)?;
+
+            let stage = EmailChangeStage::from(&email_change);
+            match &stage {
+                EmailChangeStage::ConfirmEmail { .. } => (),
+                _ => {
+                    return Err(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
+                        "email change is already initialized".to_string(),
+                    )));
                 }
-                _ => ServerErr::DbErr,
-            })?;
+            }
+            // stage.is_stage(EmailChangeStage::ConfirmEmail, EmailChangeErr::InvalidStage)?;
 
-        let result = app_state
-            .db
-            .update_invite_used(time_ns, &invite_token)
-            .await
-            .inspect_err(|err| error!("failed to run use_invite {err}"))
-            .map_err(|err| ServerErr::DbErr)?;
+            app.send_email_change(
+                time,
+                email_change.current.email,
+                &email_change.id,
+                email_change.current.token_raw,
+                email_change.expires,
+            )
+            .await?;
 
-        let token = encode_token(&secret, AuthToken::new(username, time_ns))
-            .inspect_err(|err| error!("jwt exploded {err}"))
-            .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
+            Ok(ServerRes::EmailChangeStage(stage))
+        }
 
-        // let (token, cookie) = create_cookie(&app_state.settings.auth.secret, &user.username, time)
-        //     .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
+        pub async fn confirm_email_change(
+            State(app_state): State<AppState>,
+            auth_token: Extension<AuthToken>,
+            db_user: Extension<DBUser>,
+            req: ServerReq,
+        ) -> Result<ServerRes, ServerErr> {
+            let ServerReq::ConfirmToken { token } = req else {
+                return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                    "expected ConfirmKind, received: {req:?}"
+                ))));
+            };
+            let time = app_state.clock.now().await;
 
-        let _session = app_state
-            .db
-            .add_session(time_ns, token.clone(), &user.username)
-            .await
-            .map_err(|err| ServerErr::DbErr)?;
+            let result = app_state
+                .db
+                .get_email_change_by_current_token(time, db_user.id.clone(), token)
+                .await
+                .map_err(|e| match e {
+                    DB404Err::NotFound => ServerErr::from(EmailChangeTokenErr::TokenInvalid),
+                    DB404Err::DB(_) => ServerErr::DbErr,
+                })?;
 
-        Ok(ServerRes::SetAuthCookie { token })
-    }
+            let stage = EmailChangeStage::from(&result);
+            match stage {
+                EmailChangeStage::ConfirmEmail { .. } => (),
+                stage => {
+                    return Err(ServerErr::from(EmailChangeTokenErr::InvalidStage(format!(
+                        "wrong stage, expected ConfirmEmail, got {stage}"
+                    ))));
+                }
+            }
 
-    pub async fn login(
-        State(app): State<AppState>,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        let ServerReq::Login { email, password } = req else {
-            return Err(ServerDesErr::ServerWrongInput(format!(
-                "expected Login, received: {req:?}"
-            ))
-            .into());
-        };
-        let time = app.clock.now().await;
-        let time_ns = time;
-        let secret = app.get_secret().await;
+            // if result.current.token_raw == token
 
-        let user = app
-            .db
-            .get_user_by_email(email)
-            .await
-            .inspect_err(|err| trace!("user not found - {err}"))
-            .map_err(|_| ServerErr::LoginErr(ServerLoginErr::WrongCredentials))?;
+            // let (id, expires) = match stage {
+            //     EmailChangeStage::ConfirmEmail { id, expires } => (id, expires),
+            //     _ => {
+            //         return Err(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
+            //             "email change is already initialized".to_string(),
+            //         )));
+            //     }
+            // };
 
-        verify_password(password, user.password)
-            .inspect_err(|err| trace!("passwords verification failed {err}"))
-            .map_err(|_| ServerErr::LoginErr(ServerLoginErr::WrongCredentials))?;
+            // let stage = app_state.get_email_change_status(time, &db_user).await?;
+            // let (email_change, stage) =
+            //     .get_email_change_status_compare(
+            //         time,
+            //         &db_user,
+            //         EmailChangeStage::ConfirmEmail,
+            //         EmailChangeTokenErr::InvalidStage,
+            //     )
+            //     .await?;
 
-        let token = encode_token(&secret, AuthToken::new(&user.username, time))
-            .inspect_err(|err| error!("jwt exploded {err}"))
-            .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
-        // let (token, cookie) = create_cookie(&app_state.settings.auth.secret, &user.username, time)
-        //     .map_err(|err| {
-        //         ServerErr::ServerLoginErr(ServerLoginErr::ServerCreateCookieErr(err.to_string()))
-        //     })?;
+            // if email_change.current.token_raw != token {
+            //     return Err(EmailChangeTokenErr::TokenInvalid.into());
+            // }
 
-        let _session = app
-            .db
-            .add_session(time_ns, token.clone(), &user.username)
-            .await
-            .map_err(|err| ServerErr::DbErr)?;
+            let result = app_state
+                .db
+                .update_email_change_confirm_current(time, result.id.clone())
+                .await
+                .map_err(|_| ServerErr::DbErr)?;
 
-        Ok(ServerRes::SetAuthCookie { token })
-    }
+            let stage = EmailChangeStage::from(&result);
 
-    pub async fn logout(
-        State(app_state): State<AppState>,
-        mut parts: http::request::Parts,
-        jar: CookieJar,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        let ServerReq::None = req else {
-            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected None, received: {req:?}"
-            ))));
-        };
+            Ok(ServerRes::EmailChangeStage(stage))
+        }
 
-        let token = auth_token_get(&mut parts.headers, COOKIE).ok_or(ServerErr::AuthErr(
-            ServerAuthErr::ServerUnauthorizedNoCookie,
-        ))?;
-        // {
-        //     let r = parts.headers;
-        //     let r2 = jar.get(AUTHORIZATION.as_str());
-        //     trace!("headers comparison {r:?}");
+        pub async fn send_email_new(
+            State(app): State<AppState>,
+            auth_token: Extension<AuthToken>,
+            db_user: Extension<DBUser>,
+            req: ServerReq,
+        ) -> Result<ServerRes, ServerErr> {
+            type ResErr = EmailChangeErr;
+
+            let ServerReq::EmailAddressWithId { id, email } = req else {
+                return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                    "expected AddPost, received: {req:?}"
+                ))));
+            };
+
+            let time = app.time().await;
+
+            let result = app
+                .db
+                .get_email_change(time, create_email_change_id(&id))
+                .await
+                .map_err(|e| match e {
+                    DB404Err::NotFound => ServerErr::from(ResErr::InvalidStage(
+                        "email change is not initialized".to_string(),
+                    )),
+                    DB404Err::DB(_) => ServerErr::DbErr,
+                })?;
+
+            let stage = EmailChangeStage::from(&result);
+            let (id, expires) = match stage {
+                EmailChangeStage::EnterNewEmail { id, expires } => {
+                    (create_email_change_id(id), expires)
+                }
+                err => {
+                    return Err(ServerErr::EmailChange(ResErr::InvalidStage(format!(
+                        "expected stage EnterNewEmail, got {err:?}"
+                    ))));
+                }
+            };
+            // let (email_change, stage) = app
+            //     .get_email_change_status_compare(
+            //         time,
+            //         &db_user,
+            //         EmailChangeStage::EnterNewEmail,
+            //         EmailChangeNewErr::InvalidStage,
+            //     )
+            //     .await?;
+
+            let (confirm_token, exp) = app.new_token(&db_user.email).await?;
+
+            let result = app
+                .db
+                .update_email_change_add_new(time, id, email.clone(), confirm_token.clone())
+                .await
+                .map_err(|err| match err {
+                    EmailIsTakenErr::EmailIsTaken(email) => {
+                        ServerErr::from(EmailChangeNewErr::EmailIsTaken(email))
+                    }
+                    EmailIsTakenErr::DB(_) => ServerErr::DbErr,
+                })?;
+
+            // let stage = EmailChangeStage::from(&result);
+
+            // let token = result
+            //     .new
+            //     .as_ref()
+            //     .ok_or_else(|| EmailChangeNewErr::InvalidStage(format!("expected NewConfirm")))?;
+
+            let stage = EmailChangeStage::from(&result);
+            match &stage {
+                EmailChangeStage::ConfirmNewEmail { .. } => (),
+                err => {
+                    return Err(ServerErr::EmailChange(ResErr::InvalidStage(format!(
+                        "expected NewConfirm, got {err:?}"
+                    ))));
+                }
+            }
+
+            app.send_email_new(
+                time,
+                email.clone(),
+                &result.id,
+                result.new.as_ref().unwrap().token_raw.clone(),
+                expires,
+            )
+            .await?;
+
+            Ok(ServerRes::EmailChangeStage(stage))
+        }
+
+        pub async fn confirm_email_new(
+            State(app): State<AppState>,
+            auth_token: Extension<AuthToken>,
+            db_user: Extension<DBUser>,
+            req: ServerReq,
+        ) -> Result<ServerRes, ServerErr> {
+            type ErrRes = EmailChangeTokenErr;
+            // let _span = tracing::trace_span!("confirm_email_new").entered();
+            let ServerReq::ConfirmToken { token } = req else {
+                return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                    "expected ConfirmKind, received: {req:?}"
+                ))));
+            };
+            let time = app.clock.now().await;
+            trace!("time {}", time);
+
+            let result = app
+                .db
+                .get_email_change_by_new_token(time, db_user.id.clone(), token)
+                .await
+                .map_err(|e| match e {
+                    DB404Err::NotFound => ServerErr::from(ErrRes::TokenInvalid),
+                    DB404Err::DB(_) => ServerErr::DbErr,
+                })?;
+
+            let stage = EmailChangeStage::from(&result);
+            match stage {
+                EmailChangeStage::ConfirmNewEmail { .. } => (),
+                stage => {
+                    return Err(ServerErr::from(ErrRes::InvalidStage(format!(
+                        "wrong stage, expected ConfirmEmail, got {stage}"
+                    ))));
+                }
+            }
+
+            // let (email_change, stage) = app
+            //     .get_email_change_status_compare(
+            //         time,
+            //         &db_user,
+            //         EmailChangeStage::ConfirmNewEmail,
+            //         EmailChangeTokenErr::InvalidStage,
+            //     )
+            //     .await?;
+
+            // trace!("stage {}", stage);
+            //
+            // if email_change
+            //     .new
+            //     .as_ref()
+            //     .map(|v| v.token_raw != token)
+            //     .unwrap_or_default()
+            // {
+            //     return Err(EmailChangeTokenErr::TokenInvalid.into());
+            // }
+
+            let result = app
+                .db
+                .update_email_change_confirm_new(time, result.id.clone())
+                .await
+                .map_err(|_| ServerErr::DbErr)?;
+
+            let stage = EmailChangeStage::from(&result);
+            match stage {
+                EmailChangeStage::ReadyToComplete { .. } => (),
+                stage => {
+                    return Err(ServerErr::from(ErrRes::InvalidStage(format!(
+                        "wrong stage, expected ConfirmEmail, got {stage}"
+                    ))));
+                }
+            }
+
+            Ok(ServerRes::EmailChangeStage(stage))
+        }
+
+        pub async fn change_email(
+            State(app): State<AppState>,
+            auth_token: Extension<AuthToken>,
+            db_user: Extension<DBUser>,
+            req: ServerReq,
+        ) -> Result<ServerRes, ServerErr> {
+            type ResErr = EmailChangeNewErr;
+
+            let ServerReq::Id { id } = req else {
+                return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                    "expected ChangeUsername, received: {req:?}"
+                ))));
+            };
+            let time = app.clock.now().await;
+
+            trace!("1");
+
+            let email_change = app
+                .db
+                .get_email_change(time, create_email_change_id(&id))
+                .await
+                .map_err(|e| match e {
+                    DB404Err::NotFound => ServerErr::from(ServerErr::from(ResErr::InvalidStage(
+                        format!("state not initialized, expected ReadyToConfirm"),
+                    ))),
+                    DB404Err::DB(_) => ServerErr::DbErr,
+                })?;
+
+            trace!("2");
+
+            let stage = EmailChangeStage::from(&email_change);
+            match stage {
+                EmailChangeStage::ReadyToComplete { .. } => (),
+                stage => {
+                    return Err(ServerErr::from(ResErr::InvalidStage(format!(
+                        "wrong stage, expected ReadyToConfirm, got {stage}"
+                    ))));
+                }
+            }
+
+            trace!("3");
+
+            // let (email_change, stage) = app
+            //     .get_email_change_status_compare(
+            //         time,
+            //         &db_user,
+            //         EmailChangeStage::ReadyToComplete,
+            //         EmailChangeNewErr::InvalidStage,
+            //     )
+            //     .await?;
+
+            let new = email_change
+                .new
+                .as_ref()
+                .ok_or_else(|| ResErr::InvalidStage(format!("expected ReadyToConfirm")))?;
+
+            trace!("5");
+
+            let result = app
+                .db
+                .update_user_email(db_user.id.clone(), new.email.clone(), time)
+                .await
+                .map_err(|err| match err {
+                    DBChangeEmailErr::EmailIsTaken(email) => {
+                        ServerErr::from(ResErr::EmailIsTaken(email))
+                    }
+                    _ => ServerErr::DbErr,
+                })?;
+
+            trace!("6");
+
+            let result = app
+                .db
+                .update_email_change_complete(time, email_change.id.clone())
+                .await
+                .map_err(|_| ServerErr::DbErr)?;
+
+            trace!("7");
+
+            let stage = EmailChangeStage::from(&result);
+            match stage {
+                EmailChangeStage::Complete { .. } => (),
+                stage => {
+                    return Err(ServerErr::from(ResErr::InvalidStage(format!(
+                        "wrong stage, expected ReadyToConfirm, got {stage}"
+                    ))));
+                }
+            }
+
+            trace!("8");
+
+            Ok(ServerRes::EmailChangeStage(stage))
+        }
+
+        // pub async fn confirm_action(
+        //     State(app_state): State<AppState>,
+        //     auth_token: Extension<AuthToken>,
+        //     db_user: Extension<DBUser>,
+        //     req: ServerReq,
+        // ) -> Result<ServerRes, ServerErr> {
+        //     let ServerReq::ConfirmToken { token } = req else {
+        //         return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+        //             "expected ConfirmKind, received: {req:?}"
+        //         ))));
+        //     };
+        //     let time = app_state.clock.now().await.as_nanos();
+        //
+        //
+        //     Ok(ServerRes::Ok)
         // }
-        // trace!("headers comparison 1111 {jar:?} 222222 {headers:?}");
-        // let token = auth_token_get(&mut parts.headers);
-        // let token = jar
-        //     .get(AUTHORIZATION.as_str())
-        //     // .map(|v| v.value().to_string())
-        //     .inspect(|v| trace!("logout token raw {v:?}"))
-        //     .ok_or(ServerErr::ServerAuthErr(
-        //         ServerAuthErr::ServerUnauthorizedNoCookie,
-        //     ))
-        //     .map(|v| cut_cookie(v.value(), COOKIE_PREFIX, "").to_string())?;
 
-        trace!("logout token {token}");
+        pub async fn resend_email_change(
+            State(app): State<AppState>,
+            auth_token: Extension<AuthToken>,
+            db_user: Extension<DBUser>,
+            req: ServerReq,
+        ) -> Result<ServerRes, ServerErr> {
+            type ResErr = EmailChangeNewErr;
 
-        app_state
-            .db
-            .get_session(&token)
-            .await
-            .map_err(|_err| ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie))?;
+            let ServerReq::Id { id } = req else {
+                return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                    "expected None, received: {req:?}"
+                ))));
+            };
 
-        app_state
-            .db
-            .delete_session(token)
-            .await
-            .map_err(|_err| ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie))?;
+            let time = app.time().await;
 
-        Ok(ServerRes::DeleteAuthCookie)
-    }
+            let result = app
+                .db
+                .get_email_change(time, create_email_change_id(&id))
+                .await
+                .map_err(|e| match e {
+                    DB404Err::NotFound => ServerErr::from(ServerErr::from(ResErr::InvalidStage(
+                        format!("state not initialized, expected ReadyToConfirm"),
+                    ))),
+                    DB404Err::DB(_) => ServerErr::DbErr,
+                })?;
 
-    pub async fn decode_email_token(
-        State(app): State<AppState>,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        let ServerReq::ConfirmToken { token } = req else {
-            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected Register, received: {req:?}"
-            ))));
-        };
-        let secret = app.get_secret().await;
+            let stage = EmailChangeStage::from(&result);
+            match stage {
+                EmailChangeStage::ConfirmEmail { .. } => (),
+                stage => {
+                    return Err(ServerErr::from(ResErr::InvalidStage(format!(
+                        "wrong stage, expected ReadyToConfirm, got {stage}"
+                    ))));
+                }
+            }
 
-        let token = decode_token::<EmailToken>(&secret, token, false)
-            .map_err(|err| ServerDecodeInviteErr::JWT(err.to_string()))?;
+            // let (email_change, stage) =
+            //     app.get_email_change_status(time, &db_user)
+            //         .await?
+            //         .ok_or(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
+            //             "email change not started".to_string(),
+            //         )))?;
 
-        Ok(ServerRes::InviteToken(token.claims))
+            // stage.is_stage(
+            //     EmailChangeStage::ConfirmEmail,
+            //     EmailChangeNewErr::InvalidStage,
+            // )?;
+
+            app.send_email_change(
+                time,
+                result.current.email,
+                &result.id,
+                result.current.token_raw,
+                result.expires,
+            )
+            .await?;
+
+            Ok(ServerRes::EmailChangeStage(stage))
+        }
+
+        pub async fn resend_email_new(
+            State(app): State<AppState>,
+            auth_token: Extension<AuthToken>,
+            db_user: Extension<DBUser>,
+            req: ServerReq,
+        ) -> Result<ServerRes, ServerErr> {
+            type ResErr = EmailChangeNewErr;
+
+            let ServerReq::Id { id } = req else {
+                return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                    "expected None, received: {req:?}"
+                ))));
+            };
+
+            let time = app.time().await;
+            let result = app
+                .db
+                .get_email_change(time, create_email_change_id(&id))
+                .await
+                .map_err(|e| match e {
+                    DB404Err::NotFound => ServerErr::from(ServerErr::from(ResErr::InvalidStage(
+                        format!("state not initialized, expected ReadyToConfirm"),
+                    ))),
+                    DB404Err::DB(_) => ServerErr::DbErr,
+                })?;
+
+            let stage = EmailChangeStage::from(&result);
+            match stage {
+                EmailChangeStage::ConfirmNewEmail { .. } => (),
+                stage => {
+                    return Err(ServerErr::from(ResErr::InvalidStage(format!(
+                        "wrong stage, expected ReadyToConfirm, got {stage}"
+                    ))));
+                }
+            }
+
+            let new = result
+                .new
+                .as_ref()
+                .ok_or_else(|| ResErr::InvalidStage(format!("expected ReadyToConfirm")))?;
+
+            // let (email_change, stage) =
+            //     app.get_email_change_status(time, &db_user)
+            //         .await?
+            //         .ok_or(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
+            //             "email change not started".to_string(),
+            //         )))?;
+            //
+            // stage.is_stage(
+            //     EmailChangeStage::ConfirmNewEmail,
+            //     EmailChangeNewErr::InvalidStage,
+            // )?;
+            // let new_email = email_change.new.unwrap().email;
+
+            app.send_email_new(
+                time,
+                new.email.clone(),
+                &result.id,
+                new.token_raw.clone(),
+                result.expires,
+            )
+            .await?;
+
+            Ok(ServerRes::EmailChangeStage(stage))
+        }
+
+        pub async fn cancel_email_change(
+            State(app): State<AppState>,
+            auth_token: Extension<AuthToken>,
+            db_user: Extension<DBUser>,
+            req: ServerReq,
+        ) -> Result<ServerRes, ServerErr> {
+            type ResErr = EmailChangeNewErr;
+
+            let ServerReq::Id { id } = req else {
+                return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                    "expected None, received: {req:?}"
+                ))));
+            };
+
+            let time = app.time().await;
+            // let stage =
+            //     app.get_email_change_status(time, &db_user)
+            //         .await?
+            //         .ok_or(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
+            //             "email change not started".to_string(),
+            //         )))?;
+            let result = app
+                .db
+                .get_email_change(time, create_email_change_id(&id))
+                .await
+                .map_err(|e| match e {
+                    DB404Err::NotFound => ServerErr::from(ServerErr::from(ResErr::InvalidStage(
+                        format!("state not initialized, expected ReadyToConfirm"),
+                    ))),
+                    DB404Err::DB(_) => ServerErr::DbErr,
+                })?;
+
+            // let stage = EmailChangeStage::from(&result);
+            // match stage {
+            //     EmailChangeStage::ConfirmNewEmail { .. } => (),
+            //     stage => {
+            //         return Err(ServerErr::from(ResErr::InvalidStage(format!(
+            //             "wrong stage, expected ReadyToConfirm, got {stage}"
+            //         ))));
+            //     }
+            // }
+
+            let result = app
+                .db
+                .update_email_change_complete(time, result.id.clone())
+                .await
+                .map_err(|_| ServerErr::DbErr)?;
+
+            let stage = EmailChangeStage::from(&result);
+
+            Ok(ServerRes::EmailChangeStage(stage))
+        }
+
+        pub async fn status_email_change(
+            State(app): State<AppState>,
+            auth_token: Extension<AuthToken>,
+            db_user: Extension<DBUser>,
+            req: ServerReq,
+        ) -> Result<ServerRes, ServerErr> {
+            type ResErr = Server404Err;
+
+            let ServerReq::Id { id } = req else {
+                return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                    "expected None, received: {req:?}"
+                ))));
+            };
+
+            let time = app.time().await;
+            let result = app
+                .db
+                .get_email_change(time, create_email_change_id(&id))
+                .await;
+
+            let stage = match result {
+                Ok(v) => EmailChangeStage::from(&v),
+                Err(DB404Err::NotFound) => {
+                    return Err(ResErr::NotFound.into());
+                }
+                Err(DB404Err::DB(_)) => {
+                    return Err(ServerErr::DbErr);
+                }
+            };
+
+            Ok(ServerRes::EmailChangeStage(stage))
+        }
     }
 
     //
@@ -2217,7 +2889,7 @@ pub mod backend {
             .get_user_by_username(username)
             .await
             .map_err(|err| match err {
-                DB404Err::NotFound => ServerGetErr::NotFound.into(),
+                DB404Err::NotFound => Server404Err::NotFound.into(),
                 _ => ServerErr::DbErr,
             })?;
 
@@ -2235,100 +2907,6 @@ pub mod backend {
             username: db_user.username.clone(),
             email: db_user.email.clone(),
         })
-    }
-
-    pub async fn change_email(
-        State(app): State<AppState>,
-        auth_token: Extension<AuthToken>,
-        db_user: Extension<DBUser>,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        type ResErr = EmailChangeNewErr;
-
-        let ServerReq::None = req else {
-            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected ChangeUsername, received: {req:?}"
-            ))));
-        };
-        let time = app.clock.now().await;
-
-        trace!("1");
-
-        let email_change = app
-            .db
-            .get_email_change(time, db_user.id.clone())
-            .await
-            .map_err(|e| match e {
-                DB404Err::NotFound => ServerErr::from(ServerErr::from(ResErr::InvalidStage(
-                    format!("state not initialized, expected ReadyToConfirm"),
-                ))),
-                DB404Err::DB(_) => ServerErr::DbErr,
-            })?;
-
-        trace!("2");
-
-        let stage = EmailChangeStage::from(&email_change);
-        match stage {
-            EmailChangeStage::ReadyToComplete { .. } => (),
-            stage => {
-                return Err(ServerErr::from(ResErr::InvalidStage(format!(
-                    "wrong stage, expected ReadyToConfirm, got {stage}"
-                ))));
-            }
-        }
-
-        trace!("3");
-
-        // let (email_change, stage) = app
-        //     .get_email_change_status_compare(
-        //         time,
-        //         &db_user,
-        //         EmailChangeStage::ReadyToComplete,
-        //         EmailChangeNewErr::InvalidStage,
-        //     )
-        //     .await?;
-
-        let new = email_change
-            .new
-            .as_ref()
-            .ok_or_else(|| ResErr::InvalidStage(format!("expected ReadyToConfirm")))?;
-
-        trace!("5");
-
-        let result = app
-            .db
-            .update_user_email(db_user.id.clone(), new.email.clone(), time)
-            .await
-            .map_err(|err| match err {
-                DBChangeEmailErr::EmailIsTaken(email) => {
-                    ServerErr::from(ResErr::EmailIsTaken(email))
-                }
-                _ => ServerErr::DbErr,
-            })?;
-
-        trace!("6");
-
-        let result = app
-            .db
-            .update_email_change_complete(time, email_change.id.clone())
-            .await
-            .map_err(|_| ServerErr::DbErr)?;
-
-        trace!("7");
-
-        let stage = EmailChangeStage::from(&result);
-        match stage {
-            EmailChangeStage::Complete { .. } => (),
-            stage => {
-                return Err(ServerErr::from(ResErr::InvalidStage(format!(
-                    "wrong stage, expected ReadyToConfirm, got {stage}"
-                ))));
-            }
-        }
-
-        trace!("8");
-
-        Ok(ServerRes::EmailChangeStage(stage))
     }
 
     pub async fn change_username(
@@ -2384,7 +2962,7 @@ pub mod backend {
             .get_post_str(post_id)
             .await
             .map_err(|err| match err {
-                DB404Err::NotFound => ServerErr::GetErr(ServerGetErr::NotFound),
+                DB404Err::NotFound => ServerErr::NotFoundErr(Server404Err::NotFound),
                 _ => ServerErr::DbErr,
             })?;
 
@@ -2412,7 +2990,7 @@ pub mod backend {
             .get_user_by_username(username)
             .await
             .map_err(|err| match err {
-                DB404Err::NotFound => ServerGetErr::NotFound.into(),
+                DB404Err::NotFound => Server404Err::NotFound.into(),
                 DB404Err::DB(_) => ServerErr::DbErr,
             })?;
 
@@ -2449,7 +3027,7 @@ pub mod backend {
             .get_user_by_username(username)
             .await
             .map_err(|err| match err {
-                DB404Err::NotFound => ServerGetErr::NotFound.into(),
+                DB404Err::NotFound => Server404Err::NotFound.into(),
                 DB404Err::DB(_) => ServerErr::DbErr,
             })?;
 
@@ -2486,7 +3064,7 @@ pub mod backend {
             .get_user_by_username(username)
             .await
             .map_err(|err| match err {
-                DB404Err::NotFound => ServerGetErr::NotFound.into(),
+                DB404Err::NotFound => Server404Err::NotFound.into(),
                 DB404Err::DB(_) => ServerErr::DbErr,
             })?;
 
@@ -2523,7 +3101,7 @@ pub mod backend {
             .get_user_by_username(username)
             .await
             .map_err(|err| match err {
-                DB404Err::NotFound => ServerGetErr::NotFound.into(),
+                DB404Err::NotFound => Server404Err::NotFound.into(),
                 DB404Err::DB(_) => ServerErr::DbErr,
             })?;
 
@@ -2807,520 +3385,6 @@ pub mod backend {
 
     // email change
 
-    pub async fn confirm_email_change(
-        State(app_state): State<AppState>,
-        auth_token: Extension<AuthToken>,
-        db_user: Extension<DBUser>,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        let ServerReq::ConfirmToken { token } = req else {
-            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected ConfirmKind, received: {req:?}"
-            ))));
-        };
-        let time = app_state.clock.now().await;
-
-        let result = app_state
-            .db
-            .get_email_change_by_current_token(time, db_user.id.clone(), token)
-            .await
-            .map_err(|e| match e {
-                DB404Err::NotFound => ServerErr::from(EmailChangeTokenErr::TokenInvalid),
-                DB404Err::DB(_) => ServerErr::DbErr,
-            })?;
-
-        let stage = EmailChangeStage::from(&result);
-        match stage {
-            EmailChangeStage::ConfirmEmail { .. } => (),
-            stage => {
-                return Err(ServerErr::from(EmailChangeTokenErr::InvalidStage(format!(
-                    "wrong stage, expected ConfirmEmail, got {stage}"
-                ))));
-            }
-        }
-
-        // if result.current.token_raw == token
-
-        // let (id, expires) = match stage {
-        //     EmailChangeStage::ConfirmEmail { id, expires } => (id, expires),
-        //     _ => {
-        //         return Err(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
-        //             "email change is already initialized".to_string(),
-        //         )));
-        //     }
-        // };
-
-        // let stage = app_state.get_email_change_status(time, &db_user).await?;
-        // let (email_change, stage) =
-        //     .get_email_change_status_compare(
-        //         time,
-        //         &db_user,
-        //         EmailChangeStage::ConfirmEmail,
-        //         EmailChangeTokenErr::InvalidStage,
-        //     )
-        //     .await?;
-
-        // if email_change.current.token_raw != token {
-        //     return Err(EmailChangeTokenErr::TokenInvalid.into());
-        // }
-
-        let result = app_state
-            .db
-            .update_email_change_confirm_current(time, result.id.clone())
-            .await
-            .map_err(|_| ServerErr::DbErr)?;
-
-        let stage = EmailChangeStage::from(&result);
-
-        Ok(ServerRes::EmailChangeStage(stage))
-    }
-
-    pub async fn confirm_email_new(
-        State(app): State<AppState>,
-        auth_token: Extension<AuthToken>,
-        db_user: Extension<DBUser>,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        type ErrRes = EmailChangeTokenErr;
-        // let _span = tracing::trace_span!("confirm_email_new").entered();
-        let ServerReq::ConfirmToken { token } = req else {
-            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected ConfirmKind, received: {req:?}"
-            ))));
-        };
-        let time = app.clock.now().await;
-        trace!("time {}", time);
-
-        let result = app
-            .db
-            .get_email_change_by_new_token(time, db_user.id.clone(), token)
-            .await
-            .map_err(|e| match e {
-                DB404Err::NotFound => ServerErr::from(ErrRes::TokenInvalid),
-                DB404Err::DB(_) => ServerErr::DbErr,
-            })?;
-
-        let stage = EmailChangeStage::from(&result);
-        match stage {
-            EmailChangeStage::ConfirmNewEmail { .. } => (),
-            stage => {
-                return Err(ServerErr::from(ErrRes::InvalidStage(format!(
-                    "wrong stage, expected ConfirmEmail, got {stage}"
-                ))));
-            }
-        }
-
-        // let (email_change, stage) = app
-        //     .get_email_change_status_compare(
-        //         time,
-        //         &db_user,
-        //         EmailChangeStage::ConfirmNewEmail,
-        //         EmailChangeTokenErr::InvalidStage,
-        //     )
-        //     .await?;
-
-        // trace!("stage {}", stage);
-        //
-        // if email_change
-        //     .new
-        //     .as_ref()
-        //     .map(|v| v.token_raw != token)
-        //     .unwrap_or_default()
-        // {
-        //     return Err(EmailChangeTokenErr::TokenInvalid.into());
-        // }
-
-        let result = app
-            .db
-            .update_email_change_confirm_new(time, result.id.clone())
-            .await
-            .map_err(|_| ServerErr::DbErr)?;
-
-        let stage = EmailChangeStage::from(&result);
-        match stage {
-            EmailChangeStage::ReadyToComplete { .. } => (),
-            stage => {
-                return Err(ServerErr::from(ErrRes::InvalidStage(format!(
-                    "wrong stage, expected ConfirmEmail, got {stage}"
-                ))));
-            }
-        }
-
-        Ok(ServerRes::EmailChangeStage(stage))
-    }
-
-    // pub async fn confirm_action(
-    //     State(app_state): State<AppState>,
-    //     auth_token: Extension<AuthToken>,
-    //     db_user: Extension<DBUser>,
-    //     req: ServerReq,
-    // ) -> Result<ServerRes, ServerErr> {
-    //     let ServerReq::ConfirmToken { token } = req else {
-    //         return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-    //             "expected ConfirmKind, received: {req:?}"
-    //         ))));
-    //     };
-    //     let time = app_state.clock.now().await.as_nanos();
-    //
-    //
-    //     Ok(ServerRes::Ok)
-    // }
-
-    pub async fn resend_email_change(
-        State(app): State<AppState>,
-        auth_token: Extension<AuthToken>,
-        db_user: Extension<DBUser>,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        type ResErr = EmailChangeNewErr;
-
-        let ServerReq::None = req else {
-            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected None, received: {req:?}"
-            ))));
-        };
-
-        let time = app.time().await;
-
-        let result = app
-            .db
-            .get_email_change(time, db_user.id.clone())
-            .await
-            .map_err(|e| match e {
-                DB404Err::NotFound => ServerErr::from(ServerErr::from(ResErr::InvalidStage(
-                    format!("state not initialized, expected ReadyToConfirm"),
-                ))),
-                DB404Err::DB(_) => ServerErr::DbErr,
-            })?;
-
-        let stage = EmailChangeStage::from(&result);
-        match stage {
-            EmailChangeStage::ConfirmEmail { .. } => (),
-            stage => {
-                return Err(ServerErr::from(ResErr::InvalidStage(format!(
-                    "wrong stage, expected ReadyToConfirm, got {stage}"
-                ))));
-            }
-        }
-
-        // let (email_change, stage) =
-        //     app.get_email_change_status(time, &db_user)
-        //         .await?
-        //         .ok_or(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
-        //             "email change not started".to_string(),
-        //         )))?;
-
-        // stage.is_stage(
-        //     EmailChangeStage::ConfirmEmail,
-        //     EmailChangeNewErr::InvalidStage,
-        // )?;
-
-        app.send_email_change(
-            time,
-            result.current.email,
-            result.current.token_raw,
-            result.expires,
-        )
-        .await?;
-
-        Ok(ServerRes::EmailChangeStage(stage))
-    }
-
-    pub async fn resend_email_new(
-        State(app): State<AppState>,
-        auth_token: Extension<AuthToken>,
-        db_user: Extension<DBUser>,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        type ResErr = EmailChangeNewErr;
-
-        let ServerReq::None = req else {
-            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected None, received: {req:?}"
-            ))));
-        };
-
-        let time = app.time().await;
-        let result = app
-            .db
-            .get_email_change(time, db_user.id.clone())
-            .await
-            .map_err(|e| match e {
-                DB404Err::NotFound => ServerErr::from(ServerErr::from(ResErr::InvalidStage(
-                    format!("state not initialized, expected ReadyToConfirm"),
-                ))),
-                DB404Err::DB(_) => ServerErr::DbErr,
-            })?;
-
-        let stage = EmailChangeStage::from(&result);
-        match stage {
-            EmailChangeStage::ConfirmNewEmail { .. } => (),
-            stage => {
-                return Err(ServerErr::from(ResErr::InvalidStage(format!(
-                    "wrong stage, expected ReadyToConfirm, got {stage}"
-                ))));
-            }
-        }
-
-        let new = result
-            .new
-            .as_ref()
-            .ok_or_else(|| ResErr::InvalidStage(format!("expected ReadyToConfirm")))?;
-
-        // let (email_change, stage) =
-        //     app.get_email_change_status(time, &db_user)
-        //         .await?
-        //         .ok_or(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
-        //             "email change not started".to_string(),
-        //         )))?;
-        //
-        // stage.is_stage(
-        //     EmailChangeStage::ConfirmNewEmail,
-        //     EmailChangeNewErr::InvalidStage,
-        // )?;
-        // let new_email = email_change.new.unwrap().email;
-
-        app.send_email_new(
-            time,
-            new.email.clone(),
-            new.token_raw.clone(),
-            result.expires,
-        )
-        .await?;
-
-        Ok(ServerRes::EmailChangeStage(stage))
-    }
-
-    pub async fn cancel_email_change(
-        State(app): State<AppState>,
-        auth_token: Extension<AuthToken>,
-        db_user: Extension<DBUser>,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        type ResErr = EmailChangeNewErr;
-
-        let ServerReq::None = req else {
-            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected None, received: {req:?}"
-            ))));
-        };
-
-        let time = app.time().await;
-        // let stage =
-        //     app.get_email_change_status(time, &db_user)
-        //         .await?
-        //         .ok_or(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
-        //             "email change not started".to_string(),
-        //         )))?;
-        let result = app
-            .db
-            .get_email_change(time, db_user.id.clone())
-            .await
-            .map_err(|e| match e {
-                DB404Err::NotFound => ServerErr::from(ServerErr::from(ResErr::InvalidStage(
-                    format!("state not initialized, expected ReadyToConfirm"),
-                ))),
-                DB404Err::DB(_) => ServerErr::DbErr,
-            })?;
-
-        // let stage = EmailChangeStage::from(&result);
-        // match stage {
-        //     EmailChangeStage::ConfirmNewEmail { .. } => (),
-        //     stage => {
-        //         return Err(ServerErr::from(ResErr::InvalidStage(format!(
-        //             "wrong stage, expected ReadyToConfirm, got {stage}"
-        //         ))));
-        //     }
-        // }
-
-        let result = app
-            .db
-            .update_email_change_complete(time, result.id.clone())
-            .await
-            .map_err(|_| ServerErr::DbErr)?;
-
-        let stage = EmailChangeStage::from(&result);
-
-        Ok(ServerRes::EmailChangeStage(stage))
-    }
-
-    pub async fn status_email_change(
-        State(app): State<AppState>,
-        auth_token: Extension<AuthToken>,
-        db_user: Extension<DBUser>,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        type ResErr = EmailChangeNewErr;
-
-        let ServerReq::None = req else {
-            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected None, received: {req:?}"
-            ))));
-        };
-
-        let time = app.time().await;
-        // let stage = app.get_email_change_status(time, &db_user).await?;
-        let result = app.db.get_email_change(time, db_user.id.clone()).await;
-        // .map_err(|e| match e {
-        //     DB404Err::NotFound => ServerErr::from(ServerErr::from(ResErr::InvalidStage(
-        //         format!("state not initialized, expected ReadyToConfirm"),
-        //     ))),
-        //     DB404Err::DB(_) => ServerErr::DbErr,
-        // })?;
-
-        let stage = match result {
-            Ok(v) => EmailChangeStage::from(&v),
-            Err(DB404Err::NotFound) => EmailChangeStage::None,
-            Err(DB404Err::DB(_)) => {
-                return Err(ServerErr::DbErr);
-            }
-        };
-
-        Ok(ServerRes::EmailChangeStage(stage))
-    }
-
-    pub async fn send_email_change(
-        State(app): State<AppState>,
-        auth_token: Extension<AuthToken>,
-        db_user: Extension<DBUser>,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        let ServerReq::None = req else {
-            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected None, received: {req:?}"
-            ))));
-        };
-
-        let time = app.time().await;
-
-        let result = app.db.get_email_change(time, db_user.id.clone()).await;
-        // .map_err(|e| match e {
-        //     DB404Err::NotFound => ServerErr::from(EmailChangeErr::InvalidStage(
-        //         "email change is already initialized".to_string(),
-        //     )),
-        //     DB404Err::DB(_) => ServerErr::DbErr,
-        // });
-
-        // let stage = app.get_email_change_status(time, &db_user).await?;
-        match result {
-            Err(DB404Err::NotFound) => (),
-            _ => {
-                return Err(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
-                    "email change is already initialized".to_string(),
-                )));
-            }
-        }
-
-        let email_change = app.add_email_change(time, &db_user).await?;
-
-        let stage = EmailChangeStage::from(&email_change);
-        match &stage {
-            EmailChangeStage::ConfirmEmail { .. } => (),
-            _ => {
-                return Err(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
-                    "email change is already initialized".to_string(),
-                )));
-            }
-        }
-        // stage.is_stage(EmailChangeStage::ConfirmEmail, EmailChangeErr::InvalidStage)?;
-
-        app.send_email_change(
-            time,
-            email_change.current.email,
-            email_change.current.token_raw,
-            email_change.expires,
-        )
-        .await?;
-
-        Ok(ServerRes::EmailChangeStage(stage))
-    }
-
-    pub async fn send_email_new(
-        State(app): State<AppState>,
-        auth_token: Extension<AuthToken>,
-        db_user: Extension<DBUser>,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        type ResErr = EmailChangeErr;
-
-        let ServerReq::EmailAddress { email } = req else {
-            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected AddPost, received: {req:?}"
-            ))));
-        };
-
-        let time = app.time().await;
-
-        let result = app
-            .db
-            .get_email_change(time, db_user.id.clone())
-            .await
-            .map_err(|e| match e {
-                DB404Err::NotFound => ServerErr::from(ResErr::InvalidStage(
-                    "email change is not initialized".to_string(),
-                )),
-                DB404Err::DB(_) => ServerErr::DbErr,
-            })?;
-
-        let stage = EmailChangeStage::from(&result);
-        let (id, expires) = match stage {
-            EmailChangeStage::EnterNewEmail { id, expires } => (id, expires),
-            err => {
-                return Err(ServerErr::EmailChange(ResErr::InvalidStage(
-                    format!("expected stage EnterNewEmail, got {err:?}"),
-                )));
-            }
-        };
-        // let (email_change, stage) = app
-        //     .get_email_change_status_compare(
-        //         time,
-        //         &db_user,
-        //         EmailChangeStage::EnterNewEmail,
-        //         EmailChangeNewErr::InvalidStage,
-        //     )
-        //     .await?;
-
-        let (confirm_token, exp) = app.new_token(&db_user.email).await?;
-
-        let result = app
-            .db
-            .update_email_change_add_new(time, &id, email.clone(), confirm_token.clone())
-            .await
-            .map_err(|err| match err {
-                EmailIsTakenErr::EmailIsTaken(email) => {
-                    ServerErr::from(EmailChangeNewErr::EmailIsTaken(email))
-                }
-                EmailIsTakenErr::DB(_) => ServerErr::DbErr,
-            })?;
-
-        // let stage = EmailChangeStage::from(&result);
-
-        // let token = result
-        //     .new
-        //     .as_ref()
-        //     .ok_or_else(|| EmailChangeNewErr::InvalidStage(format!("expected NewConfirm")))?;
-
-        let stage = EmailChangeStage::from(&result);
-        match &stage {
-            EmailChangeStage::ConfirmNewEmail { .. } => (),
-            err => {
-                return Err(ServerErr::EmailChange(ResErr::InvalidStage(
-                    format!("expected NewConfirm, got {err:?}"),
-                )));
-            }
-        }
-
-        app.send_email_new(
-            time,
-            email.clone(),
-            result.new.as_ref().unwrap().token_raw.clone(),
-            expires,
-        )
-        .await?;
-
-        Ok(ServerRes::EmailChangeStage(stage))
-    }
-
     pub async fn send_email_invite(
         State(app): State<AppState>,
         req: ServerReq,
@@ -3535,6 +3599,7 @@ mod tests {
     use std::path::Path;
     use std::sync::Arc;
     use std::time::Duration;
+    use surrealdb::RecordId;
     use tokio::fs;
 
     use axum_test::TestServer;
@@ -3547,10 +3612,11 @@ mod tests {
     use crate::api::app_state::AppState;
     use crate::api::{
         Api, ApiTest, EmailChangeErr, EmailChangeNewErr, EmailChangeStage, EmailChangeTokenErr,
-        EmailToken, ServerAuthErr, ServerErr, ServerGetErr, ServerLoginErr, ServerRegistrationErr,
+        EmailToken, Server404Err, ServerAuthErr, ServerErr, ServerLoginErr, ServerRegistrationErr,
         ServerReqImg, ServerRes, encode_token,
     };
-    use crate::db::{DBEmailChange, DBUser, EmailIsTakenErr};
+    use crate::db::email_change::create_email_change_id;
+    use crate::db::{DBUser, EmailIsTakenErr, email_change::DBEmailChange};
     // use crate::db::DBEmailTokenKind;
     use crate::server::create_api_router;
     use tracing_appender::rolling;
@@ -3975,7 +4041,7 @@ mod tests {
             server_time: u128,
             auth_token: impl AsRef<str>,
             expires: u128,
-        ) -> Option<()> {
+        ) -> Option<String> {
             self.set_time(server_time).await;
 
             let result = self
@@ -3995,32 +4061,23 @@ mod tests {
             //     expires
             // }));
 
-            if matched { Some(()) } else { None }
-        }
-
-        pub async fn req_email_change_fail_stage(
-            &self,
-            server_time: u128,
-            auth_token: impl AsRef<str>,
-        ) -> Option<()> {
-            self.set_time(server_time).await;
-
-            let result = self
-                .api
-                .send_email_change()
-                .send_native_with_token(auth_token.as_ref())
-                .await;
-            let matched = result
-                == Err(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
-                    "email change is already initialized".to_string(),
-                )));
-
-            if matched { Some(()) } else { None }
+            if matched {
+                match result {
+                    Ok(ServerRes::EmailChangeStage(EmailChangeStage::ConfirmEmail {
+                        id,
+                        expires,
+                    })) => Some(id),
+                    _ => unreachable!(),
+                }
+            } else {
+                None
+            }
         }
 
         pub async fn req_email_new(
             &self,
             server_time: u128,
+            id: impl Into<String>,
             auth_token: impl AsRef<str>,
             new_email: impl AsRef<str>,
             expires: u128,
@@ -4029,7 +4086,7 @@ mod tests {
 
             let result = self
                 .api
-                .send_email_new(new_email.as_ref())
+                .send_email_new(id, new_email.as_ref())
                 .send_native_with_token(auth_token.as_ref())
                 .await;
 
@@ -4046,6 +4103,7 @@ mod tests {
         pub async fn req_email_new_fail_taken(
             &self,
             server_time: u128,
+            id: impl Into<String>,
             auth_token: impl AsRef<str>,
             new_email: impl AsRef<str>,
         ) -> Option<()> {
@@ -4053,7 +4111,7 @@ mod tests {
 
             let result = self
                 .api
-                .send_email_new(new_email.as_ref())
+                .send_email_new(id, new_email.as_ref())
                 .send_native_with_token(auth_token.as_ref())
                 .await;
 
@@ -4070,6 +4128,7 @@ mod tests {
         pub async fn req_email_new_fail_stage(
             &self,
             server_time: u128,
+            id: impl Into<String>,
             auth_token: impl AsRef<str>,
             new_email: impl AsRef<str>,
         ) -> Option<()> {
@@ -4077,7 +4136,7 @@ mod tests {
 
             let result = self
                 .api
-                .send_email_new(new_email.as_ref())
+                .send_email_new(id, new_email.as_ref())
                 .send_native_with_token(auth_token.as_ref())
                 .await;
 
@@ -4096,6 +4155,7 @@ mod tests {
         pub async fn req_email_new_fail_invalid(
             &self,
             server_time: u128,
+            id: impl Into<String>,
             auth_token: impl AsRef<str>,
             new_email: impl AsRef<str>,
         ) -> Option<()> {
@@ -4103,7 +4163,7 @@ mod tests {
 
             let result = self
                 .api
-                .send_email_new(new_email.as_ref())
+                .send_email_new(id, new_email.as_ref())
                 .send_native_with_token(auth_token.as_ref())
                 .await;
 
@@ -4118,6 +4178,7 @@ mod tests {
         pub async fn req_email_change_complete(
             &self,
             server_time: u128,
+            id: impl Into<String>,
             auth_token: impl AsRef<str>,
             new_email: impl AsRef<str>,
             expires: u128,
@@ -4126,7 +4187,7 @@ mod tests {
 
             let result = self
                 .api
-                .change_email()
+                .change_email(id)
                 .send_native_with_token(auth_token.as_ref())
                 .await;
 
@@ -4143,6 +4204,7 @@ mod tests {
         pub async fn confirm_email_change(
             &self,
             server_time: u128,
+            id: String,
             auth_token: impl AsRef<str>,
             db_user: &DBUser,
             expires: u128,
@@ -4152,7 +4214,7 @@ mod tests {
             let confirm_token = self
                 .state
                 .db
-                .get_email_change(0, db_user.id.clone())
+                .get_email_change(0, create_email_change_id(id))
                 .await
                 .unwrap();
 
@@ -4172,29 +4234,29 @@ mod tests {
             if matched { Some(()) } else { None }
         }
 
-        pub async fn confirm_email_change_fail_stage(
-            &self,
-            server_time: u128,
-            auth_token: impl AsRef<str>,
-            db_user: &DBUser,
-        ) -> Option<()> {
-            self.set_time(server_time).await;
-
-            let result = self
-                .api
-                .confirm_email_change("invalid")
-                .send_native_with_token(auth_token.as_ref())
-                .await;
-
-            let matched = matches!(
-                result,
-                Err(ServerErr::EmailChangeToken(
-                    EmailChangeTokenErr::InvalidStage(_)
-                ))
-            );
-
-            if matched { Some(()) } else { None }
-        }
+        // pub async fn confirm_email_change_fail_stage(
+        //     &self,
+        //     server_time: u128,
+        //     auth_token: impl AsRef<str>,
+        //     db_user: &DBUser,
+        // ) -> Option<()> {
+        //     self.set_time(server_time).await;
+        //
+        //     let result = self
+        //         .api
+        //         .confirm_email_change("invalid")
+        //         .send_native_with_token(auth_token.as_ref())
+        //         .await;
+        //
+        //     let matched = matches!(
+        //         result,
+        //         Err(ServerErr::EmailChangeToken(
+        //             EmailChangeTokenErr::InvalidStage(_)
+        //         ))
+        //     );
+        //
+        //     if matched { Some(()) } else { None }
+        // }
 
         pub async fn confirm_email_change_fail_invalid(
             &self,
@@ -4228,6 +4290,7 @@ mod tests {
         pub async fn confirm_email_new(
             &self,
             serevr_time: u128,
+            id: String,
             auth_token: impl AsRef<str>,
             db_user: &DBUser,
             new_email: impl AsRef<str>,
@@ -4238,7 +4301,7 @@ mod tests {
             let confirm_token = self
                 .state
                 .db
-                .get_email_change(serevr_time, db_user.id.clone())
+                .get_email_change(serevr_time, create_email_change_id(id))
                 .await
                 .unwrap();
 
@@ -4261,15 +4324,15 @@ mod tests {
         pub async fn confirm_email_new_fail_stage(
             &self,
             server_time: u128,
+            id: impl Into<String>,
             auth_token: impl AsRef<str>,
-            db_user: &DBUser,
         ) -> anyhow::Result<()> {
             self.set_time(server_time).await;
 
             let confirm_token = self
                 .state
                 .db
-                .get_email_change(0, db_user.id.clone())
+                .get_email_change(0, create_email_change_id(id.into()))
                 .await?;
 
             let result = self
@@ -4323,6 +4386,7 @@ mod tests {
         pub async fn status_email_change(
             &self,
             server_time: u128,
+            id: impl Into<String>,
             auth_token: impl AsRef<str>,
             expected_status: impl FnOnce(EmailChangeStage) -> bool,
             expected_email: Option<String>,
@@ -4332,7 +4396,7 @@ mod tests {
 
             let result = self
                 .api
-                .change_email_status()
+                .change_email_status(id)
                 .send_native_with_token(auth_token.as_ref())
                 .await;
             let matched = match result {
@@ -4340,24 +4404,23 @@ mod tests {
                 _ => false,
             };
 
-            // let matched = expected_status(result);
-            // let matched = matches!(result, Ok());
-            // let expected = Ok(ServerRes::EmailChangeStage {
-            //     stage: expected_status,
-            //     new_email: expected_email,
-            //     expires: expires,
-            // });
-            // let matched = result == expected;
-            // if !matched {
-            //     error!("{result:#?} != {expected:#?}");
-            // }
-            // assert_eq!(result, );
-            // let matched = matches!(
-            //     result,
-            //     Err(ServerErr::EmailChangeToken(
-            //         EmailChangeTokenErr::TokenInvalid
-            //     ))
-            // );
+            if matched { Some(()) } else { None }
+        }
+
+        pub async fn status_email_change_404(
+            &self,
+            server_time: u128,
+            id: impl Into<String>,
+            auth_token: impl AsRef<str>,
+        ) -> Option<()> {
+            self.set_time(server_time).await;
+
+            let result = self
+                .api
+                .change_email_status(id)
+                .send_native_with_token(auth_token.as_ref())
+                .await;
+            let matched = matches!(result, Err(ServerErr::NotFoundErr(Server404Err::NotFound)));
 
             if matched { Some(()) } else { None }
         }
@@ -4365,6 +4428,7 @@ mod tests {
         pub async fn resend_change(
             &self,
             server_time: u128,
+            id: impl Into<String>,
             auth_token: impl AsRef<str>,
             expected_rec_email: impl Into<String>,
             expected_new_email: Option<String>,
@@ -4374,7 +4438,7 @@ mod tests {
 
             let result = self
                 .api
-                .resend_email_change()
+                .resend_email_change(id)
                 .send_native_with_token(auth_token.as_ref())
                 .await;
 
@@ -4407,6 +4471,7 @@ mod tests {
         pub async fn resend_new(
             &self,
             server_time: u128,
+            id: impl Into<String>,
             auth_token: impl AsRef<str>,
             expected_rec_email: impl Into<String>,
             expected_new_email: Option<String>,
@@ -4416,7 +4481,7 @@ mod tests {
 
             let result = self
                 .api
-                .resend_email_new()
+                .resend_email_new(id)
                 .send_native_with_token(auth_token.as_ref())
                 .await;
 
@@ -4448,13 +4513,14 @@ mod tests {
         pub async fn cancel_email_change(
             &self,
             server_time: u128,
+            id: impl Into<String>,
             auth_token: impl AsRef<str>,
         ) -> anyhow::Result<()> {
             self.set_time(server_time).await;
 
             let result = self
                 .api
-                .cancel_email_change()
+                .cancel_email_change(id)
                 .send_native_with_token(auth_token)
                 .await?;
 
@@ -4482,10 +4548,10 @@ mod tests {
             .unwrap();
         let db_user = app.state.db.get_user_by_username("hey").await.unwrap();
 
-        app.status_email_change(0, &auth_token, |v| v.is_none(), None, None)
+        app.status_email_change_404(0, "invalid", &auth_token)
             .await
             .unwrap();
-        app.req_email_new_fail_invalid(0, &auth_token, "hey3@hey.com")
+        app.req_email_new_fail_invalid(0, "invalid", &auth_token, "hey3@hey.com")
             .await;
         app.confirm_email_new_fail_invalid(0, &auth_token, &db_user)
             .await;
@@ -4493,40 +4559,66 @@ mod tests {
             .await;
 
         // ### START
-        app.req_email_change(0, &auth_token, 1).await.unwrap();
-        app.req_email_change_fail_stage(0, &auth_token)
+        let id = app.req_email_change(0, &auth_token, 1).await.unwrap();
+        // app.req_email_change_fail_stage(0, id.clone(), &auth_token)
+        //     .await
+        //     .unwrap();
+        app.cancel_email_change(0, id.clone(), &auth_token)
             .await
             .unwrap();
-        app.cancel_email_change(0, &auth_token).await.unwrap();
-        app.req_email_change(0, &auth_token, 1).await.unwrap();
+        app.status_email_change(
+            0,
+            id.clone(),
+            &auth_token,
+            |v| v.is_cancelled(),
+            None,
+            Some(1),
+        )
+        .await
+        .unwrap();
+        let id = app.req_email_change(0, &auth_token, 1).await.unwrap();
 
-        app.req_email_new_fail_stage(0, &auth_token, "hey3@hey.com")
+        app.req_email_new_fail_stage(0, id.clone(), &auth_token, "hey3@hey.com")
             .await
             .unwrap();
-        app.status_email_change(0, &auth_token, |v| v.is_confirm_email(), None, Some(1))
-            .await
-            .unwrap();
-        app.resend_change(0, &auth_token, "hey@heyadora.com", None, 1)
+        app.status_email_change(
+            0,
+            id.clone(),
+            &auth_token,
+            |v| v.is_confirm_email(),
+            None,
+            Some(1),
+        )
+        .await
+        .unwrap();
+        app.resend_change(0, id.clone(), &auth_token, "hey@heyadora.com", None, 1)
             .await
             .unwrap();
 
         // ###
-        app.confirm_email_change(0, &auth_token, &db_user, 1)
+        app.confirm_email_change(0, id.clone(), &auth_token, &db_user, 1)
             .await
             .unwrap();
 
-        app.req_email_change_fail_stage(0, &auth_token)
+        // app.req_email_change_fail_stage(0, id.clone(), &auth_token)
+        //     .await
+        //     .unwrap();
+        app.req_email_new_fail_taken(0, id.clone(), &auth_token, "hey3@heyadora.com")
             .await
             .unwrap();
-        app.req_email_new_fail_taken(0, &auth_token, "hey3@heyadora.com")
-            .await
-            .unwrap();
-        app.status_email_change(0, &auth_token, |v| v.is_enter_new_email(), None, Some(1))
-            .await
-            .unwrap();
+        app.status_email_change(
+            0,
+            id.clone(),
+            &auth_token,
+            |v| v.is_enter_new_email(),
+            None,
+            Some(1),
+        )
+        .await
+        .unwrap();
 
         // ###
-        app.req_email_new(0, &auth_token, "hey2@hey.com", 1)
+        app.req_email_new(0, id.clone(), &auth_token, "hey2@hey.com", 1)
             .await
             .unwrap();
 
@@ -4535,6 +4627,7 @@ mod tests {
             .unwrap();
         app.status_email_change(
             0,
+            id.clone(),
             &auth_token,
             |v| v.is_confirm_new_email(),
             Some("hey2@hey.com".to_string()),
@@ -4544,6 +4637,7 @@ mod tests {
         .unwrap();
         app.resend_new(
             0,
+            id.clone(),
             &auth_token,
             "hey@heyadora.com",
             Some("hey2@hey.com".to_string()),
@@ -4553,15 +4647,16 @@ mod tests {
         .unwrap();
 
         // ###
-        app.confirm_email_new(0, &auth_token, &db_user, "hey2@hey.com", 1)
+        app.confirm_email_new(0, id.clone(), &auth_token, &db_user, "hey2@hey.com", 1)
             .await
             .unwrap();
 
-        app.confirm_email_new_fail_stage(0, &auth_token, &db_user)
+        app.confirm_email_new_fail_stage(0, &id, &auth_token)
             .await
             .unwrap();
         app.status_email_change(
             0,
+            id.clone(),
             &auth_token,
             |v| v.is_ready_to_complete(),
             Some("hey2@hey.com".to_string()),
@@ -4571,7 +4666,7 @@ mod tests {
         .unwrap();
 
         // ###
-        app.req_email_change_complete(0, &auth_token, "hey2@hey.com", 1)
+        app.req_email_change_complete(0, id.clone(), &auth_token, "hey2@hey.com", 1)
             .await
             .unwrap();
 
@@ -4581,10 +4676,10 @@ mod tests {
         app.confirm_email_new_fail_invalid(0, &auth_token, &db_user)
             .await
             .unwrap();
-        app.req_email_new_fail_stage(0, &auth_token, "hey2@hey.com")
+        app.req_email_new_fail_stage(0, id.clone(), &auth_token, "hey2@hey.com")
             .await
             .unwrap();
-        app.status_email_change(0, &auth_token, |v| v.is_none(), None, None)
+        app.status_email_change(0, id.clone(), &auth_token, |v| v.is_complete(), None, None)
             .await
             .unwrap();
     }
