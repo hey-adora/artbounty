@@ -3651,7 +3651,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
     use surrealdb::RecordId;
-    use tokio::fs;
+    use tokio::fs::{self, create_dir_all};
 
     use axum_test::TestServer;
     use gxhash::gxhash128;
@@ -3737,6 +3737,7 @@ mod tests {
                 *pixel = image::Rgb([r, 0, b]);
             }
 
+            create_dir_all("../target/tmp/").await.unwrap();
             let path = "../target/tmp/img.png";
             imgbuf.save(path).unwrap();
 
