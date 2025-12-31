@@ -330,6 +330,131 @@ pub fn create_user_id(id: impl Into<String>) -> RecordId {
     RecordId::from_table_key("user", id.into())
 }
 
+pub mod confirm_email {
+    use crate::db::DB404Err;
+    use crate::db::DBUser;
+    use crate::db::EmailIsTakenErr;
+    use crate::db::SurrealCheckUtils;
+    use crate::db::SurrealErrUtils;
+    use crate::db::SurrealSerializeUtils;
+
+    use super::Db;
+    use super::Save;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    pub use surrealdb::Connection;
+    use surrealdb::RecordId;
+    use surrealdb::engine::local::SurrealKv;
+    use surrealdb::engine::local::{self, Mem};
+    use surrealdb::{Surreal, opt::IntoEndpoint};
+    use thiserror::Error;
+    use tracing::{error, trace};
+
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    pub struct DBConfirmEmail {
+        pub id: RecordId,
+        pub to_email: String,
+        pub token: String,
+        pub completed: bool,
+        pub modified_at: u128,
+        pub created_at: u128,
+    }
+
+    // #[derive(Save!)]
+    // pub enum DBSalvation {
+    //     Fox,
+    //     Bunny {
+    //         honey: String,
+    //     },
+    //     Funny(usize),
+    // }
+    //
+    // fn from_evil<S: Serializer>(v: &DBSalvation, serializer: S) -> Result<S::Ok, S::Error> {
+    //     let v: [(&'de str, Option<usize>, String)] =  match v {
+    //         DBSalvation::Fox => ["fox", None::<usize>, String::new()],
+    //         DBSalvation::Bunny { honey } => ["bunny", None::<usize>, honey.clone()],
+    //         DBSalvation::Funny(v) => ["funny", Some(*v), String::new()],
+    //     };
+    //     v.serialize(serializer)
+    // }
+    //
+    // fn to_evil<'de, D: Deserializer<'de>>(deserializer: D) -> Result<DBSalvation, D::Error> {
+    //     <[(&'de str, Option<usize>, String)]>::deserialize(deserializer).map(|v| match v {
+    //         ("fox", None, _) => DBSalvation::Fox,
+    //         ("bunny", None, v) => DBSalvation::Bunny { honey: v },
+    //         ("funny", Some(n), _) => DBSalvation::Funny(n),
+    //         _ => unreachable!("cant happen")
+    //     })
+    //
+    //     // Option::<String>::deserialize(deserializer)
+    //     //     .and_then(|str| Ok(str.and_then(|str| Some(Evil { two: str }))))
+    // }
+
+    impl<C: Connection> Db<C> {
+        pub async fn add_confirm_email(
+            &self,
+            time: u128,
+            to_email: impl Into<String>,
+            token: impl Into<String>,
+        ) -> Result<DBConfirmEmail, surrealdb::Error> {
+            self.db
+                .query(
+                    r#"
+                 CREATE confirm_email SET
+                    to_email = $to_email,
+                    token = $email_token,
+                    completed = false,
+                    modified_at = $time,
+                    created_at = $time;
+                "#,
+                )
+                .bind(("time", time))
+                .bind(("to_email", to_email.into()))
+                .bind(("email_token", token.into()))
+                .await
+                // .check_good(|err| match err {
+                //     err if err.index_exists("idx_user_email") => AddUserErr::EmailIsTaken(email),
+                //     err if err.index_exists("idx_user_username") => {
+                //         AddUserErr::UsernameIsTaken(username)
+                //     }
+                //     err => err.into(),
+                // })
+                .and_then_take_expect(0)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::time::Duration;
+
+        use pretty_assertions::assert_eq;
+        use surrealdb::engine::local::Mem;
+        use test_log::test;
+        use tracing::trace;
+
+        use crate::{
+            api::ChangeUsernameErr,
+            db::{
+                AddSessionErr, AddUserErr, DB404Err, DBChangeUsernameErr, DBSentEmailReason,
+                DBUserPostFile, Db, EmailIsTakenErr,
+            },
+        };
+
+        #[test(tokio::test)]
+        async fn db_confirm_email() {
+            let db = Db::new::<Mem>(()).await.unwrap();
+            db.migrate(0).await.unwrap();
+
+            db.add_confirm_email(0, "prime@heyadora.com", "123")
+                .await
+                .unwrap();
+
+            db.add_confirm_email(0, "prime@heyadora.com", "123")
+                .await
+                .unwrap();
+        }
+    }
+}
+
 pub mod email_change {
     use crate::db::DB404Err;
     use crate::db::DBUser;
@@ -688,7 +813,10 @@ pub mod email_change {
 
             // confirm current token
             {
-                let email_change = db.get_email_change(0, email_change.id.clone()).await.unwrap();
+                let email_change = db
+                    .get_email_change(0, email_change.id.clone())
+                    .await
+                    .unwrap();
                 let result = db
                     .update_email_change_confirm_current(0, email_change.id.clone())
                     .await
@@ -697,7 +825,10 @@ pub mod email_change {
 
             // error check: cant allow to use email that is already used by a user
             {
-                let email_change = db.get_email_change(0, email_change.id.clone()).await.unwrap();
+                let email_change = db
+                    .get_email_change(0, email_change.id.clone())
+                    .await
+                    .unwrap();
                 let result = db
                     .update_email_change_add_new(
                         0,
@@ -711,7 +842,10 @@ pub mod email_change {
 
             // add new email stage
             {
-                let email_change = db.get_email_change(0, email_change.id.clone()).await.unwrap();
+                let email_change = db
+                    .get_email_change(0, email_change.id.clone())
+                    .await
+                    .unwrap();
                 let result = db
                     .update_email_change_add_new(
                         0,
@@ -725,7 +859,10 @@ pub mod email_change {
 
             // confirm new email
             {
-                let email_change = db.get_email_change(0, email_change.id.clone()).await.unwrap();
+                let email_change = db
+                    .get_email_change(0, email_change.id.clone())
+                    .await
+                    .unwrap();
                 let result = db
                     .update_email_change_confirm_new(0, email_change.id.clone())
                     .await
@@ -734,7 +871,10 @@ pub mod email_change {
 
             // complete
             {
-                let email_change = db.get_email_change(0, email_change.id.clone()).await.unwrap();
+                let email_change = db
+                    .get_email_change(0, email_change.id.clone())
+                    .await
+                    .unwrap();
                 let result = db
                     .update_email_change_complete(0, email_change.id.clone())
                     .await
@@ -785,7 +925,7 @@ impl<C: Connection> Db<C> {
         let db = &self.db;
         let result = db
                 .query(
-                    "
+                    r#"
                     FOR $i in 0..2 {
                         LET $latest_migration = (SELECT version FROM migration ORDER BY version DESC)[0];
                         IF $latest_migration.version == 1 {
@@ -840,6 +980,15 @@ impl<C: Connection> Db<C> {
                             DEFINE FIELD modified_at ON TABLE invite TYPE number;
                             DEFINE FIELD created_at ON TABLE invite TYPE number;
                             DEFINE INDEX idx_invite_token_raw ON TABLE invite COLUMNS token_raw UNIQUE;
+
+                            -- confirm email
+                            DEFINE TABLE confirm_email SCHEMAFULL;
+                            DEFINE FIELD to_email ON TABLE confirm_email TYPE string;
+                            DEFINE FIELD token ON TABLE confirm_email TYPE string;
+                            DEFINE FIELD completed ON TABLE confirm_email TYPE bool;
+                            DEFINE FIELD modified_at ON TABLE confirm_email TYPE number;
+                            DEFINE FIELD created_at ON TABLE confirm_email TYPE number;
+
                             -- email change
                             DEFINE TABLE email_change SCHEMAFULL;
                             DEFINE FIELD user ON TABLE email_change TYPE record<user>;
@@ -879,7 +1028,7 @@ impl<C: Connection> Db<C> {
                     };
 
                     SELECT * FROM migration;
-                ",
+                "#,
                 )
                 .bind(("time", time))
                 .await.inspect_err(|result| trace!("DB RESULT {:#?}", result) )?;
@@ -1447,6 +1596,7 @@ mod tests {
             DBUserPostFile, Db, EmailIsTakenErr,
         },
     };
+
     #[test(tokio::test)]
     async fn db_sent_email() {
         let db = Db::new::<Mem>(()).await.unwrap();
