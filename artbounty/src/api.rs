@@ -33,7 +33,7 @@ pub mod app_state {
         db::{self, DB404Err, DBSentEmailReason, DBUser, DbEngine},
         get_timestamp,
         path::{link_settings_form_email_current_confirm, link_settings_form_email_new_confirm},
-        view::app::hook::EmailChangeFormStage,
+        view::app::hook::use_email_change::EmailChangeFormStage,
     };
 
     #[derive(Clone)]
@@ -3463,7 +3463,7 @@ pub mod backend {
         let link = format!(
             "{}{}",
             &address,
-            crate::path::link_reg(&confirm_token.token_raw),
+            crate::path::link_reg_finish(&confirm_token.token_raw, None),
         );
         trace!("{link}");
 

@@ -1,5 +1,5 @@
 pub mod post {
-    use crate::api::{Api, ApiWeb, ServerErr, Server404Err};
+    use crate::api::{Api, ApiWeb, Server404Err, ServerErr};
     use crate::path::{link_home, link_img, link_user};
     use crate::view::app::components::nav::Nav;
     use crate::view::toolbox::prelude::*;
@@ -18,7 +18,7 @@ pub mod post {
     #[component]
     pub fn Page() -> impl IntoView {
         let main_ref = NodeRef::new();
-        let api = ApiWeb::new(); 
+        let api = ApiWeb::new();
 
         let param = use_params::<PostParams>();
         let param_username = move || param.read().as_ref().ok().and_then(|v| v.username.clone());
@@ -230,14 +230,18 @@ pub mod settings {
         Api, ApiWeb, EmailChangeStage, ServerAddPostErr, ServerErr, ServerReqImg, ServerRes,
     };
     use crate::path::{
-        link_post, link_reg, link_settings, link_settings_form_email, link_settings_form_email_completed, link_settings_form_email_current_click, link_settings_form_email_current_send, link_settings_form_email_final_confirm, link_settings_form_email_new_click, link_settings_form_email_new_send, link_settings_form_username
+        link_post, link_reg_finish, link_settings, link_settings_form_email,
+        link_settings_form_email_completed, link_settings_form_email_current_click,
+        link_settings_form_email_current_send, link_settings_form_email_final_confirm,
+        link_settings_form_email_new_click, link_settings_form_email_new_send,
+        link_settings_form_username,
     };
     use crate::valid::auth::{
         proccess_email, proccess_post_description, proccess_post_title, proccess_username,
     };
     use crate::view::app::GlobalState;
     use crate::view::app::components::nav::Nav;
-    use crate::view::app::hook::{BtnStage, EmailChangeFormStage, use_change_email};
+    use crate::view::app::hook::use_email_change::{BtnStage, EmailChangeFormStage, use_change_email};
     use crate::view::toolbox::prelude::*;
     use leptos::prelude::*;
     use leptos::{Params, task::spawn_local};
@@ -471,7 +475,7 @@ pub mod settings {
         };
 
         let view_current_stage_label = move |stage: EmailChangeFormStage| {
-            let current_stage = change_email.get_form_stage.get();
+            let current_stage = change_email.get_form_stage.run();
             let (text, style) = if current_stage == stage {
                 ("Current", "text-base0C")
             } else if current_stage > stage {
@@ -495,17 +499,16 @@ pub mod settings {
 
         let view_stage_errors = move |stage: EmailChangeFormStage| {
             view! {
-                <div class=move || format!("text-[1rem] text-base08 {}", if  change_email.get_form_stage.get() == stage { "visible" } else {"hidden"} )>
+                <div class=move || format!("text-[1rem] text-base08 {}", if  change_email.get_form_stage.run() == stage { "visible" } else {"hidden"} )>
                     <ul class="list-disc ml-[1rem]">
-                        {move || change_email.get_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                        {move || change_email.get_err.run().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                     </ul>
                 </div>
             }
         };
 
         let email_change_input_disabled =
-            move || change_email.get_form_stage.get() > EmailChangeFormStage::NewEnterEmail;
-
+            move || change_email.get_form_stage.run() > EmailChangeFormStage::NewEnterEmail;
 
         //top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2
         view! {
@@ -598,19 +601,19 @@ pub mod settings {
                 <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if get_query_selected_form() == SelectedForm::ChangeEmail { "flex" } else { "hidden" } )>
                     <div class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full gap-[2rem] py-[2rem] border-0 border-base05 bg-base01">
                         <h2 class="text-[1.5rem] text-base0F text-center ">"Email Change"</h2>
-                        <div class=move || format!("text-[1rem] text-center text-base09 {}", if change_email.check_expires.get() && change_email.get_form_stage.get() != EmailChangeFormStage::CurrentSendConfirm { "visible" } else { "hidden" } )> { move || change_email.expires_str.get() } </div>
+                        <div class=move || format!("text-[1rem] text-center text-base09 {}", if change_email.check_expires.run() && change_email.get_form_stage.run() != EmailChangeFormStage::CurrentSendConfirm { "visible" } else { "hidden" } )> { move || change_email.expires_str.get() } </div>
                         <div class=move || format!("text-[1rem] text-center text-base0C {}", change_email.check_info.hide_if_false() )> { change_email.get_info.to_fn() } </div>
                         <ol class="text-[1.2rem] list-decimal grid gap-2">
                             <li>
                                 {move || view_current_stage_label(EmailChangeFormStage::CurrentSendConfirm) }
                                 "Send confirmation email to "
-                                <span class="text-base0E">{move || format!("{}.", change_email.get_old_email.get())}</span>
+                                <span class="text-base0E">{move || format!("{}.", change_email.get_old_email.run())}</span>
                                 {move || view_stage_errors(EmailChangeFormStage::CurrentSendConfirm)}
                             </li>
                             <li>
                                 {move || view_current_stage_label(EmailChangeFormStage::CurrentClickConfirm) }
                                 "Click on confirmation link that was sent to "
-                                <span class="text-base0E">{move || format!("{}.", change_email.get_old_email.get())}</span>
+                                <span class="text-base0E">{move || format!("{}.", change_email.get_old_email.run())}</span>
                                 {move || view_stage_errors(EmailChangeFormStage::CurrentClickConfirm)}
                             </li>
                             <li>
@@ -621,15 +624,15 @@ pub mod settings {
                             <li>
                                 {move || view_current_stage_label(EmailChangeFormStage::NewEnterEmail) }
                                 "Enter new email."
-                                <div class=move || format!(" {}", if change_email.get_form_stage.get() >= EmailChangeFormStage::NewEnterEmail { "visible" } else {"hidden"} )>
-                                    <input node_ref=change_email_new_email_input disabled=email_change_input_disabled value=move|| change_email.get_new_email.get() placeholder="email@example.com" class="bg-base02 mt-2 pl-2" type="email" />
+                                <div class=move || format!(" {}", if change_email.get_form_stage.run() >= EmailChangeFormStage::NewEnterEmail { "visible" } else {"hidden"} )>
+                                    <input node_ref=change_email_new_email_input disabled=email_change_input_disabled value=move|| change_email.get_new_email.run() placeholder="email@example.com" class="bg-base02 mt-2 pl-2" type="email" />
                                 </div>
                                 {move || view_stage_errors(EmailChangeFormStage::NewEnterEmail)}
                             </li>
                             <li>
                                 {move || view_current_stage_label(EmailChangeFormStage::NewClickConfirm) }
                                 "Click on confirmation link that was sent to "
-                                <span class="text-base0E">{move || format!("{}. ", change_email.get_new_email.get())}</span>
+                                <span class="text-base0E">{move || format!("{}. ", change_email.get_new_email.run())}</span>
                                 {move || view_stage_errors(EmailChangeFormStage::NewClickConfirm)}
                             </li>
                             <li>
@@ -640,17 +643,17 @@ pub mod settings {
                             <li>
                                 {move || view_current_stage_label(EmailChangeFormStage::FinalConfirm) }
                                 "Final confirm from "
-                                <span class="text-base0E">{move || change_email.get_old_email.get()}</span>
+                                <span class="text-base0E">{move || change_email.get_old_email.run()}</span>
                                 " to "
-                                <span class="text-base0E">{move || change_email.get_new_email.get()}</span>
+                                <span class="text-base0E">{move || change_email.get_new_email.run()}</span>
                             </li>
                             <li>
                                 <div>
                                     {move || view_current_stage_label(EmailChangeFormStage::Completed) }
                                     "Finish."
                                 </div>
-                                <div class=move || format!("text-[1rem] text-base09 {}", if change_email.get_form_stage.get() >= EmailChangeFormStage::Completed { "visible" } else {"hidden"} )>
-                                    <span class="text-base0E">{move || format!("Email changed from {} to {}.", change_email.get_old_email.get(), change_email.get_new_email.get())}</span>
+                                <div class=move || format!("text-[1rem] text-base09 {}", if change_email.get_form_stage.run() >= EmailChangeFormStage::Completed { "visible" } else {"hidden"} )>
+                                    <span class="text-base0E">{move || format!("Email changed from {} to {}.", change_email.get_old_email.run(), change_email.get_new_email.run())}</span>
                                 </div>
                             </li>
                         </ol>
@@ -659,16 +662,16 @@ pub mod settings {
                         </div>
                         <div class=move || format!("w-full flex gap-4 justify-end {}", if api.is_pending_tracked() {"hidden"} else {"visible"})>
                             <a href=link_settings() class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Close"</a>
-                            <form method="POST" action="" on:submit=change_email.post_cancel.to_fn() class=move || format!(" {}", if change_email.get_form_stage.get() > EmailChangeFormStage::CurrentSendConfirm && change_email.get_form_stage.get() < EmailChangeFormStage::Completed { "visible" } else { "hidden" })>
+                            <form method="POST" action="" on:submit=change_email.post_cancel.to_fn() class=move || format!(" {}", if change_email.get_form_stage.run() > EmailChangeFormStage::CurrentSendConfirm && change_email.get_form_stage.run() < EmailChangeFormStage::Completed { "visible" } else { "hidden" })>
                                 <input type="submit" value="Cancel" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
                             </form>
-                            <form method="POST" action="" on:submit=change_email.post_run.to_fn() class=move || format!(" {}", if change_email.get_btn_stage.get() == BtnStage::Resend { "visible" } else { "hidden" })>
+                            <form method="POST" action="" on:submit=change_email.post_run.to_fn() class=move || format!(" {}", if change_email.get_btn_stage.run() == BtnStage::Resend { "visible" } else { "hidden" })>
                                 <input type="submit" value="Resend" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
                             </form>
-                            <form method="POST" action="" on:submit=change_email.post_run.to_fn() class=move || format!(" {}", if change_email.get_btn_stage.get() == BtnStage::Send { "visible" } else { "hidden" })>
+                            <form method="POST" action="" on:submit=change_email.post_run.to_fn() class=move || format!(" {}", if change_email.get_btn_stage.run() == BtnStage::Send { "visible" } else { "hidden" })>
                                 <input type="submit" value="Send" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
                             </form>
-                            <form method="POST" action="" on:submit=change_email.post_run.to_fn() class=move || format!(" {}", if change_email.get_btn_stage.get() == BtnStage::Confirm { "visible" } else { "hidden" })>
+                            <form method="POST" action="" on:submit=change_email.post_run.to_fn() class=move || format!(" {}", if change_email.get_btn_stage.run() == BtnStage::Confirm { "visible" } else { "hidden" })>
                                 <input type="submit" value="Confirm" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
                             </form>
                         </div>
@@ -873,8 +876,8 @@ pub mod upload {
 pub mod profile {
     use crate::api::Api;
     use crate::api::ApiWeb;
-    use crate::api::ServerErr;
     use crate::api::Server404Err;
+    use crate::api::ServerErr;
     use crate::api::ServerRes;
     use crate::view::app::components::gallery::Gallery;
     use crate::view::app::components::nav::Nav;
@@ -1023,9 +1026,9 @@ pub mod register {
     use leptos_router::hooks::use_query;
     use leptos_router::params::Params;
     use web_sys::SubmitEvent;
+    use crate::view::app::hook::use_register::RegStage as RegKind;
 
     use crate::api::{Api, ApiWeb, ServerErr, ServerRegistrationErr, ServerRes};
-    use crate::path::RegKind;
     use crate::path::{self, link_user};
     use crate::valid::auth::{proccess_email, proccess_password, proccess_username};
     use crate::view::app::components::nav::Nav;
@@ -1035,6 +1038,7 @@ pub mod register {
 
     #[derive(Params, PartialEq, Clone)]
     pub struct RegParams {
+        pub err_general: Option<String>,
         pub token: Option<String>,
         pub email: Option<String>,
         pub loading: Option<bool>,
@@ -1067,6 +1071,14 @@ pub mod register {
         let query = use_query::<RegParams>();
         let navigate = leptos_router::hooks::use_navigate();
 
+        let get_query_err_general = move || {
+            query.with(|v| {
+                v.as_ref()
+                    .ok()
+                    .and_then(|v| v.err_general.clone())
+                    .unwrap_or_default()
+            })
+        };
         let get_query_token = move || query.read().as_ref().ok().and_then(|v| v.token.clone());
         let get_query_email = move || query.read().as_ref().ok().and_then(|v| v.email.clone());
         let get_query_kind = move || query.read().as_ref().ok().and_then(|v| v.kind.clone());
@@ -1081,6 +1093,10 @@ pub mod register {
                 .unwrap_or_default()
         };
         let get_query_email_or_err = move || get_query_email().unwrap_or(String::from("error"));
+
+        // let link_reg_finish_err = move |err_general: Option<String>| -> String {
+        //     lin
+        // 
 
         let on_invite = {
             let navigate = navigate.clone();
@@ -1112,7 +1128,7 @@ pub mod register {
                                 // let result = api.profile().send_native().await;
                                 invite_completed.set(email.clone());
                                 navigate(
-                                    &path::link_check_email(email),
+                                    &path::link_reg_check_email(email),
                                     NavigateOptions {
                                         ..Default::default()
                                     },
@@ -1165,41 +1181,35 @@ pub mod register {
                 .send_web(move |result| {
                     // let navigate = navigate.clone();
                     async move {
-                        match result {
+                        let err: Result<(), String> = match result {
                             Ok(ServerRes::Ok) => {
                                 let res = global_state.update_auth_now().await;
                                 match res {
                                     Ok(ServerRes::User { username }) => {
-                                        let _ = global_state.update_auth_now().await;
+                                        let result = global_state.update_auth_now().await;
+                                        match result {
+                                            Ok(S) => Ok(()),
+                                            Err(err) => Err(err.to_string()),
+                                        }
                                     }
-                                    res => {
-                                        error!("expected User, received {res:?}");
-                                    }
+                                    res => Err(format!("expected User, received {res:?}")),
                                 }
                             }
-                            Ok(res) => {
-                                register_email_decoded
-                                    .set(format!("error, expected OK, received: {res:?}"));
-                            }
+                            Ok(res) => Err(format!("error, expected OK, received: {res:?}")),
                             Err(ServerErr::RegistrationErr(
                                 ServerRegistrationErr::TokenExpired,
-                            )) => {
-                                register_general_err
-                                    .set("This invite link is already expired.".to_string());
-                            }
+                            )) => Err("This invite link is already expired.".to_string()),
                             Err(ServerErr::RegistrationErr(ServerRegistrationErr::TokenUsed)) => {
-                                register_general_err
-                                    .set("This invite link was already used.".to_string());
+                                Err("This invite link was already used.".to_string())
                             }
                             Err(ServerErr::RegistrationErr(
                                 ServerRegistrationErr::TokenNotFound,
-                            )) => {
-                                register_general_err
-                                    .set("This invite link is invalid.".to_string());
-                            }
-                            Err(err) => {
-                                register_general_err.set(err.to_string());
-                            }
+                            )) => Err("This invite link is invalid.".to_string()),
+                            Err(err) => Err(err.to_string()),
+                        };
+                        if let Err(err) = err {
+                            error!(err);
+                            register_general_err.set(err);
                         }
                     }
                 });
@@ -1244,7 +1254,7 @@ pub mod register {
                     // <form method="POST" action="" on:submit=on_invite class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if api_invite.is_pending() || api_invite.is_complete() || get_query_token().is_some() || get_query_email().is_some() {"hidden"} else {""})>
                     <form method="POST" action="" on:submit=on_invite class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if get_query_kind().is_none() && !api.is_pending_tracked() {""} else {"hidden"})>
                         <h1 class="text-[1.5rem]  text-center my-[4rem]">"REGISTRATION"</h1>
-                        <div class=move||format!("text-red-600 text-center {}", if invite_general_err.with(|v| v.is_empty()) {"hidden"} else {""})>{move || { invite_general_err.get() }}</div>
+                        <div class=move||format!("text-red-600 text-center {}", if get_query_err_general().is_empty() {"hidden"} else {""})>{move || { get_query_err_general() }}</div>
                         <div class="flex flex-col gap-0">
                             <label for="email" class="text-[1.2rem] ">"Email"</label>
                             <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if invite_email_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
@@ -1260,7 +1270,7 @@ pub mod register {
                     </form>
                     <form method="POST" action="" on:submit=on_register class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if query_kind_is_reg() && !api.is_pending_tracked() {""} else {"hidden"})>
                         <h1 class="text-[1.5rem]  text-center my-[4rem]">"FINISH REGISTRATION"</h1>
-                        <div class=move||format!("text-red-600 text-center {}", if register_general_err.with(|v| v.is_empty()) {"hidden"} else {""})>{move || { register_general_err.get() }}</div>
+                        <div class=move||format!("text-red-600 text-center {}", if get_query_err_general().is_empty() {"hidden"} else {""})>{move || { get_query_err_general() }}</div>
                         <div class="flex flex-col justify-center gap-[3rem]">
                             <div class="flex flex-col gap-0">
                                 <label for="username" class="text-[1.2rem] ">"Username"</label>
@@ -1329,6 +1339,7 @@ pub mod login {
     use leptos::{html::Input, prelude::*};
 
     use crate::api::{Api, ApiWeb, ServerLoginErr, ServerRes};
+    use crate::path::link_reg_invite;
     use crate::view::app::components::nav::Nav;
     use crate::view::app::{Acc, GlobalState};
     use crate::view::toolbox::prelude::*;
@@ -1463,7 +1474,7 @@ pub mod login {
                         </div>
                         <div class="flex flex-col gap-[1.3rem] mx-auto my-[4rem] text-center">
                             <input type="submit" value="Login" class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
-                            <a href="/register" class="underline">"or Register"</a>
+                            <a href=link_reg_invite() class="underline">"or Register"</a>
                         </div>
                     </form>
                 </div>
