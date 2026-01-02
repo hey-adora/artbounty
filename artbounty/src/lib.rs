@@ -345,7 +345,7 @@ pub mod path {
     use crate::{
         api::EmailChangeStage,
         view::app::{
-            hook::EmailChangeFormStage,
+            hook::{use_register::RegStage, use_email_change::EmailChangeFormStage},
             page::settings::{SelectedForm, UsernameChangeStage},
         },
     };
@@ -389,13 +389,6 @@ pub mod path {
     pub const PATH_UPLOAD: &'static str = "/upload";
     pub const PATH_SETTINGS: &'static str = "/settings";
 
-    #[derive(Debug, Clone, PartialEq, strum::EnumString, strum::Display)]
-    #[strum(serialize_all = "lowercase")]
-    pub enum RegKind {
-        Reg,
-        CheckEmail,
-        // Loading,
-    }
     pub fn link_post_with_history(
         user: impl AsRef<str>,
         post: impl AsRef<str>,
@@ -662,21 +655,29 @@ pub mod path {
         )
     }
 
-    pub fn link_check_email<Email: AsRef<str>>(email: Email) -> String {
+    pub fn link_reg_invite() -> String {
+        "/register".to_string()
+    }
+
+    pub fn link_reg_check_email<Email: AsRef<str>>(email: Email) -> String {
         format!(
             "{}?kind={}&email={}",
             PATH_REGISTER,
-            RegKind::CheckEmail,
+            RegStage::CheckEmail,
             email.as_ref()
         )
     }
 
-    pub fn link_reg<Token: AsRef<str>>(token: Token) -> String {
+    pub fn link_reg_finish<Token: AsRef<str>>(token: Token, err_general: Option<String>) -> String {
         format!(
-            "{}?kind={}&token={}",
+            "{}?kind={}&token={}{}",
             PATH_REGISTER,
-            RegKind::Reg,
-            token.as_ref()
+            RegStage::Reg,
+            token.as_ref(),
+            match err_general {
+                Some(err) => format!("&err_general={err}"),
+                None => String::new(),
+            }
         )
     }
 }

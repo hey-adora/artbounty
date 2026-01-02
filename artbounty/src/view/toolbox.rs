@@ -5,7 +5,9 @@ pub mod prelude {
     pub use super::file::{self, GetFileStream, GetFiles, GetStreamChunk, PushChunkToVec};
     pub use super::intersection_observer::{self, AddIntersectionObserver, IntersectionOptions};
     pub use super::interval::{self};
-    pub use super::leptos_helpers::{FnGet, Hidden, QueryFn, ToFnOne, ToFnZero};
+    pub use super::leptos_helpers::{
+        FnGet, Hidden, QueryField, QueryFn, QueryGetter, ToFnOne, ToFnZero, ToQueryField,
+    };
     pub use super::mutation_observer::{self, AddMutationObserver, MutationObserverOptions};
     pub use super::random::{random_u8, random_u32, random_u32_ranged, random_u64};
     pub use super::resize_observer::{self, AddResizeObserver, GetContentBoxSize};
@@ -13,7 +15,9 @@ pub mod prelude {
 }
 
 pub mod leptos_helpers {
+    use leptos::Params;
     use leptos::prelude::*;
+    use leptos_router::params::{Params, ParamsError};
 
     // pub trait ToFnVoid<'a> {
     //     fn to_fn(&self)
@@ -34,10 +38,78 @@ pub mod leptos_helpers {
 
     impl<T: FnGet<bool>> Hidden for T {
         fn hide_if_true(&self) -> &'static str {
-            if self.get() { "hidden" } else {"visible"}
+            if self.run() { "hidden" } else { "visible" }
         }
         fn hide_if_false(&self) -> &'static str {
-            if self.get() { "visible" } else {"hidden"}
+            if self.run() { "visible" } else { "hidden" }
+        }
+    }
+
+    pub trait ToQueryField<QueryInput: Params + Sync + Send + Clone + 'static> {
+        fn to_query_field<MapFnOutput, MapFn>(self, f: MapFn) -> QueryField<MapFnOutput>
+        where
+            MapFnOutput: Sync + Send + Default + Clone + 'static,
+            MapFn: Fn(&QueryInput) -> Option<&MapFnOutput> + Send + Sync + 'static + Clone;
+    }
+
+    impl<QueryInput: Params + Sync + Send + Clone + 'static> ToQueryField<QueryInput>
+        for Memo<Result<QueryInput, ParamsError>>
+    {
+        fn to_query_field<MapFnOutput, MapFn>(self, f: MapFn) -> QueryField<MapFnOutput>
+        where
+            MapFnOutput: Sync + Send + Default + Clone + 'static,
+            MapFn: Fn(&QueryInput) -> Option<&MapFnOutput> + Send + Sync + 'static + Clone,
+        {
+            QueryField::<MapFnOutput>::new(self, f)
+        }
+    }
+
+    #[derive(Clone)]
+    pub struct QueryField<T: Clone + Sync + Send> {
+        pub get: StoredValue<Box<dyn Fn() -> T + Sync + Send>>,
+        pub get_untracked: StoredValue<Box<dyn Fn() -> T + Sync + Send + 'static>>,
+        pub check: StoredValue<Box<dyn Fn() -> bool + Sync + Send + 'static>>,
+    }
+
+    // impl<T: Clone + Sync + Send + 'static> Clone for QueryField<T> {}
+    impl<T: Clone + Sync + Send + 'static> Copy for QueryField<T> {}
+
+    impl<T: Clone + Sync + Send + Default + 'static> QueryField<T> {
+        pub fn new<QueryInput, MapFn>(
+            query: Memo<Result<QueryInput, ParamsError>>,
+            f: MapFn,
+        ) -> Self
+        where
+            QueryInput: Params + Sync + Send + Clone + 'static,
+            MapFn: Fn(&QueryInput) -> Option<&T> + Clone + Sync + Send + 'static,
+        {
+            let fn_get = query.to_getter_fn({
+                let f = f.clone();
+                move |v| f(v).cloned()
+            });
+            let fn_get_untracked = query.to_getter_fn_untracked({
+                let f = f.clone();
+                move |v| f(v).cloned()
+            });
+            let fn_check = query.to_checker_fn(f.clone());
+
+            Self {
+                get: StoredValue::new(Box::new(fn_get)),
+                get_untracked: StoredValue::new(Box::new(fn_get_untracked)),
+                check: StoredValue::new(Box::new(fn_check)),
+            }
+        }
+
+        pub fn get(&self) -> T {
+            self.get.run()
+        }
+
+        pub fn get_untracked(&self) -> T {
+            self.get_untracked.run()
+        }
+
+        pub fn check(&self) -> bool {
+            self.check.run()
         }
     }
 
@@ -63,6 +135,79 @@ pub mod leptos_helpers {
         }
     }
 
+    pub trait QueryGetter<QueryInput: Params + Sync + Send + Clone + 'static> {
+        fn to_getter_fn<MapFnOutput, MapFn>(self, f: MapFn) -> impl Fn() -> MapFnOutput
+        where
+            MapFnOutput: Sync + Send + Default,
+            MapFn: Fn(&QueryInput) -> Option<MapFnOutput> + Clone;
+
+        fn to_getter_fn_untracked<MapFnOutput, MapFn>(self, f: MapFn) -> impl Fn() -> MapFnOutput
+        where
+            MapFnOutput: Sync + Send + Default,
+            MapFn: Fn(&QueryInput) -> Option<MapFnOutput> + Clone;
+
+        fn to_checker_fn<MapFnOutput, MapFn>(self, f: MapFn) -> impl Fn() -> bool
+        where
+            MapFnOutput: Sync + Send,
+            MapFn: Fn(&QueryInput) -> Option<&MapFnOutput> + Clone;
+    }
+
+    impl<QueryInput: Params + Sync + Send + Clone + 'static> QueryGetter<QueryInput>
+        for Memo<Result<QueryInput, ParamsError>>
+    {
+        fn to_getter_fn<MapFnOutput, MapFn>(self, f: MapFn) -> impl Fn() -> MapFnOutput
+        where
+            MapFnOutput: Sync + Send + Default,
+            MapFn: Fn(&QueryInput) -> Option<MapFnOutput> + Clone,
+        {
+            let query = self.clone();
+            move || {
+                let f = f.clone();
+                query.with(|v| v.as_ref().ok().and_then(f).unwrap_or_default())
+            }
+        }
+
+        fn to_getter_fn_untracked<MapFnOutput, MapFn>(self, f: MapFn) -> impl Fn() -> MapFnOutput
+        where
+            MapFnOutput: Sync + Send + Default,
+            MapFn: Fn(&QueryInput) -> Option<MapFnOutput> + Clone,
+        {
+            let query = self.clone();
+            move || {
+                let f = f.clone();
+                query.with_untracked(|v| v.as_ref().ok().and_then(f).unwrap_or_default())
+            }
+        }
+
+        fn to_checker_fn<MapFnOutput, MapFn>(self, f: MapFn) -> impl Fn() -> bool
+        where
+            MapFnOutput: Sync + Send,
+            MapFn: Fn(&QueryInput) -> Option<&MapFnOutput> + Clone,
+        {
+            let query = self;
+            move || {
+                let f = f.clone();
+                query.with(|v| v.as_ref().ok().map(|v| f(v).is_some()).unwrap_or_default())
+            }
+        }
+    }
+
+    // pub fn build_query_getter<QueryInput, MapFnOutput, MapFn>(
+    //     query: Memo<Result<QueryInput, ParamsError>>,
+    //     f: MapFn,
+    // ) -> impl Fn() -> MapFnOutput
+    // where
+    //     QueryInput: Params + Sync + Send + Clone + 'static,
+    //     MapFnOutput: Sync + Send + Default + 'static,
+    //     MapFn: Fn(&QueryInput) -> Option<MapFnOutput> + Clone,
+    // {
+    //     let fn_get_token = move || {
+    //         let f = f.clone();
+    //         query.with(|v| v.as_ref().ok().and_then(f).unwrap_or_default())
+    //     };
+    //
+    //     fn_get_token
+    // }
     // pub trait QueryFnOrDefault<'a, M, T: 'static> {
     //     fn to_query_fn_default<F: Fn(M) -> T + Send + Sync + Copy + 'static>(
     //         &self,
@@ -85,13 +230,13 @@ pub mod leptos_helpers {
     // }
 
     pub trait FnGet<T: Send + Sync + Clone + 'static> {
-        fn get(&self) -> T;
+        fn run(&self) -> T;
     }
 
     impl<T: Send + Sync + Clone + 'static> FnGet<T>
         for StoredValue<Box<dyn Fn() -> T + Sync + Send + 'static>>
     {
-        fn get(&self) -> T {
+        fn run(&self) -> T {
             self.to_fn()()
         }
     }
