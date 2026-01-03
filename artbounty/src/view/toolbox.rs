@@ -6,7 +6,7 @@ pub mod prelude {
     pub use super::intersection_observer::{self, AddIntersectionObserver, IntersectionOptions};
     pub use super::interval::{self};
     pub use super::leptos_helpers::{
-        FnGet, Hidden, QueryField, QueryFn, QueryGetter, ToFnOne, ToFnZero, ToQueryField,
+        FnGet, Hidden, QueryField, QueryFn, QueryGetter, RwQuery, ToFnOne, ToFnZero, ToQueryField,
     };
     pub use super::mutation_observer::{self, AddMutationObserver, MutationObserverOptions};
     pub use super::random::{random_u8, random_u32, random_u32_ranged, random_u64};
@@ -15,8 +15,11 @@ pub mod prelude {
 }
 
 pub mod leptos_helpers {
+    use std::str::FromStr;
+
     use leptos::Params;
     use leptos::prelude::*;
+    use leptos_router::hooks::query_signal;
     use leptos_router::params::{Params, ParamsError};
 
     // pub trait ToFnVoid<'a> {
@@ -31,6 +34,53 @@ pub mod leptos_helpers {
     //     }
     //pub trait FnGet<T: Send + Sync + Clone + 'static> {
     // }
+
+    #[derive(Clone)]
+    pub struct RwQuery<T: FromStr + ToString + Clone + Sync + Send + Default + PartialEq + 'static> {
+        fn_get: Memo<Option<T>>,
+        fn_set: SignalSetter<Option<T>>,
+    }
+
+    impl<T: FromStr + ToString + Clone + Sync + Send + Default + PartialEq + 'static> Copy
+        for RwQuery<T>
+    {
+    }
+
+    impl<T: FromStr + ToString + Clone + Sync + Send + Default + PartialEq + 'static> RwQuery<T> {
+        pub fn new(key: impl Into<Oco<'static, str>>) -> RwQuery<T> {
+            let (get, set) = query_signal::<T>(key);
+
+            Self {
+                fn_get: get,
+                fn_set: set,
+            }
+        }
+
+        pub fn get(&self) -> T {
+            self.fn_get.get().unwrap_or_default()
+        }
+
+        pub fn get_untracked(&self) -> T {
+            self.fn_get.get_untracked().unwrap_or_default()
+        }
+
+        pub fn set(&self, value: T) {
+            self.fn_set.set(Some(value));
+        }
+
+        pub fn clear(&self) {
+            self.fn_set.set(None);
+        }
+
+        pub fn is_some(&self) -> bool {
+            self.fn_get.with(|v| v.is_some())
+        }
+
+        pub fn is_some_untracked(&self) -> bool {
+            self.fn_get.with_untracked(|v| v.is_some())
+        }
+    }
+
     pub trait Hidden {
         fn hide_if_true(&self) -> &'static str;
         fn hide_if_false(&self) -> &'static str;

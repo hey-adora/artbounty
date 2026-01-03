@@ -1025,8 +1025,9 @@ pub mod register {
     use leptos_router::NavigateOptions;
     use leptos_router::hooks::use_query;
     use leptos_router::params::Params;
+    use web_sys::js_sys::encode_uri;
     use web_sys::SubmitEvent;
-    use crate::view::app::hook::use_register::RegStage as RegKind;
+    use crate::view::app::hook::use_register::{self, use_register, RegStage as RegKind};
 
     use crate::api::{Api, ApiWeb, ServerErr, ServerRegistrationErr, ServerRes};
     use crate::path::{self, link_user};
@@ -1047,196 +1048,16 @@ pub mod register {
 
     #[component]
     pub fn Page() -> impl IntoView {
-        let global_state = expect_context::<GlobalState>();
+        let api = ApiWeb::new();
         let main_ref = NodeRef::new();
-        let invite_email: NodeRef<Input> = NodeRef::new();
         let register_username: NodeRef<Input> = NodeRef::new();
         let register_email: NodeRef<Input> = NodeRef::new();
-        let register_email_decoded = RwSignal::new(String::new());
         let register_password: NodeRef<Input> = NodeRef::new();
         let register_password_confirmation: NodeRef<Input> = NodeRef::new();
-        let register_username_err = RwSignal::new(String::new());
-        let register_email_err = RwSignal::new(String::new());
-        let register_password_err = RwSignal::new(String::new());
-        let register_general_err = RwSignal::new(String::new());
-        let invite_general_err = RwSignal::new(String::new());
-        let invite_email_err = RwSignal::new(String::new());
-        let invite_completed = RwSignal::new(String::new());
-        let invite_email: NodeRef<Input> = NodeRef::new();
-        // let api_invite = controller::auth::route::invite::client.ground();
-        // let api_invite_decode = controller::auth::route::invite_decode::client.ground();
-        // let api_register = controller::auth::route::register::client.ground();
-        let api = ApiWeb::new();
-        let api_invite_decode = ApiWeb::new();
-        let query = use_query::<RegParams>();
-        let navigate = leptos_router::hooks::use_navigate();
 
-        let get_query_err_general = move || {
-            query.with(|v| {
-                v.as_ref()
-                    .ok()
-                    .and_then(|v| v.err_general.clone())
-                    .unwrap_or_default()
-            })
-        };
-        let get_query_token = move || query.read().as_ref().ok().and_then(|v| v.token.clone());
-        let get_query_email = move || query.read().as_ref().ok().and_then(|v| v.email.clone());
-        let get_query_kind = move || query.read().as_ref().ok().and_then(|v| v.kind.clone());
-        let query_kind_is_check_email = move || {
-            get_query_kind()
-                .map(|v| v == RegKind::CheckEmail)
-                .unwrap_or_default()
-        };
-        let query_kind_is_reg = move || {
-            get_query_kind()
-                .map(|v| v == RegKind::Reg)
-                .unwrap_or_default()
-        };
-        let get_query_email_or_err = move || get_query_email().unwrap_or(String::from("error"));
+        let reg = use_register(api, register_username, register_email, register_password, register_password_confirmation);
 
-        // let link_reg_finish_err = move |err_general: Option<String>| -> String {
-        //     lin
-        // 
-
-        let on_invite = {
-            let navigate = navigate.clone();
-            move |e: SubmitEvent| {
-                e.prevent_default();
-                let navigate = navigate.clone();
-
-                let Some(email) = invite_email.get_untracked() else {
-                    return;
-                };
-
-                let email = proccess_email(email.value());
-
-                invite_email_err.set(email.clone().err().unwrap_or_default());
-                invite_general_err.set(String::new());
-
-                let Ok(email) = email else {
-                    return;
-                };
-                let email_clone = email.clone();
-
-                api.send_email_invite(email_clone).send_web(move |result| {
-                    let email = email.clone();
-                    let navigate = navigate.clone();
-
-                    async move {
-                        match result {
-                            Ok(ServerRes::Ok) => {
-                                // let result = api.profile().send_native().await;
-                                invite_completed.set(email.clone());
-                                navigate(
-                                    &path::link_reg_check_email(email),
-                                    NavigateOptions {
-                                        ..Default::default()
-                                    },
-                                );
-                            }
-                            Ok(res) => {
-                                error!("expected Ok, received {res:?}");
-                            }
-
-                            Err(err) => {
-                                invite_general_err.set(err.to_string());
-                                error!("get invite err: {err}");
-                            }
-                        }
-                    }
-                });
-            }
-        };
-        let on_register = move |e: SubmitEvent| {
-            e.prevent_default();
-            let (Some(username), Some(password), Some(password_confirmation)) = (
-                register_username.get_untracked(),
-                // register_email.get(),
-                register_password.get_untracked(),
-                register_password_confirmation.get_untracked(),
-            ) else {
-                return;
-            };
-
-            let username = proccess_username(username.value());
-            // let email = proccess_email(email.value());
-            let password = proccess_password(password.value(), Some(password_confirmation.value()));
-            let token = get_query_token();
-
-            register_username_err.set(username.clone().err().unwrap_or_default());
-            // register_email_err.set(email.clone().err().unwrap_or_default());
-            register_password_err.set(password.clone().err().unwrap_or_default());
-            register_general_err.set(if token.is_some() {
-                String::new()
-            } else {
-                String::from("token is missing from; invalid link")
-            });
-
-            let (Ok(username), Ok(password), Some(invite_token)) = (username, password, token)
-            else {
-                return;
-            };
-
-            api.register(username, invite_token, password)
-                .send_web(move |result| {
-                    // let navigate = navigate.clone();
-                    async move {
-                        let err: Result<(), String> = match result {
-                            Ok(ServerRes::Ok) => {
-                                let res = global_state.update_auth_now().await;
-                                match res {
-                                    Ok(ServerRes::User { username }) => {
-                                        let result = global_state.update_auth_now().await;
-                                        match result {
-                                            Ok(S) => Ok(()),
-                                            Err(err) => Err(err.to_string()),
-                                        }
-                                    }
-                                    res => Err(format!("expected User, received {res:?}")),
-                                }
-                            }
-                            Ok(res) => Err(format!("error, expected OK, received: {res:?}")),
-                            Err(ServerErr::RegistrationErr(
-                                ServerRegistrationErr::TokenExpired,
-                            )) => Err("This invite link is already expired.".to_string()),
-                            Err(ServerErr::RegistrationErr(ServerRegistrationErr::TokenUsed)) => {
-                                Err("This invite link was already used.".to_string())
-                            }
-                            Err(ServerErr::RegistrationErr(
-                                ServerRegistrationErr::TokenNotFound,
-                            )) => Err("This invite link is invalid.".to_string()),
-                            Err(err) => Err(err.to_string()),
-                        };
-                        if let Err(err) = err {
-                            error!(err);
-                            register_general_err.set(err);
-                        }
-                    }
-                });
-        };
-
-        Effect::new(move || {
-            let Some(token) = get_query_token() else {
-                return;
-            };
-
-            api_invite_decode
-                .decode_invite(token)
-                .send_web(move |result| async move {
-                    match result {
-                        Ok(ServerRes::InviteToken(token)) => {
-                            register_email_decoded.set(token.email);
-                        }
-                        Ok(res) => {
-                            register_email_decoded
-                                .set(format!("error, expected OK, received: {res:?}"));
-                        }
-                        Err(err) => {
-                            register_email_decoded.set(err.to_string());
-                        }
-                    }
-                });
-        });
+        // encode_uri(decoded)
 
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] min-h-[100dvh]">
@@ -1246,55 +1067,55 @@ pub mod register {
                     <div class=move||format!("mx-auto text-[1.5rem] {}", if api.is_pending_tracked() {""} else {"hidden"})>
                         <h1>"LOADING..."</h1>
                     </div>
-                    <div class=move||format!("mx-auto flex flex-col gap-2 text-center {}", if query_kind_is_check_email() && !api.is_pending_tracked() {""} else {"hidden"})>
+                    <div class=move||format!("mx-auto flex flex-col gap-2 text-center {}", if reg.stage.get().is_check_email() && !api.is_pending_tracked() {""} else {"hidden"})>
                         <h1 class="text-[1.5rem] my-[4rem]">"VERIFY EMAIL"</h1>
-                        <p class="max-w-[30rem]">"Verification email was sent to \""{get_query_email_or_err}"\" click the confirmtion link in the email."</p>
+                        <p class="max-w-[30rem]">"Verification email was sent to \""{ move ||reg.email.get() }"\" click the confirmtion link in the email."</p>
                         // <a href="/login" class="underline">"Go to Login"</a>
                     </div>
                     // <form method="POST" action="" on:submit=on_invite class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if api_invite.is_pending() || api_invite.is_complete() || get_query_token().is_some() || get_query_email().is_some() {"hidden"} else {""})>
-                    <form method="POST" action="" on:submit=on_invite class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if get_query_kind().is_none() && !api.is_pending_tracked() {""} else {"hidden"})>
+                    <form method="POST" action="" on:submit=reg.on_invite.to_fn() class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if reg.stage.get().is_none() && !api.is_pending_tracked() {""} else {"hidden"})>
                         <h1 class="text-[1.5rem]  text-center my-[4rem]">"REGISTRATION"</h1>
-                        <div class=move||format!("text-red-600 text-center {}", if get_query_err_general().is_empty() {"hidden"} else {""})>{move || { get_query_err_general() }}</div>
+                        <div class=move||format!("text-red-600 text-center {}", if reg.err_general.is_some() {""} else {"hidden"})>{move || { reg.err_general.get() }}</div>
                         <div class="flex flex-col gap-0">
-                            <label for="email" class="text-[1.2rem] ">"Email"</label>
-                            <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if invite_email_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
-                                <ul class="list-disc ml-[1rem]">
-                                    {move || invite_email_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
-                                </ul>
-                            </div>
-                            <input placeholder="alice@mail.com" id="email" node_ref=invite_email type="text" class="border-b-2 border-base05 w-full mt-1 " />
+                            <label for="email_invite" class="text-[1.2rem] ">"Email"</label>
+                            // <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if invite_email_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
+                            //     <ul class="list-disc ml-[1rem]">
+                            //         {move || invite_email_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                            //     </ul>
+                            // </div>
+                            <input placeholder="alice@mail.com" id="email_invite" node_ref=register_email type="text" class="border-b-2 border-base05 w-full mt-1 " />
                         </div>
                         <div class="flex flex-col gap-[1.3rem] mx-auto my-[4rem] text-center">
                             <input type="submit" value="Register" class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
                         </div>
                     </form>
-                    <form method="POST" action="" on:submit=on_register class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if query_kind_is_reg() && !api.is_pending_tracked() {""} else {"hidden"})>
+                    <form method="POST" action="" on:submit=reg.on_reg.to_fn() class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if reg.stage.get().is_reg() && !api.is_pending_tracked() {""} else {"hidden"})>
                         <h1 class="text-[1.5rem]  text-center my-[4rem]">"FINISH REGISTRATION"</h1>
-                        <div class=move||format!("text-red-600 text-center {}", if get_query_err_general().is_empty() {"hidden"} else {""})>{move || { get_query_err_general() }}</div>
+                        <div class=move||format!("text-red-600 text-center {}", if reg.err_general.is_some() {""} else {"hidden"})>{move || { reg.err_general.get() }}</div>
                         <div class="flex flex-col justify-center gap-[3rem]">
                             <div class="flex flex-col gap-0">
                                 <label for="username" class="text-[1.2rem] ">"Username"</label>
-                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if register_username_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
+                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if reg.err_username.is_some() {"text-[1rem]"} else {"text-[0rem]"}) >
                                     <ul class="list-disc ml-[1rem]">
-                                        {move || register_username_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                        {move || reg.err_username.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
                                 <input placeholder="Alice" id="username" node_ref=register_username type="text" class="border-b-2 border-base05 w-full mt-1 " />
                             </div>
                             <div class="flex flex-col gap-0">
-                                <label for="email" class="text-[1.2rem] ">"Email"</label>
-                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if register_email_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
+                                <label for="email_reg" class="text-[1.2rem] ">"Email"</label>
+                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if reg.err_token.is_some() {"text-[1rem]"} else {"text-[0rem]"}) >
                                     <ul class="list-disc ml-[1rem]">
-                                        {move || register_email_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                        {move || reg.err_token.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
-                                <input value=move|| register_email_decoded.get() readonly placeholder="loading..." id="email" node_ref=register_email type="text" class="border-b-2 border-base05 w-full mt-1 " />
+                                <input value=move|| reg.token_decoded.get() readonly placeholder="loading..." id="email_reg" type="text" class="border-b-2 border-base05 w-full mt-1 " />
                             </div>
                             <div class="flex flex-col gap-0">
                                 <label for="password" class="text-[1.2rem] ">"Password"</label>
-                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if register_password_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
+                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if reg.err_password.is_some() {"text-[1rem]"} else {"text-[0rem]"}) >
                                     <ul class="list-disc ml-[1rem]">
-                                        {move || register_password_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                        {move || reg.err_password.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
                                 <input id="password" node_ref=register_password type="password" class="border-b-2 border-base05 w-full mt-1 " />
