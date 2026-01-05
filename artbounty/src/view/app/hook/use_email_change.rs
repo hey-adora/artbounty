@@ -1,4 +1,3 @@
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,7 +23,7 @@ use crate::api::{
     EmailChangeTokenErr, ServerErr, ServerRes,
 };
 use crate::path::{
-    link_settings_form_email_completed, link_settings_form_email_current_click,
+    link_settings, link_settings_form_email_completed, link_settings_form_email_current_click,
     link_settings_form_email_current_confirm, link_settings_form_email_current_send,
     link_settings_form_email_final_confirm, link_settings_form_email_new_click,
     link_settings_form_email_new_confirm, link_settings_form_email_new_send,
@@ -53,11 +52,13 @@ pub struct ParamsChangeEmail {
     serde::Deserialize,
     strum::EnumString,
     strum::EnumIter,
+    strum::EnumIs,
     strum::Display,
 )]
 #[strum(serialize_all = "lowercase")]
 pub enum EmailChangeFormStage {
     #[default]
+    None,
     CurrentSendConfirm,
     CurrentClickConfirm,
     CurrentConfirm,
@@ -83,6 +84,8 @@ impl EmailChangeFormStage {
         let err_email = String::from("missing email");
         let err_id = String::from("missing id");
         let link = match self {
+            Self::None => link_settings(),
+
             Self::CurrentSendConfirm => {
                 link_settings_form_email_current_send(old_email, stage_error, general_info)
             }
@@ -175,7 +178,10 @@ pub struct EmailChange {
     pub post_run: StoredValue<Box<dyn Fn(SubmitEvent) + Sync + Send + 'static>>,
 }
 
-pub fn use_change_email<API: Api + Sync + Send + Clone + Copy + 'static>(api: API, input_new_email: NodeRef<html::Input>) -> EmailChange {
+pub fn use_change_email<API: Api + Sync + Send + Clone + Copy + 'static>(
+    api: API,
+    input_new_email: NodeRef<html::Input>,
+) -> EmailChange {
     const EXPIRED_STR: &'static str = "expired";
 
     let global_state = expect_context::<GlobalState>();
@@ -259,6 +265,7 @@ pub fn use_change_email<API: Api + Sync + Send + Clone + Copy + 'static>(api: AP
             return BtnStage::None;
         }
         match stage {
+            EmailChangeFormStage::None => BtnStage::None,
             EmailChangeFormStage::CurrentSendConfirm => BtnStage::Send,
             EmailChangeFormStage::CurrentClickConfirm => BtnStage::Resend,
             EmailChangeFormStage::CurrentConfirm => BtnStage::Confirm,
@@ -462,6 +469,7 @@ pub fn use_change_email<API: Api + Sync + Send + Clone + Copy + 'static>(api: AP
                 }
             };
             let error = match email_stage {
+                EmailChangeFormStage::None => None,
                 EmailChangeFormStage::CurrentSendConfirm => {
                     api.send_email_change().send_web(handler.clone());
                     None

@@ -241,7 +241,11 @@ pub mod settings {
     };
     use crate::view::app::GlobalState;
     use crate::view::app::components::nav::Nav;
-    use crate::view::app::hook::use_email_change::{BtnStage, EmailChangeFormStage, use_change_email};
+    use crate::view::app::hook::use_email_change::{
+        BtnStage, EmailChangeFormStage, use_change_email,
+    };
+    use crate::view::app::hook::use_register;
+    use crate::view::app::hook::use_username_change::{use_change_username, ChangeUsernameBtnStage, ChangeUsernameFormStage};
     use crate::view::toolbox::prelude::*;
     use leptos::prelude::*;
     use leptos::{Params, task::spawn_local};
@@ -252,24 +256,24 @@ pub mod settings {
     use tracing::{error, trace};
     use web_sys::{HtmlInputElement, HtmlTextAreaElement, MouseEvent, SubmitEvent};
 
-    #[derive(
-        Clone,
-        Debug,
-        PartialEq,
-        PartialOrd,
-        serde::Serialize,
-        serde::Deserialize,
-        strum::EnumString,
-        strum::Display,
-    )]
-    #[strum(serialize_all = "lowercase")]
-    pub enum SelectedForm {
-        None,
-        ChangeUsername,
-        ChangeEmail,
-        UsernameChanged,
-        ChangePassword,
-    }
+    // #[derive(
+    //     Clone,
+    //     Debug,
+    //     PartialEq,
+    //     PartialOrd,
+    //     serde::Serialize,
+    //     serde::Deserialize,
+    //     strum::EnumString,
+    //     strum::Display,
+    // )]
+    // #[strum(serialize_all = "lowercase")]
+    // pub enum SelectedForm {
+    //     None,
+    //     ChangeUsername,
+    //     ChangeEmail,
+    //     UsernameChanged,
+    //     ChangePassword,
+    // }
 
     // #[derive(
     //     Clone,
@@ -316,36 +320,36 @@ pub mod settings {
     //     }
     // }
 
-    #[derive(
-        Clone,
-        Debug,
-        PartialEq,
-        PartialOrd,
-        serde::Serialize,
-        serde::Deserialize,
-        strum::EnumString,
-        strum::EnumIter,
-        strum::Display,
-    )]
-    #[strum(serialize_all = "lowercase")]
-    pub enum UsernameChangeStage {
-        SendConfirm,
-        ClickConfirm,
-        EnterNewUsername,
-        Finish,
-    }
+    // #[derive(
+    //     Clone,
+    //     Debug,
+    //     PartialEq,
+    //     PartialOrd,
+    //     serde::Serialize,
+    //     serde::Deserialize,
+    //     strum::EnumString,
+    //     strum::EnumIter,
+    //     strum::Display,
+    // )]
+    // #[strum(serialize_all = "lowercase")]
+    // pub enum UsernameChangeStage {
+    //     SendConfirm,
+    //     ClickConfirm,
+    //     EnterNewUsername,
+    //     Finish,
+    // }
 
-    #[derive(Params, PartialEq, Clone, Default)]
-    pub struct PageParams {
-        pub selected_form: Option<SelectedForm>,
-        pub new_email: Option<String>,
-        pub new_username: Option<String>,
-        pub old_username: Option<String>,
-        pub confirm_token: Option<String>,
-        pub email_stage: Option<EmailChangeFormStage>,
-        pub username_stage: Option<UsernameChangeStage>,
-        // pub current_email: Option<String>,
-    }
+    // #[derive(Params, PartialEq, Clone, Default)]
+    // pub struct PageParams {
+    //     pub selected_form: Option<SelectedForm>,
+    //     pub new_email: Option<String>,
+    //     pub new_username: Option<String>,
+    //     pub old_username: Option<String>,
+    //     pub confirm_token: Option<String>,
+    //     pub email_stage: Option<EmailChangeFormStage>,
+    //     pub username_stage: Option<UsernameChangeStage>,
+    //     // pub current_email: Option<String>,
+    // }
 
     #[component]
     pub fn Page() -> impl IntoView {
@@ -353,129 +357,42 @@ pub mod settings {
         let global_state = expect_context::<GlobalState>();
         // let selected_form = RwSignal::new(SelectedForm::None);
 
-        let navigate = leptos_router::hooks::use_navigate();
-        let query = use_query::<PageParams>();
-
-        let get_query = move || {
-            query
-                .read()
-                .as_ref()
-                .ok()
-                .map(|v| v.clone())
-                .unwrap_or_default()
-        };
-        let get_query_untracked = move || {
-            query
-                .read_untracked()
-                .as_ref()
-                .ok()
-                .map(|v| v.clone())
-                .unwrap_or_default()
-        };
-        let get_query_selected_form =
-            move || get_query().selected_form.unwrap_or(SelectedForm::None);
-        let get_query_new_username = move || get_query().new_username;
-        let get_query_old_username = move || get_query().old_username;
-        // let get_query_email_stage = move || {
-        //     get_query()
-        //         .email_stage
-        //         .unwrap_or(EmailChangeFormStage::CurrentSendConfirm)
-        // };
-        // let get_email_change_form_stage = move || EmailChangeFormStage::from(get_query());
-        let get_current_email_or_default = move || {
-            global_state
-                .get_email_tracked()
-                .unwrap_or("current email".to_string())
-        };
-        // let get_new_email_or_default =
-        //     move || get_query().new_email.unwrap_or("new email".to_string());
-        // let get_email_change_form_stage_untracked = move || EmailChangeFormStage::from(get_query());
-
-        // let is_current_stage = move |stage: usize| -> bool {
+        // let navigate = leptos_router::hooks::use_navigate();
+        // let query = use_query::<PageParams>();
         //
-        //     let current_stage = get_query_form_stage();
+        // let get_query = move || {
+        //     query
+        //         .read()
+        //         .as_ref()
+        //         .ok()
+        //         .map(|v| v.clone())
+        //         .unwrap_or_default()
         // };
+        // let get_query_untracked = move || {
+        //     query
+        //         .read_untracked()
+        //         .as_ref()
+        //         .ok()
+        //         .map(|v| v.clone())
+        //         .unwrap_or_default()
+        // };
+        // let get_query_selected_form =
+        //     move || get_query().selected_form.unwrap_or(SelectedForm::None);
+        // let get_query_new_username = move || get_query().new_username;
+        // let get_query_old_username = move || get_query().old_username;
 
         let api = ApiWeb::new();
-        let change_username_username_general_err = RwSignal::new(String::new());
+
         let change_username_username = NodeRef::new();
-        let change_username_username_err = RwSignal::new(String::new());
         let change_username_password = NodeRef::new();
+        let change_username =
+            use_change_username(api, change_username_username, change_username_password);
 
         let change_email_new_email_input = NodeRef::new();
-
-        // let change_email_new_email = RwSignal::new(String::from("new email"));
-        // let change_email_step_err = RwSignal::new(String::new());
-
         let change_email = use_change_email(api, change_email_new_email_input);
 
-        let on_change_username = {
-            let navigate = navigate.clone();
-            move |e: SubmitEvent| {
-                e.prevent_default();
-                let navigate = navigate.clone();
-                let (Some(username), Some(password)) = (
-                    change_username_username.get_untracked() as Option<HtmlInputElement>,
-                    change_username_password.get_untracked() as Option<HtmlInputElement>,
-                ) else {
-                    return;
-                };
-
-                let username = proccess_username(username.value());
-                let password = password.value();
-
-                change_username_username_err.set(username.clone().err().unwrap_or_default());
-                change_username_username_general_err.set(String::new());
-
-                let (Ok(username),) = (username,) else {
-                    return;
-                };
-                api.change_username(password, username)
-                    .send_web(move |result| {
-                        let navigate = navigate.clone();
-                        async move {
-                            match result {
-                                Ok(crate::api::ServerRes::User {
-                                    username: new_username,
-                                }) => {
-                                    let old_username = global_state
-                                        .get_username_untracked()
-                                        .unwrap_or("404".to_string());
-                                    // let current_email = global_state.get_email_untracked().unwrap_or("404".to_string());
-                                    global_state.change_username(new_username.clone());
-                                    navigate(
-                                        &link_settings_form_username(
-                                            UsernameChangeStage::Finish,
-                                            Some(old_username),
-                                            Some(new_username),
-                                        ),
-                                        NavigateOptions::default(),
-                                    );
-                                    // selected_form.try_set(SelectedForm::None);
-                                }
-                                Ok(err) => {
-                                    error!("expected Post, received {err:?}");
-                                    let _ = change_username_username_general_err
-                                        .try_set("SERVER ERROR, wrong response.".to_string());
-                                }
-                                Err(ServerErr::ChangeUsernameErr(
-                                    crate::api::ChangeUsernameErr::UsernameIsTaken(_),
-                                )) => {
-                                    change_username_username_err
-                                        .set("Username is taken".to_string());
-                                }
-                                Err(err) => {
-                                    let _ = change_username_username_general_err
-                                        .try_set(err.to_string());
-                                }
-                            }
-                        }
-                    });
-            }
-        };
-
-        let view_current_stage_label = move |stage: EmailChangeFormStage| {
-            let current_stage = change_email.get_form_stage.run();
+        let view_current_username_change_stage_label = move |stage: ChangeUsernameFormStage| {
+            let current_stage = change_username.stage.get();
             let (text, style) = if current_stage == stage {
                 ("Current", "text-base0C")
             } else if current_stage > stage {
@@ -489,13 +406,20 @@ pub mod settings {
             }
         };
 
-        // let view_general_info = move || {
-        //     let info = change_email_info();
-        //     let has_info = !info.is_empty();
-        //     view! {
-        //         <div class=move || format!("text-[1rem] text-base0c {}", if has_info { "visible" } else {"hidden"} )> { info } </div>
-        //     }
-        // };
+        let view_current_email_change_stage_label = move |stage: EmailChangeFormStage| {
+            let current_stage = change_email.get_form_stage.run();
+            let (text, style) = if current_stage == stage {
+                ("Current", "text-base0C")
+            } else if current_stage > stage {
+                ("Done", "text-base0B")
+            } else {
+                ("Next", "text-base03")
+            };
+
+            view! {
+                <span class=style>"["{text}"] "</span>
+            }
+        };
 
         let view_stage_errors = move |stage: EmailChangeFormStage| {
             view! {
@@ -521,108 +445,125 @@ pub mod settings {
                         <label for="current_username" class="text-[1.2rem] ">"Username"</label>
                         <div class="flex">
                             <input value=move || global_state.get_username_tracked() id="current_username" name="current_username" disabled type="text" class="bg-base01 text-base0B w-full pl-2 " />
-                            <a href=link_settings_form_username(UsernameChangeStage::SendConfirm, None::<String>, None::<String>) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
+                            <a href=link_settings_form_username(ChangeUsernameFormStage::Change, None::<String>, None::<String>) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
                         </div>
                     </form>
                     <form class="flex flex-col gap-2">
                         <label for="current_email" class="text-[1.2rem] ">"Email"</label>
                         <div class="flex">
                             <input value=move || global_state.get_email_tracked() id="current_email" name="current_email" disabled type="text" class="bg-base01 text-base0B w-full pl-2 " />
-                            <a href=move || link_settings_form_email_current_send(get_current_email_or_default(), None, None) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
+                            <a href=move || link_settings_form_email_current_send(global_state.get_email_tracked().unwrap_or_default(), None, None) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
                         </div>
                     </form>
 
                 </div>
 
                 // username change
-                // step 1
-                <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if get_query_selected_form() == SelectedForm::ChangeUsername { "flex" } else { "hidden" } )>
-                    <form method="POST" on:submit=on_change_username action="" class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full border-2 border-base05 bg-base00">
+                <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if !change_username.stage.get().is_none() { "flex" } else { "hidden" } )>
+                    <div class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full border-0 border-base05 bg-base01">
                         <h2 class="text-[1.5rem]  text-center mt-[4rem]">"Change Username"</h2>
-                        <div class=move||format!("text-red-600 text-center my-[2rem] {}", if change_username_username_general_err.with(|v| v.is_empty()) { "invisible" } else { "" } )>{move || { change_username_username_general_err.get() }}</div>
+                        <div class=move||format!("text-red-600 text-center my-[2rem] {}", if change_username.err_general.is_some() { "" } else { "invisible" } )>{move || { change_username.err_general.get() }}</div>
                         <div class="flex flex-col gap-6">
-                            <div class="flex flex-col gap-0">
-                                <label for="username" class="text-[1.2rem] ">"New Username"</label>
-                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if false {"text-[0rem]"} else {"text-[1rem]"}) >
-                                    <ul class="list-disc ml-[1rem]">
-                                        {move || change_username_username_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
-                                    </ul>
-                                </div>
-                                <input placeholder="kaiju" id="username" name="username" node_ref=change_username_username type="text" class="border-b-2 border-base05 w-full mt-1 " />
-                            </div>
-                            <div class="flex flex-col gap-0">
-                                <label for="password" class="text-[1.2rem]">"Password"</label>
-                                <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if false {"text-[0rem]"} else {"text-[1rem]"}) >
-                                    <ul class="list-disc ml-[1rem]">
-                                        // {move || upload_title_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
-                                    </ul>
-                                </div>
-                                <input placeholder="current password" id="password" name="password" node_ref=change_username_password type="password" class="border-b-2 border-base05 w-full mt-1 " />
-                            </div>
+                            <ol class="text-[1.2rem] list-decimal grid gap-2">
+                                <li>
+                                    {move || view_current_username_change_stage_label(ChangeUsernameFormStage::Change) }
+                                    "Fill the form. "
+                                    <div class=move || format!("flex flex-col {}", if change_username.stage.get() == ChangeUsernameFormStage::Change { "" } else { "hidden" })>
+                                        <div class="flex flex-col gap-0">
+                                            <label for="username" class="text-[1.2rem] ">"New Username"</label>
+                                            <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if false {"text-[0rem]"} else {"text-[1rem]"}) >
+                                                <ul class="list-disc ml-[1rem]">
+                                                    {move || change_username.err_username.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                                </ul>
+                                            </div>
+                                            <input placeholder="kaiju" id="username" name="username" node_ref=change_username_username type="text" class="border-b-2 border-base05 w-full mt-1 " />
+                                        </div>
+                                        <div class="flex flex-col gap-0">
+                                            <label for="password" class="text-[1.2rem]">"Password"</label>
+                                            <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if false {"text-[0rem]"} else {"text-[1rem]"}) >
+                                                <ul class="list-disc ml-[1rem]">
+                                                    // {move || upload_title_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                                </ul>
+                                            </div>
+                                            <input placeholder="current password" id="password" name="password" node_ref=change_username_password type="password" class="border-b-2 border-base05 w-full mt-1 " />
+                                        </div>
+                                    </div>
+                                    // <span class="text-base0E">{move || format!("{}.", change_email.get_old_email.run())}</span>
+                                    // {move || view_stage_errors(EmailChangeFormStage::CurrentSendConfirm)}
+                                </li>
+                                <li>
+                                    {move || view_current_username_change_stage_label(ChangeUsernameFormStage::Finish) }
+                                    "Completed - username changed from "
+                                    <span class="text-base0F">" "{move || change_username.old_username.get() }" "</span>
+                                    <span>" to "</span>
+                                    <span class="text-base0B">" "{move || change_username.new_username.get() }" "</span>
+                                </li>
+                            </ol>
                         </div>
-                        <div class="flex flex-row gap-[1.3rem] mx-auto my-[4rem] text-center">
+                        <div class="flex flex-row gap-[1.3rem] my-[4rem] justify-between">
                             // <button on:click=on_close disabled=move || api.is_pending_tracked() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Cancel"</button>
                             <a href=link_settings() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Cancel"</a>
-                            <input type="submit" value=move || if api.is_pending_tracked() {"Saving..."} else {"Confirm"} disabled=move || api.is_pending_tracked() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
-                        </div>
-                    </form>
-                </div>
-
-                // step 4
-                <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if get_query_selected_form() == SelectedForm::UsernameChanged { "flex" } else { "hidden" } )>
-                    <div class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full gap-[2rem] py-[2rem] border-0 border-base05 bg-base01">
-                        <h2 class="text-[1.5rem] text-base0F text-center ">"Username Changed"</h2>
-                        <ol class="text-[1.2rem] list-decimal">
-                            <li>"Send confirmation email to "
-                                <span class="text-base0E">{move || format!("{}.", global_state.get_email_tracked().unwrap_or("404".to_string()))}</span>
-                                <span class="text-base0B">" Done"</span>
-                            </li>
-                            <li>"Click on confirmation link that was sent to ."<span class="text-base0B">" Done"</span></li>
-                            <li>"Enter new username."<span class="text-base0B">" Done"</span></li>
-                            <li>
-                                <div>"Finish."<span class="text-base0B">" Done"</span></div>
-                                <div class="text-[1rem] text-base09">
-                                    "Username changed from "
-                                    <span class="text-base0B">" "{move || get_query_old_username().unwrap_or("404".to_string())}" "</span>
-                                    <span>" to "</span>
-                                    <span class="text-base0B">" "{move || get_query_new_username().unwrap_or("404".to_string())}" "</span>
-                                </div>
-                            </li>
-                        </ol>
-                        // <p class="text-[1.2rem] text-base0B text-center ">{move || get_query_new_username().unwrap_or("404".to_string())}</p>
-                        <div class="w-full flex justify-end">
-                            <a href=link_settings() class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Close"</a>
+                            <form method="POST" on:submit=change_username.on_change.to_fn() action="" class=move || format!("flex flex-col {}", if change_username.btn_stage.run() == ChangeUsernameBtnStage::Confirm { "visible" } else { "hidden" }) >
+                                <input type="submit" value=move || if api.is_pending_tracked() {"Saving..."} else {"Confirm"} disabled=move || api.is_pending_tracked() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
+                            </form>
                         </div>
                     </div>
                 </div>
 
+                // step 4
+                // <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if change_username.stage.get().is_finish() { "flex" } else { "hidden" } )>
+                //     <div class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full gap-[2rem] py-[2rem] border-0 border-base05 bg-base01">
+                //         <h2 class="text-[1.5rem] text-base0F text-center ">"Username Changed"</h2>
+                //         <ol class="text-[1.2rem] list-decimal">
+                //             <li>"Send confirmation email to "
+                //                 <span class="text-base0E">{move || format!("{}.", global_state.get_email_tracked().unwrap_or("404".to_string()))}</span>
+                //                 <span class="text-base0B">" Done"</span>
+                //             </li>
+                //             <li>"Click on confirmation link that was sent to ."<span class="text-base0B">" Done"</span></li>
+                //             <li>"Enter new username."<span class="text-base0B">" Done"</span></li>
+                //             <li>
+                //                 <div>"Finish."<span class="text-base0B">" Done"</span></div>
+                //                 <div class="text-[1rem] text-base09">
+                //                     "Username changed from "
+                //                     <span class="text-base0B">" "{move || get_query_old_username().unwrap_or("404".to_string())}" "</span>
+                //                     <span>" to "</span>
+                //                     <span class="text-base0B">" "{move || get_query_new_username().unwrap_or("404".to_string())}" "</span>
+                //                 </div>
+                //             </li>
+                //         </ol>
+                //         // <p class="text-[1.2rem] text-base0B text-center ">{move || get_query_new_username().unwrap_or("404".to_string())}</p>
+                //         <div class="w-full flex justify-end">
+                //             <a href=link_settings() class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Close"</a>
+                //         </div>
+                //     </div>
+                // </div>
+
                 // email change
-                // step 1
-                <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if get_query_selected_form() == SelectedForm::ChangeEmail { "flex" } else { "hidden" } )>
+                <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if !change_email.get_form_stage.run().is_none() { "flex" } else { "hidden" } )>
                     <div class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full gap-[2rem] py-[2rem] border-0 border-base05 bg-base01">
                         <h2 class="text-[1.5rem] text-base0F text-center ">"Email Change"</h2>
                         <div class=move || format!("text-[1rem] text-center text-base09 {}", if change_email.check_expires.run() && change_email.get_form_stage.run() != EmailChangeFormStage::CurrentSendConfirm { "visible" } else { "hidden" } )> { move || change_email.expires_str.get() } </div>
                         <div class=move || format!("text-[1rem] text-center text-base0C {}", change_email.check_info.hide_if_false() )> { change_email.get_info.to_fn() } </div>
                         <ol class="text-[1.2rem] list-decimal grid gap-2">
                             <li>
-                                {move || view_current_stage_label(EmailChangeFormStage::CurrentSendConfirm) }
+                                {move || view_current_email_change_stage_label(EmailChangeFormStage::CurrentSendConfirm) }
                                 "Send confirmation email to "
                                 <span class="text-base0E">{move || format!("{}.", change_email.get_old_email.run())}</span>
                                 {move || view_stage_errors(EmailChangeFormStage::CurrentSendConfirm)}
                             </li>
                             <li>
-                                {move || view_current_stage_label(EmailChangeFormStage::CurrentClickConfirm) }
+                                {move || view_current_email_change_stage_label(EmailChangeFormStage::CurrentClickConfirm) }
                                 "Click on confirmation link that was sent to "
                                 <span class="text-base0E">{move || format!("{}.", change_email.get_old_email.run())}</span>
                                 {move || view_stage_errors(EmailChangeFormStage::CurrentClickConfirm)}
                             </li>
                             <li>
-                                {move || view_current_stage_label(EmailChangeFormStage::CurrentConfirm) }
+                                {move || view_current_email_change_stage_label(EmailChangeFormStage::CurrentConfirm) }
                                 "Confirm email change?"
                                 {move || view_stage_errors(EmailChangeFormStage::CurrentConfirm)}
                             </li>
                             <li>
-                                {move || view_current_stage_label(EmailChangeFormStage::NewEnterEmail) }
+                                {move || view_current_email_change_stage_label(EmailChangeFormStage::NewEnterEmail) }
                                 "Enter new email."
                                 <div class=move || format!(" {}", if change_email.get_form_stage.run() >= EmailChangeFormStage::NewEnterEmail { "visible" } else {"hidden"} )>
                                     <input node_ref=change_email_new_email_input disabled=email_change_input_disabled value=move|| change_email.get_new_email.run() placeholder="email@example.com" class="bg-base02 mt-2 pl-2" type="email" />
@@ -630,18 +571,18 @@ pub mod settings {
                                 {move || view_stage_errors(EmailChangeFormStage::NewEnterEmail)}
                             </li>
                             <li>
-                                {move || view_current_stage_label(EmailChangeFormStage::NewClickConfirm) }
+                                {move || view_current_email_change_stage_label(EmailChangeFormStage::NewClickConfirm) }
                                 "Click on confirmation link that was sent to "
                                 <span class="text-base0E">{move || format!("{}. ", change_email.get_new_email.run())}</span>
                                 {move || view_stage_errors(EmailChangeFormStage::NewClickConfirm)}
                             </li>
                             <li>
-                                {move || view_current_stage_label(EmailChangeFormStage::NewConfirmEmail) }
+                                {move || view_current_email_change_stage_label(EmailChangeFormStage::NewConfirmEmail) }
                                 "Confirm the new email?"
                                 {move || view_stage_errors(EmailChangeFormStage::NewConfirmEmail)}
                             </li>
                             <li>
-                                {move || view_current_stage_label(EmailChangeFormStage::FinalConfirm) }
+                                {move || view_current_email_change_stage_label(EmailChangeFormStage::FinalConfirm) }
                                 "Final confirm from "
                                 <span class="text-base0E">{move || change_email.get_old_email.run()}</span>
                                 " to "
@@ -649,7 +590,7 @@ pub mod settings {
                             </li>
                             <li>
                                 <div>
-                                    {move || view_current_stage_label(EmailChangeFormStage::Completed) }
+                                    {move || view_current_email_change_stage_label(EmailChangeFormStage::Completed) }
                                     "Finish."
                                 </div>
                                 <div class=move || format!("text-[1rem] text-base09 {}", if change_email.get_form_stage.run() >= EmailChangeFormStage::Completed { "visible" } else {"hidden"} )>
@@ -660,20 +601,22 @@ pub mod settings {
                         <div class=move || format!("w-full flex gap-4 justify-center {}", if api.is_pending_tracked() {"visible"} else {"hidden"})>
                             "loading..."
                         </div>
-                        <div class=move || format!("w-full flex gap-4 justify-end {}", if api.is_pending_tracked() {"hidden"} else {"visible"})>
+                        <div class=move || format!("w-full flex gap-4 justify-between {}", if api.is_pending_tracked() {"hidden"} else {"visible"})>
                             <a href=link_settings() class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Close"</a>
-                            <form method="POST" action="" on:submit=change_email.post_cancel.to_fn() class=move || format!(" {}", if change_email.get_form_stage.run() > EmailChangeFormStage::CurrentSendConfirm && change_email.get_form_stage.run() < EmailChangeFormStage::Completed { "visible" } else { "hidden" })>
-                                <input type="submit" value="Cancel" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
-                            </form>
-                            <form method="POST" action="" on:submit=change_email.post_run.to_fn() class=move || format!(" {}", if change_email.get_btn_stage.run() == BtnStage::Resend { "visible" } else { "hidden" })>
-                                <input type="submit" value="Resend" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
-                            </form>
-                            <form method="POST" action="" on:submit=change_email.post_run.to_fn() class=move || format!(" {}", if change_email.get_btn_stage.run() == BtnStage::Send { "visible" } else { "hidden" })>
-                                <input type="submit" value="Send" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
-                            </form>
-                            <form method="POST" action="" on:submit=change_email.post_run.to_fn() class=move || format!(" {}", if change_email.get_btn_stage.run() == BtnStage::Confirm { "visible" } else { "hidden" })>
-                                <input type="submit" value="Confirm" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
-                            </form>
+                            <div class="flex flex-col gap-4">
+                                <form method="POST" action="" on:submit=change_email.post_cancel.to_fn() class=move || format!(" {}", if change_email.get_form_stage.run() > EmailChangeFormStage::CurrentSendConfirm && change_email.get_form_stage.run() < EmailChangeFormStage::Completed { "visible" } else { "hidden" })>
+                                    <input type="submit" value="Cancel" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
+                                </form>
+                                <form method="POST" action="" on:submit=change_email.post_run.to_fn() class=move || format!(" {}", if change_email.get_btn_stage.run() == BtnStage::Resend { "visible" } else { "hidden" })>
+                                    <input type="submit" value="Resend" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
+                                </form>
+                                <form method="POST" action="" on:submit=change_email.post_run.to_fn() class=move || format!(" {}", if change_email.get_btn_stage.run() == BtnStage::Send { "visible" } else { "hidden" })>
+                                    <input type="submit" value="Send" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
+                                </form>
+                                <form method="POST" action="" on:submit=change_email.post_run.to_fn() class=move || format!(" {}", if change_email.get_btn_stage.run() == BtnStage::Confirm { "visible" } else { "hidden" })>
+                                    <input type="submit" value="Confirm" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
+                                </form>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1019,15 +962,15 @@ pub mod home {
 
 pub mod register {
 
+    use crate::view::app::hook::use_register::{self, RegStage as RegKind, use_register};
     use leptos::Params;
     use leptos::tachys::reactive_graph::bind::GetValue;
     use leptos::{html::Input, prelude::*};
     use leptos_router::NavigateOptions;
     use leptos_router::hooks::use_query;
     use leptos_router::params::Params;
-    use web_sys::js_sys::encode_uri;
     use web_sys::SubmitEvent;
-    use crate::view::app::hook::use_register::{self, use_register, RegStage as RegKind};
+    use web_sys::js_sys::encode_uri;
 
     use crate::api::{Api, ApiWeb, ServerErr, ServerRegistrationErr, ServerRes};
     use crate::path::{self, link_user};
@@ -1055,7 +998,13 @@ pub mod register {
         let register_password: NodeRef<Input> = NodeRef::new();
         let register_password_confirmation: NodeRef<Input> = NodeRef::new();
 
-        let reg = use_register(api, register_username, register_email, register_password, register_password_confirmation);
+        let reg = use_register(
+            api,
+            register_username,
+            register_email,
+            register_password,
+            register_password_confirmation,
+        );
 
         // encode_uri(decoded)
 

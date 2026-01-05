@@ -344,10 +344,7 @@ pub mod path {
 
     use crate::{
         api::EmailChangeStage,
-        view::app::{
-            hook::{use_register::RegStage, use_email_change::EmailChangeFormStage},
-            page::settings::{SelectedForm, UsernameChangeStage},
-        },
+        view::app::hook::{use_email_change::EmailChangeFormStage, use_register::RegStage, use_username_change::ChangeUsernameFormStage},
     };
 
     pub const PATH_API: &'static str = "/api";
@@ -589,9 +586,8 @@ pub mod path {
         expires: Option<u128>,
     ) -> String {
         format!(
-            "{}?selected_form={}&email_stage={}{}{}{}{}{}{}{}{}{}{}",
+            "{}?email_stage={}{}{}{}{}{}{}{}{}{}{}",
             PATH_SETTINGS,
-            SelectedForm::ChangeEmail,
             stage.to_string(),
             match email_change_id {
                 Some(v) => format!("&change_id={v}"),
@@ -631,27 +627,23 @@ pub mod path {
     }
 
     pub fn link_settings_form_username(
-        stage: UsernameChangeStage,
+        stage: ChangeUsernameFormStage,
         old_username: Option<impl Into<String>>,
         new_username: Option<impl Into<String>>,
         // current_email: impl AsRef<str>,
     ) -> String {
         format!(
-            "{}?selected_form={}{}{}{}{}",
+            "{}?form_stage={}{}{}",
             PATH_SETTINGS,
-            SelectedForm::UsernameChanged,
-            if old_username.is_some() {
-                "&old_username="
-            } else {
-                ""
+            stage,
+            match old_username {
+                Some(v) => format!("&old_username={}", v.into()),
+                None => "".to_string(),
             },
-            old_username.map(|v| v.into()).unwrap_or_default(),
-            if new_username.is_some() {
-                "&new_username="
-            } else {
-                ""
+            match new_username {
+                Some(v) => format!("&new_username={}", v.into()),
+                None => "".to_string(),
             },
-            new_username.map(|v| v.into()).unwrap_or_default(),
         )
     }
 
@@ -661,7 +653,7 @@ pub mod path {
 
     pub fn link_reg_check_email<Email: AsRef<str>>(email: Email) -> String {
         format!(
-            "{}?kind={}&email={}",
+            "{}?form_stage={}&email={}",
             PATH_REGISTER,
             RegStage::CheckEmail,
             email.as_ref()
@@ -670,7 +662,7 @@ pub mod path {
 
     pub fn link_reg_finish<Token: AsRef<str>>(token: Token, err_general: Option<String>) -> String {
         format!(
-            "{}?kind={}&token={}{}",
+            "{}?form_stage={}&token={}{}",
             PATH_REGISTER,
             RegStage::Reg,
             token.as_ref(),
