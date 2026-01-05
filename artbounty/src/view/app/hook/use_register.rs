@@ -31,6 +31,7 @@ use tracing::{error, trace};
     Default,
     Clone,
     PartialEq,
+    PartialOrd,
     strum::EnumString,
     strum::Display,
     strum::EnumIter,
@@ -74,7 +75,7 @@ pub fn use_register(
     let err_username = RwQuery::<String>::new("err_username");
     let err_token = RwQuery::<String>::new("err_token");
     let err_password = RwQuery::<String>::new("err_password");
-    let stage = RwQuery::<RegStage>::new("kind");
+    let stage = RwQuery::<RegStage>::new("form_stage");
     let token = RwQuery::<String>::new("token");
     let email = RwQuery::<String>::new("email");
     // let email = RwQuery::<String>::new("email");

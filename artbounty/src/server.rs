@@ -158,7 +158,7 @@ pub fn create_api_router(
         .route(PATH_API_ACC, post(api::backend::get_account))
         .route(
             PATH_API_CHANGE_USERNAME,
-            post(api::backend::change_username),
+            post(api::backend::change_username::change_username),
         )
         .route(
             PATH_API_CHANGE_EMAIL,

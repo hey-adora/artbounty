@@ -733,18 +733,6 @@ pub enum ServerRegistrationErr {
     // ServerInviteTokenNotFound,
 }
 
-#[derive(Error, Com!)]
-pub enum ChangeUsernameErr {
-    #[error("username \"{0}\" is taken")]
-    UsernameIsTaken(String),
-
-    #[error("wrong credentials")]
-    WrongCredentials,
-
-    #[error("user not found")]
-    NotFound,
-}
-
 // #[derive(Error, Com!)]
 // pub enum ChangeEmailErr {
 //     #[error("email \"{0}\" is taken")]
@@ -756,6 +744,17 @@ pub enum ChangeUsernameErr {
 //     #[error("user not found")]
 //     NotFound,
 // }
+#[derive(Error, Com!)]
+pub enum ChangeUsernameErr {
+    #[error("username \"{0}\" is taken")]
+    UsernameIsTaken(String),
+
+    #[error("wrong credentials")]
+    WrongCredentials,
+
+    #[error("user not found")]
+    NotFound,
+}
 
 #[derive(Error, Com!)]
 pub enum EmailChangeNewErr {
@@ -2292,14 +2291,65 @@ pub mod backend {
         }
     }
 
+    pub mod change_username {
+        use axum::{Extension, extract::State};
+        use thiserror::Error;
+        use tracing::{debug, trace};
+
+        use crate::{
+            api::{
+                app_state::AppState, verify_password, AuthToken, ChangeUsernameErr, Com, ServerDesErr, ServerErr, ServerReq, ServerRes
+            },
+            db::{DBChangeUsernameErr, DBUser},
+        };
+
+        pub async fn change_username(
+            State(app_state): State<AppState>,
+            auth_token: Extension<AuthToken>,
+            db_user: Extension<DBUser>,
+            req: ServerReq,
+        ) -> Result<ServerRes, ServerErr> {
+            let ServerReq::ChangeUsername { username, password } = req else {
+                return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                    "expected ChangeUsername, received: {req:?}"
+                ))));
+            };
+            let time = app_state.clock.now().await;
+            debug!("step 1");
+
+            verify_password(password, db_user.password.clone())
+                .inspect_err(|err| trace!("passwords verification failed {err}"))
+                .map_err(|_| ServerErr::ChangeUsernameErr(ChangeUsernameErr::WrongCredentials))?;
+            debug!("step 2");
+
+            let result = app_state
+                .db
+                .update_user_username(db_user.id.clone(), username, time)
+                .await
+                .map_err(|err| match err {
+                    DBChangeUsernameErr::DB(err) => ServerErr::DbErr,
+                    DBChangeUsernameErr::UsernameIsTaken(username) => {
+                        ServerErr::ChangeUsernameErr(ChangeUsernameErr::UsernameIsTaken(username))
+                    }
+                    DBChangeUsernameErr::NotFound => {
+                        ServerErr::ChangeUsernameErr(ChangeUsernameErr::NotFound)
+                    }
+                })?;
+
+            Ok(ServerRes::User {
+                username: result.username,
+            })
+        }
+    }
+
     pub mod change_email {
         use crate::api::app_state::AppState;
         use crate::api::{
-            AuthToken, ChangeUsernameErr, EmailChangeErr, EmailChangeNewErr, EmailChangeStage,
-            EmailChangeTokenErr, EmailToken, Server404Err, ServerAddPostErr, ServerAuthErr,
-            ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta,
-            ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes, ServerTokenErr, User,
-            UserPost, UserPostFile, auth_token_get, decode_token, encode_token, hash_password,
+            AuthToken, EmailChangeErr, EmailChangeNewErr, EmailChangeStage, EmailChangeTokenErr,
+            EmailToken, Server404Err, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr,
+            ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerLoginErr,
+            ServerRegistrationErr, ServerReq, ServerRes, ServerTokenErr, User, UserPost,
+            UserPostFile, auth_token_get, decode_token, encode_token, hash_password,
             verify_password,
         };
         use crate::db::email_change::{DBChangeEmailErr, create_email_change_id};
@@ -2461,9 +2511,11 @@ pub mod backend {
 
             let stage = EmailChangeStage::from(&result);
             let (id, expires) = match stage {
-                EmailChangeStage::EnterNewEmail { id, old_email, expires } => {
-                    (create_email_change_id(id), expires)
-                }
+                EmailChangeStage::EnterNewEmail {
+                    id,
+                    old_email,
+                    expires,
+                } => (create_email_change_id(id), expires),
                 err => {
                     return Err(ServerErr::EmailChange(ResErr::InvalidStage(format!(
                         "expected stage EnterNewEmail, got {err:?}"
@@ -2957,44 +3009,6 @@ pub mod backend {
         Ok(ServerRes::Acc {
             username: db_user.username.clone(),
             email: db_user.email.clone(),
-        })
-    }
-
-    pub async fn change_username(
-        State(app_state): State<AppState>,
-        auth_token: Extension<AuthToken>,
-        db_user: Extension<DBUser>,
-        req: ServerReq,
-    ) -> Result<ServerRes, ServerErr> {
-        let ServerReq::ChangeUsername { username, password } = req else {
-            return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-                "expected ChangeUsername, received: {req:?}"
-            ))));
-        };
-        let time = app_state.clock.now().await;
-        debug!("step 1");
-
-        verify_password(password, db_user.password.clone())
-            .inspect_err(|err| trace!("passwords verification failed {err}"))
-            .map_err(|_| ServerErr::ChangeUsernameErr(ChangeUsernameErr::WrongCredentials))?;
-        debug!("step 2");
-
-        let result = app_state
-            .db
-            .update_user_username(db_user.id.clone(), username, time)
-            .await
-            .map_err(|err| match err {
-                DBChangeUsernameErr::DB(err) => ServerErr::DbErr,
-                DBChangeUsernameErr::UsernameIsTaken(username) => {
-                    ServerErr::ChangeUsernameErr(ChangeUsernameErr::UsernameIsTaken(username))
-                }
-                DBChangeUsernameErr::NotFound => {
-                    ServerErr::ChangeUsernameErr(ChangeUsernameErr::NotFound)
-                }
-            })?;
-
-        Ok(ServerRes::User {
-            username: result.username,
         })
     }
 
