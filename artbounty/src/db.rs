@@ -224,6 +224,7 @@ pub struct DBSentEmail {
 
 #[derive(Clone)]
 pub enum DBSentEmailReason {
+    ConfirmPasswordChange,
     ConfirmEmailChange,
     ConfirmEmailChangeNewEmail,
 }
@@ -231,6 +232,7 @@ pub enum DBSentEmailReason {
 impl Display for DBSentEmailReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let text = match self {
+            DBSentEmailReason::ConfirmPasswordChange => "confirm_password_change",
             DBSentEmailReason::ConfirmEmailChange => "confirm_email_change",
             DBSentEmailReason::ConfirmEmailChangeNewEmail => "confirm_email_change_new_email",
         };
@@ -345,6 +347,7 @@ pub mod confirm_email {
     use surrealdb::RecordId;
     use surrealdb::engine::local::SurrealKv;
     use surrealdb::engine::local::{self, Mem};
+    use surrealdb::RecordIdKey;
     use surrealdb::{Surreal, opt::IntoEndpoint};
     use thiserror::Error;
     use tracing::{error, trace};
@@ -353,8 +356,9 @@ pub mod confirm_email {
     pub struct DBConfirmEmail {
         pub id: RecordId,
         pub to_email: String,
-        pub token: String,
+        // pub token: String,
         pub completed: bool,
+        pub expires: u128,
         pub modified_at: u128,
         pub created_at: u128,
     }
@@ -394,22 +398,24 @@ pub mod confirm_email {
             &self,
             time: u128,
             to_email: impl Into<String>,
-            token: impl Into<String>,
+            // token: impl Into<String>,
+            expires: u128,
         ) -> Result<DBConfirmEmail, surrealdb::Error> {
             self.db
                 .query(
                     r#"
                  CREATE confirm_email SET
                     to_email = $to_email,
-                    token = $email_token,
                     completed = false,
+                    expires = $exp,
                     modified_at = $time,
                     created_at = $time;
                 "#,
                 )
                 .bind(("time", time))
+                .bind(("exp", expires))
                 .bind(("to_email", to_email.into()))
-                .bind(("email_token", token.into()))
+                // .bind(("email_token", token.into()))
                 .await
                 // .check_good(|err| match err {
                 //     err if err.index_exists("idx_user_email") => AddUserErr::EmailIsTaken(email),
@@ -419,6 +425,45 @@ pub mod confirm_email {
                 //     err => err.into(),
                 // })
                 .and_then_take_expect(0)
+        }
+
+        pub async fn update_confirm_email_by_key(
+            &self,
+            time: u128,
+            confirm_email_key: impl Into<RecordIdKey>,
+        ) -> Result<DBConfirmEmail, DB404Err> {
+            let id = RecordId::from_table_key("confirm_email", confirm_email_key);
+            // let a = id.key().to_string()
+            self.db
+                .query(
+                    "UPDATE confirm_email SET modified_at = $time, completed = true WHERE id = $confirm_email_id AND completed = false AND expires >= $time",
+                )
+                .bind(("confirm_email_id", id))
+                .bind(("time", time))
+                .await
+                .check_good(DB404Err::from)
+                .and_then_take_or(0, DB404Err::NotFound)
+        }
+        pub async fn get_confirm_email_by_key(
+            &self,
+            time: u128,
+            confirm_email_key: impl Into<RecordIdKey>,
+        ) -> Result<DBConfirmEmail, DB404Err> {
+            let id = RecordId::from_table_key("confirm_email", confirm_email_key);
+            self.db
+                .query(
+                    r#"
+                        SELECT * FROM ONLY confirm_email WHERE
+                                expires >= $time AND
+                                completed = false AND
+                                id = $confirm_email_id 
+                    "#,
+                )
+                .bind(("time", time))
+                .bind(("confirm_email_id", id))
+                .await
+                .check_good(DB404Err::from)
+                .and_then_take_or(0, DB404Err::NotFound)
         }
     }
 
@@ -444,13 +489,43 @@ pub mod confirm_email {
             let db = Db::new::<Mem>(()).await.unwrap();
             db.migrate(0).await.unwrap();
 
-            db.add_confirm_email(0, "prime@heyadora.com", "123")
-                .await
-                .unwrap();
+            let result = db
+                .add_confirm_email(0, "prime@heyadora.com", 1)
+                .await;
+            assert!(result.is_ok());
+            let key = result.unwrap().id.key().to_string();
 
-            db.add_confirm_email(0, "prime@heyadora.com", "123")
-                .await
-                .unwrap();
+            // must fail because cant have dublicate tokens
+            // let result = db
+            //     .add_confirm_email(0, "prime@heyadora.com", &key, 1)
+            //     .await;
+            // assert!(result.is_err());
+
+            let result = db.get_confirm_email_by_key(0, &key).await;
+            assert!(result.is_ok());
+
+            let result = db.get_confirm_email_by_key(1, &key).await;
+            assert!(result.is_ok());
+
+            // must fail because token is expires
+            let result = db.get_confirm_email_by_key(2, &key).await;
+            assert!(result.is_err());
+
+            // must fail because token is expires
+            let result = db.update_confirm_email_by_key(2, &key).await;
+            assert!(result.is_err());
+
+            let result = db.update_confirm_email_by_key(0, &key).await;
+            assert!(result.is_ok());
+
+            // must fail because token is completed/used
+            let result = db.get_confirm_email_by_key(1, &key).await;
+            assert!(result.is_err());
+
+            // must fail because token is completed/used
+            let result = db.update_confirm_email_by_key(0, &key).await;
+            assert!(result.is_err());
+
         }
     }
 }
@@ -984,10 +1059,13 @@ impl<C: Connection> Db<C> {
                             -- confirm email
                             DEFINE TABLE confirm_email SCHEMAFULL;
                             DEFINE FIELD to_email ON TABLE confirm_email TYPE string;
-                            DEFINE FIELD token ON TABLE confirm_email TYPE string;
+                            -- DEFINE FIELD token ON TABLE confirm_email TYPE string;
                             DEFINE FIELD completed ON TABLE confirm_email TYPE bool;
+                            DEFINE FIELD expires ON TABLE confirm_email TYPE number;
                             DEFINE FIELD modified_at ON TABLE confirm_email TYPE number;
                             DEFINE FIELD created_at ON TABLE confirm_email TYPE number;
+
+                            -- DEFINE INDEX idx_confirm_email_token ON TABLE confirm_email COLUMNS token UNIQUE;
 
                             -- email change
                             DEFINE TABLE email_change SCHEMAFULL;

@@ -45,6 +45,32 @@ pub enum RegStage {
     Reg,
 }
 
+#[derive(
+    Debug,
+    Default,
+    Clone,
+    PartialEq,
+    PartialOrd,
+    strum::EnumString,
+    strum::Display,
+    strum::EnumIter,
+    strum::EnumIs,
+)]
+#[strum(serialize_all = "lowercase")]
+pub enum RegQueryFields {
+    #[default]
+    None,
+    ErrGeneral,
+    ErrUsername,
+    ErrToken,
+    ErrPassword,
+    Stage,
+    Token,
+    Email,
+}
+
+
+
 #[derive(Clone, Copy)]
 pub struct Register {
     pub err_general: RwQuery<String>,
@@ -71,13 +97,14 @@ pub fn use_register(
 
     let navigate = leptos_router::hooks::use_navigate();
 
-    let err_general = RwQuery::<String>::new("err_general");
-    let err_username = RwQuery::<String>::new("err_username");
-    let err_token = RwQuery::<String>::new("err_token");
-    let err_password = RwQuery::<String>::new("err_password");
-    let stage = RwQuery::<RegStage>::new("form_stage");
-    let token = RwQuery::<String>::new("token");
-    let email = RwQuery::<String>::new("email");
+    let err_general = RwQuery::<String>::new(RegQueryFields::ErrGeneral.to_string());
+    let err_username = RwQuery::<String>::new(RegQueryFields::ErrUsername.to_string());
+    let err_token = RwQuery::<String>::new(RegQueryFields::ErrToken.to_string());
+    let err_password = RwQuery::<String>::new(RegQueryFields::ErrPassword.to_string());
+    let stage = RwQuery::<RegStage>::new(RegQueryFields::Stage.to_string());
+    let token = RwQuery::<String>::new(RegQueryFields::Token.to_string());
+    let email = RwQuery::<String>::new(RegQueryFields::Email.to_string());
+
     // let email = RwQuery::<String>::new("email");
     let token_decoded = LocalResource::new(move || async move {
         let token = token.get();

@@ -27,13 +27,12 @@ pub mod app_state {
 
     use crate::{
         api::{
-            EmailChangeNewErr, EmailChangeStage, EmailToken, ServerErr, ServerTokenErr,
-            clock::Clock, encode_token, settings::Settings,
+            clock::Clock, encode_token, settings::Settings, EmailChangeNewErr, EmailChangeStage, EmailToken, PasswordChangeStage, ServerErr, ServerTokenErr
         },
         db::{self, DB404Err, DBSentEmailReason, DBUser, DbEngine},
         get_timestamp,
-        path::{link_settings_form_email_current_confirm, link_settings_form_email_new_confirm},
-        view::app::hook::use_email_change::EmailChangeFormStage,
+        path::{link_settings_form_email_current_confirm, link_settings_form_email_new_confirm, link_settings_form_password, link_settings_form_password_confirm},
+        view::app::hook::{use_email_change::EmailChangeFormStage, use_password_change::ChangePasswordFormStage},
     };
 
     #[derive(Clone)]
@@ -113,6 +112,20 @@ pub mod app_state {
 
             Ok((confirm_token, exp))
         }
+
+        pub async fn new_exp(&self) -> u128 {
+            let time = self.time().await;
+            let exp = time + self.get_invite_exp_ns().await;
+            exp
+        }
+
+        // pub async fn new_token_v2(&self) -> Result<(String, u128), ServerErr> {
+        //     let time = self.time().await;
+        //     let exp = time + self.get_invite_exp_ns().await;
+        //     let key = self.gen_key().await;
+        //
+        //     Ok((key, exp))
+        // }
 
         pub async fn gen_key(&self) -> String {
             rand::distr::Alphanumeric.sample_string(&mut rand::rng(), 16)
@@ -300,6 +313,40 @@ pub mod app_state {
             Ok(())
         }
 
+        pub async fn send_email_change_password(
+            &self,
+            time: u128,
+            to_email: impl Into<String>,
+            // id: &RecordId,
+            confim_key: impl Into<String>,
+            // old_email: impl Into<String>,
+            // expires: impl Into<u128>,
+        ) -> Result<(), ServerErr> {
+            // let to_email = to_email.into();
+            // let id = id.key().to_string();
+
+
+            let link = link_settings_form_password_confirm(confim_key);
+
+            trace!("{link}");
+            self.db.add_sent_email(time, link, to_email, DBSentEmailReason::ConfirmEmailChange);
+
+            // let link = link_se;
+            // let link = format!("{}{}", &self.get_address().await, link,);
+            // self.db
+            //     .add_sent_email(
+            //         time,
+            //         link.clone(),
+            //         to_email,
+            //         DBSentEmailReason::ConfirmEmailChangeNewEmail,
+            //     )
+            //     .await
+            //     .map_err(|_| ServerErr::DbErr)?;
+            // trace!("{link}");
+
+            Ok(())
+        }
+
         pub async fn send_email_new(
             &self,
             time: u128,
@@ -334,6 +381,9 @@ pub mod app_state {
 
             Ok(())
         }
+
+
+
     }
 }
 
@@ -744,6 +794,18 @@ pub enum ServerRegistrationErr {
 //     #[error("user not found")]
 //     NotFound,
 // }
+// #[derive(Error, Com!)]
+// pub enum ChangePasswordErr {
+//     #[error("username \"{0}\" is taken")]
+//     UsernameIsTaken(String),
+//
+//     #[error("wrong credentials")]
+//     WrongCredentials,
+//
+//     #[error("user not found")]
+//     NotFound,
+// }
+
 #[derive(Error, Com!)]
 pub enum ChangeUsernameErr {
     #[error("username \"{0}\" is taken")]
@@ -829,6 +891,16 @@ pub struct UserPost {
 #[derive(Com!,  PartialOrd, strum::EnumString, strum::EnumIter, strum::Display, strum::EnumIs)]
 #[strum(serialize_all = "lowercase")]
 #[repr(u8)]
+pub enum PasswordChangeStage {
+    ConfirmEmail,
+    ConfirmNewPss,
+    Complete,
+    
+}
+
+#[derive(Com!,  PartialOrd, strum::EnumString, strum::EnumIter, strum::Display, strum::EnumIs)]
+#[strum(serialize_all = "lowercase")]
+#[repr(u8)]
 pub enum EmailChangeStage {
     // None,
     ConfirmEmail {
@@ -865,6 +937,8 @@ pub enum EmailChangeStage {
         expires: u128,
     },
 }
+
+
 
 impl EmailChangeStage {
     pub fn link(self, stage_error: Option<String>, general_info: Option<String>) -> String {
@@ -2298,7 +2372,8 @@ pub mod backend {
 
         use crate::{
             api::{
-                app_state::AppState, verify_password, AuthToken, ChangeUsernameErr, Com, ServerDesErr, ServerErr, ServerReq, ServerRes
+                AuthToken, ChangeUsernameErr, Com, ServerDesErr, ServerErr, ServerReq, ServerRes,
+                app_state::AppState, verify_password,
             },
             db::{DBChangeUsernameErr, DBUser},
         };
@@ -2973,6 +3048,65 @@ pub mod backend {
 
             Ok(ServerRes::EmailChangeStage(stage))
         }
+    }
+
+    pub mod change_password {
+        use std::f64::consts::SQRT_2;
+
+        use axum::{Extension, extract::State};
+        use thiserror::Error;
+        use tracing::{debug, trace};
+
+        use crate::{
+            api::{
+                AuthToken, ChangeUsernameErr, Com, Server404Err, ServerDesErr, ServerErr,
+                ServerErrImg, ServerReq, ServerRes, app_state::AppState, verify_password,
+            },
+            db::{DB404Err, DBChangeUsernameErr, DBUser},
+        };
+
+        pub async fn send_password_change(
+            State(app): State<AppState>,
+            // auth_token: Extension<AuthToken>,
+            // db_user: Extension<DBUser>,
+            req: ServerReq,
+        ) -> Result<ServerRes, ServerErr> {
+            let ServerReq::EmailAddress { email } = req else {
+                return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                    "expected None, received: {req:?}"
+                ))));
+            };
+            let time = app.time().await;
+
+            let user = app.db.get_user_by_email(&email).await;
+
+            let user = match user {
+                Ok(v) => v,
+                Err(DB404Err::NotFound) => {
+                    // so people couldnt exploit what accounts exists
+                    return Ok(ServerRes::Ok);
+                }
+                Err(DB404Err::DB(_)) => {
+                    return Err(ServerErr::DbErr);
+                },
+            };
+
+            let exp = app.new_exp().await;
+            let result = app
+                .db
+                .add_confirm_email(time, &email, exp)
+                .await
+                .map_err(|err| ServerErr::DbErr)?;
+
+            let confirm_key = result.id.key().to_string();
+
+            app.send_email_change_password(time, &email, confirm_key).await?;
+
+            Ok(ServerRes::Ok)
+        }
+
+
+
     }
 
     //
