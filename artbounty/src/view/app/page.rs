@@ -234,7 +234,7 @@ pub mod settings {
         link_settings_form_email_completed, link_settings_form_email_current_click,
         link_settings_form_email_current_send, link_settings_form_email_final_confirm,
         link_settings_form_email_new_click, link_settings_form_email_new_send,
-        link_settings_form_username,
+        link_settings_form_password_send, link_settings_form_username,
     };
     use crate::valid::auth::{
         proccess_email, proccess_post_description, proccess_post_title, proccess_username,
@@ -244,8 +244,13 @@ pub mod settings {
     use crate::view::app::hook::use_email_change::{
         BtnStage, EmailChangeFormStage, use_change_email,
     };
+    use crate::view::app::hook::use_password_change::{
+        use_password_change, ChangePasswordBtnStage, ChangePasswordFormStage
+    };
     use crate::view::app::hook::use_register;
-    use crate::view::app::hook::use_username_change::{use_change_username, ChangeUsernameBtnStage, ChangeUsernameFormStage};
+    use crate::view::app::hook::use_username_change::{
+        ChangeUsernameBtnStage, ChangeUsernameFormStage, use_change_username,
+    };
     use crate::view::toolbox::prelude::*;
     use leptos::prelude::*;
     use leptos::{Params, task::spawn_local};
@@ -256,130 +261,10 @@ pub mod settings {
     use tracing::{error, trace};
     use web_sys::{HtmlInputElement, HtmlTextAreaElement, MouseEvent, SubmitEvent};
 
-    // #[derive(
-    //     Clone,
-    //     Debug,
-    //     PartialEq,
-    //     PartialOrd,
-    //     serde::Serialize,
-    //     serde::Deserialize,
-    //     strum::EnumString,
-    //     strum::Display,
-    // )]
-    // #[strum(serialize_all = "lowercase")]
-    // pub enum SelectedForm {
-    //     None,
-    //     ChangeUsername,
-    //     ChangeEmail,
-    //     UsernameChanged,
-    //     ChangePassword,
-    // }
-
-    // #[derive(
-    //     Clone,
-    //     Debug,
-    //     PartialEq,
-    //     PartialOrd,
-    //     serde::Serialize,
-    //     serde::Deserialize,
-    //     strum::EnumString,
-    //     strum::EnumIter,
-    //     strum::Display,
-    // )]
-    // #[strum(serialize_all = "lowercase")]
-    // pub enum EmailChangeFormStage {
-    //     CurrentSendConfirm,
-    //     CurrentClickConfirm,
-    //     CurrentConfirm,
-    //     NewEnterEmail,
-    //     NewClickConfirm,
-    //     NewConfirmEmail,
-    //     FinalConfirm,
-    //     Completed,
-    // }
-
-    // impl From<PageParams> for EmailChangeFormStage {
-    //     fn from(value: PageParams) -> Self {
-    //         match (value.email_stage, value.confirm_token) {
-    //             (Some(EmailChangeNewStage), None) => {
-    //                 EmailChangeFormStage::CurrentClickConfirm
-    //             }
-    //             (Some(EmailChangeStage::ConfirmEmail), Some(_)) => {
-    //                 EmailChangeFormStage::CurrentConfirm
-    //             }
-    //             (Some(EmailChangeStage::EnterNewEmail), _) => EmailChangeFormStage::NewEnterEmail,
-    //             (Some(EmailChangeStage::ConfirmNewEmail), None) => {
-    //                 EmailChangeFormStage::NewClickConfirm
-    //             }
-    //             (Some(EmailChangeStage::ConfirmNewEmail), Some(_)) => {
-    //                 EmailChangeFormStage::NewConfirmEmail
-    //             }
-    //             (Some(EmailChangeStage::ReadyToComplete), _) => EmailChangeFormStage::FinalConfirm,
-    //             _ => EmailChangeFormStage::CurrentSendConfirm,
-    //         }
-    //     }
-    // }
-
-    // #[derive(
-    //     Clone,
-    //     Debug,
-    //     PartialEq,
-    //     PartialOrd,
-    //     serde::Serialize,
-    //     serde::Deserialize,
-    //     strum::EnumString,
-    //     strum::EnumIter,
-    //     strum::Display,
-    // )]
-    // #[strum(serialize_all = "lowercase")]
-    // pub enum UsernameChangeStage {
-    //     SendConfirm,
-    //     ClickConfirm,
-    //     EnterNewUsername,
-    //     Finish,
-    // }
-
-    // #[derive(Params, PartialEq, Clone, Default)]
-    // pub struct PageParams {
-    //     pub selected_form: Option<SelectedForm>,
-    //     pub new_email: Option<String>,
-    //     pub new_username: Option<String>,
-    //     pub old_username: Option<String>,
-    //     pub confirm_token: Option<String>,
-    //     pub email_stage: Option<EmailChangeFormStage>,
-    //     pub username_stage: Option<UsernameChangeStage>,
-    //     // pub current_email: Option<String>,
-    // }
-
     #[component]
     pub fn Page() -> impl IntoView {
         let main_ref = NodeRef::new();
         let global_state = expect_context::<GlobalState>();
-        // let selected_form = RwSignal::new(SelectedForm::None);
-
-        // let navigate = leptos_router::hooks::use_navigate();
-        // let query = use_query::<PageParams>();
-        //
-        // let get_query = move || {
-        //     query
-        //         .read()
-        //         .as_ref()
-        //         .ok()
-        //         .map(|v| v.clone())
-        //         .unwrap_or_default()
-        // };
-        // let get_query_untracked = move || {
-        //     query
-        //         .read_untracked()
-        //         .as_ref()
-        //         .ok()
-        //         .map(|v| v.clone())
-        //         .unwrap_or_default()
-        // };
-        // let get_query_selected_form =
-        //     move || get_query().selected_form.unwrap_or(SelectedForm::None);
-        // let get_query_new_username = move || get_query().new_username;
-        // let get_query_old_username = move || get_query().old_username;
 
         let api = ApiWeb::new();
 
@@ -391,11 +276,14 @@ pub mod settings {
         let change_email_new_email_input = NodeRef::new();
         let change_email = use_change_email(api, change_email_new_email_input);
 
-        let view_current_username_change_stage_label = move |stage: ChangeUsernameFormStage| {
-            let current_stage = change_username.stage.get();
-            let (text, style) = if current_stage == stage {
+        let change_password_password = NodeRef::new();
+        let change_password_password_confirmation = NodeRef::new();
+        let change_password = use_password_change();
+
+        let view_current_stage_label = move |current_stage: u8, view_stage: u8| {
+            let (text, style) = if current_stage == view_stage {
                 ("Current", "text-base0C")
-            } else if current_stage > stage {
+            } else if current_stage > view_stage {
                 ("Done", "text-base0B")
             } else {
                 ("Next", "text-base03")
@@ -406,19 +294,16 @@ pub mod settings {
             }
         };
 
-        let view_current_email_change_stage_label = move |stage: EmailChangeFormStage| {
-            let current_stage = change_email.get_form_stage.run();
-            let (text, style) = if current_stage == stage {
-                ("Current", "text-base0C")
-            } else if current_stage > stage {
-                ("Done", "text-base0B")
-            } else {
-                ("Next", "text-base03")
-            };
+        let view_current_username_change_stage_label = move |stage: ChangeUsernameFormStage| {
+            view_current_stage_label(change_username.stage.get() as u8, stage as u8)
+        };
 
-            view! {
-                <span class=style>"["{text}"] "</span>
-            }
+        let view_current_email_change_stage_label = move |stage: EmailChangeFormStage| {
+            view_current_stage_label(change_email.get_form_stage.run() as u8, stage as u8)
+        };
+
+        let view_current_password_change_stage_label = move |stage: ChangePasswordFormStage| {
+            view_current_stage_label(change_password.form_stage.get() as u8, stage as u8)
         };
 
         let view_stage_errors = move |stage: EmailChangeFormStage| {
@@ -455,6 +340,13 @@ pub mod settings {
                             <a href=move || link_settings_form_email_current_send(global_state.get_email_tracked().unwrap_or_default(), None, None) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
                         </div>
                     </form>
+                    <form class="flex flex-col gap-2">
+                        <label for="current_email" class="text-[1.2rem] ">"Password"</label>
+                        <div class="flex">
+                            <input value="password" id="current_email" name="current_password" disabled type="password" class="bg-base01 text-base0B w-full pl-2 " />
+                            <a href=move || link_settings_form_password_send() class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
+                        </div>
+                    </form>
 
                 </div>
 
@@ -488,8 +380,6 @@ pub mod settings {
                                             <input placeholder="current password" id="password" name="password" node_ref=change_username_password type="password" class="border-b-2 border-base05 w-full mt-1 " />
                                         </div>
                                     </div>
-                                    // <span class="text-base0E">{move || format!("{}.", change_email.get_old_email.run())}</span>
-                                    // {move || view_stage_errors(EmailChangeFormStage::CurrentSendConfirm)}
                                 </li>
                                 <li>
                                     {move || view_current_username_change_stage_label(ChangeUsernameFormStage::Finish) }
@@ -500,7 +390,11 @@ pub mod settings {
                                 </li>
                             </ol>
                         </div>
-                        <div class="flex flex-row gap-[1.3rem] my-[4rem] justify-between">
+
+                        <div class=move || format!("w-full flex gap-4 justify-center {}", if api.is_pending_tracked() {"visible"} else {"hidden"})>
+                            "loading..."
+                        </div>
+                        <div class= move || format!("flex flex-row gap-[1.3rem] my-[4rem] justify-between {}", if api.is_pending_tracked() {"hidden"} else {"visible"})>
                             // <button on:click=on_close disabled=move || api.is_pending_tracked() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Cancel"</button>
                             <a href=link_settings() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Cancel"</a>
                             <form method="POST" on:submit=change_username.on_change.to_fn() action="" class=move || format!("flex flex-col {}", if change_username.btn_stage.run() == ChangeUsernameBtnStage::Confirm { "visible" } else { "hidden" }) >
@@ -509,34 +403,6 @@ pub mod settings {
                         </div>
                     </div>
                 </div>
-
-                // step 4
-                // <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if change_username.stage.get().is_finish() { "flex" } else { "hidden" } )>
-                //     <div class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full gap-[2rem] py-[2rem] border-0 border-base05 bg-base01">
-                //         <h2 class="text-[1.5rem] text-base0F text-center ">"Username Changed"</h2>
-                //         <ol class="text-[1.2rem] list-decimal">
-                //             <li>"Send confirmation email to "
-                //                 <span class="text-base0E">{move || format!("{}.", global_state.get_email_tracked().unwrap_or("404".to_string()))}</span>
-                //                 <span class="text-base0B">" Done"</span>
-                //             </li>
-                //             <li>"Click on confirmation link that was sent to ."<span class="text-base0B">" Done"</span></li>
-                //             <li>"Enter new username."<span class="text-base0B">" Done"</span></li>
-                //             <li>
-                //                 <div>"Finish."<span class="text-base0B">" Done"</span></div>
-                //                 <div class="text-[1rem] text-base09">
-                //                     "Username changed from "
-                //                     <span class="text-base0B">" "{move || get_query_old_username().unwrap_or("404".to_string())}" "</span>
-                //                     <span>" to "</span>
-                //                     <span class="text-base0B">" "{move || get_query_new_username().unwrap_or("404".to_string())}" "</span>
-                //                 </div>
-                //             </li>
-                //         </ol>
-                //         // <p class="text-[1.2rem] text-base0B text-center ">{move || get_query_new_username().unwrap_or("404".to_string())}</p>
-                //         <div class="w-full flex justify-end">
-                //             <a href=link_settings() class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Close"</a>
-                //         </div>
-                //     </div>
-                // </div>
 
                 // email change
                 <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if !change_email.get_form_stage.run().is_none() { "flex" } else { "hidden" } )>
@@ -621,6 +487,45 @@ pub mod settings {
                     </div>
                 </div>
 
+                // password change
+                <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if !change_password.form_stage.get().is_none() { "flex" } else { "hidden" } )>
+                    <div class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full border-0 border-base05 bg-base01">
+                        <h2 class="text-[1.5rem]  text-center mt-[4rem]">"Change Password"</h2>
+                        // <div class=move||format!("text-red-600 text-center my-[2rem] {}", if change_username.err_general.is_some() { "" } else { "invisible" } )>{move || { change_username.err_general.get() }}</div>
+                        <div class="flex flex-col gap-6">
+                            <ol class="text-[1.2rem] list-decimal grid gap-2">
+                                <li>
+                                    {view_current_password_change_stage_label(ChangePasswordFormStage::Send)}
+                                    "Password change confirmation will be sent to " { move || change_password.email.get() }
+                                </li>
+                                <li>
+                                    {view_current_password_change_stage_label(ChangePasswordFormStage::Confirm)}
+                                    "Fill the form. "
+                                    <div class=move || format!(" {}", if change_password.form_stage.get() == ChangePasswordFormStage::Confirm { "visible" } else {"hidden"} )>
+                                        <input node_ref=change_password_password placeholder="new password" class="bg-base02 mt-2 pl-2" type="email" />
+                                        <input node_ref=change_password_password_confirmation placeholder="new password" class="bg-base02 mt-2 pl-2" type="email" />
+                                    </div>
+                                </li>
+                                <li>
+                                    {view_current_password_change_stage_label(ChangePasswordFormStage::Finish)}
+                                    "Password changed successfully."
+                                </li>
+                            </ol>
+                        </div>
+
+                        <div class=move || format!("w-full flex gap-4 justify-center {}", if api.is_pending_tracked() {"visible"} else {"hidden"})>
+                            "loading..."
+                        </div>
+                        <div class= move || format!("flex flex-row gap-[1.3rem] my-[4rem] justify-between {}", if api.is_pending_tracked() {"hidden"} else {"visible"})>
+                            <a href=link_settings() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Cancel"</a>
+                            <form method="POST" on:submit=change_username.on_change.to_fn() action="" class=move || format!("flex flex-col {}", if change_password.btn_stage.run() == ChangePasswordBtnStage::Send { "visible" } else { "hidden" }) >
+                                <input type="submit" value=move || if api.is_pending_tracked() {"Saving..."} else {"Send"} disabled=move || api.is_pending_tracked() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
+                            </form>
+                        </div>
+
+
+                    </div>
+                </div>
 
             </main>
         }

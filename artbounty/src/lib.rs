@@ -344,7 +344,12 @@ pub mod path {
 
     use crate::{
         api::EmailChangeStage,
-        view::app::hook::{use_email_change::EmailChangeFormStage, use_register::RegStage, use_username_change::ChangeUsernameFormStage},
+        view::app::hook::{
+            use_email_change::EmailChangeFormStage,
+            use_password_change::{ChangePasswordFormStage, ChangePasswordQueryFields},
+            use_register::{RegQueryFields, RegStage},
+            use_username_change::ChangeUsernameFormStage,
+        },
     };
 
     pub const PATH_API: &'static str = "/api";
@@ -626,6 +631,37 @@ pub mod path {
         )
     }
 
+    pub fn link_settings_form_password(
+        stage: ChangePasswordFormStage,
+        confirm_key: Option<impl Into<String>>,
+        // old_username: Option<impl Into<String>>,
+        // new_username: Option<impl Into<String>>,
+        // current_email: impl AsRef<str>,
+    ) -> String {
+        format!(
+            "{}?{}={}{}",
+            PATH_SETTINGS,
+            ChangePasswordQueryFields::FormStage,
+            stage,
+            match confirm_key {
+                Some(v) => format!("&{}={}", ChangePasswordQueryFields::Token, v.into()),
+                None => "".to_string(),
+            },
+            // match new_username {
+            //     Some(v) => format!("&new_username={}", v.into()),
+            //     None => "".to_string(),
+            // },
+        )
+    }
+
+    pub fn link_settings_form_password_confirm(confirm_key: impl Into<String>) -> String {
+        link_settings_form_password(ChangePasswordFormStage::Confirm, Some(confirm_key))
+    }
+
+    pub fn link_settings_form_password_send() -> String {
+        link_settings_form_password(ChangePasswordFormStage::Send, None::<String>)
+    }
+
     pub fn link_settings_form_username(
         stage: ChangeUsernameFormStage,
         old_username: Option<impl Into<String>>,
@@ -653,21 +689,25 @@ pub mod path {
 
     pub fn link_reg_check_email<Email: AsRef<str>>(email: Email) -> String {
         format!(
-            "{}?form_stage={}&email={}",
+            "{}?{}={}&{}={}",
             PATH_REGISTER,
+            RegQueryFields::Stage,
             RegStage::CheckEmail,
+            RegQueryFields::Email,
             email.as_ref()
         )
     }
 
     pub fn link_reg_finish<Token: AsRef<str>>(token: Token, err_general: Option<String>) -> String {
         format!(
-            "{}?form_stage={}&token={}{}",
+            "{}?{}={}&{}={}{}",
             PATH_REGISTER,
+            RegQueryFields::Stage,
             RegStage::Reg,
+            RegQueryFields::Token,
             token.as_ref(),
             match err_general {
-                Some(err) => format!("&err_general={err}"),
+                Some(err) => format!("&{}={err}", RegQueryFields::ErrGeneral),
                 None => String::new(),
             }
         )
