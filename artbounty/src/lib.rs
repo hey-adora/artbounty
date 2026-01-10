@@ -353,6 +353,13 @@ pub mod path {
     };
 
     pub const PATH_API: &'static str = "/api";
+
+
+    // change password
+    pub const PATH_API_CHANGE_PASSWORD_SEND: &'static str = "/send_change_password";
+    pub const PATH_API_CHANGE_PASSWORD_CONFIRM: &'static str = "/confirm_change_password";
+    //
+
     pub const PATH_API_REGISTER: &'static str = "/register";
     pub const PATH_API_LOGIN: &'static str = "/login";
     pub const PATH_API_LOGOUT: &'static str = "/logout";

@@ -245,7 +245,7 @@ pub mod settings {
         BtnStage, EmailChangeFormStage, use_change_email,
     };
     use crate::view::app::hook::use_password_change::{
-        use_password_change, ChangePasswordBtnStage, ChangePasswordFormStage
+        ChangePasswordBtnStage, ChangePasswordFormStage, use_password_change,
     };
     use crate::view::app::hook::use_register;
     use crate::view::app::hook::use_username_change::{
@@ -278,7 +278,11 @@ pub mod settings {
 
         let change_password_password = NodeRef::new();
         let change_password_password_confirmation = NodeRef::new();
-        let change_password = use_password_change();
+        let change_password = use_password_change(
+            api,
+            change_password_password,
+            change_password_password_confirmation,
+        );
 
         let view_current_stage_label = move |current_stage: u8, view_stage: u8| {
             let (text, style) = if current_stage == view_stage {
