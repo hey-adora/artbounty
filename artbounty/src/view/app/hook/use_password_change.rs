@@ -1,5 +1,5 @@
 use crate::{
-    api::{Api, ApiWeb, ChangeUsernameErr, ServerErr},
+    api::{Api, ApiWeb, ChangeUsernameErr, PasswordChangeStage, ServerErr, ServerRes},
     valid::auth::{proccess_password, proccess_username},
     view::{
         app::{GlobalState, hook::use_email_change::BtnStage},
@@ -101,75 +101,73 @@ pub fn use_password_change(
 
     let fn_on_change = move |e: SubmitEvent| {
         e.prevent_default();
-        let (Some(password), Some(password_confirmation)) = (
-            input_password.get_untracked(),
-            input_password_confirmatoin.get_untracked(),
-        ) else {
-            return;
-        };
 
-        let password_value = password.value();
-        let password_confirmation_value = password_confirmation.value();
-        let password_value =
-            match proccess_password(password_value, Some(password_confirmation_value)) {
-                Ok(v) => {
-                    err_password.clear();
-                    Some(v)
-                }
-                Err(err) => {
-                    error!("on_register password input error: {err}");
-                    err_password.set(err);
-                    None
-                }
-            };
+        let stage = q_stage.get_untracked();
+        match stage {
+            ChangePasswordFormStage::None | ChangePasswordFormStage::Finish => {
+                //
+            }
+            ChangePasswordFormStage::Send => {
+                let (Some(password), Some(password_confirmation)) = (
+                    input_password.get_untracked(),
+                    input_password_confirmatoin.get_untracked(),
+                ) else {
+                    return;
+                };
 
-        if !q_token.is_some_untracked() {
-            err_general.set(String::from("token is missing from; invalid link"));
-            return;
-        } else {
-            err_general.clear();
-        }
-
-        let (Some(password),) = (password_value,) else {
-            return;
-        };
-
-        api.register(username, token.get_untracked(), password)
-            .send_web(move |result| {
-                // let navigate = navigate.clone();
-                async move {
-                    let err: Result<(), String> = match result {
-                        Ok(ServerRes::Ok) => {
-                            let res = global_state.update_auth_now().await;
-                            match res {
-                                Ok(ServerRes::User { username }) => {
-                                    let result = global_state.update_auth_now().await;
-                                    match result {
-                                        Ok(S) => Ok(()),
-                                        Err(err) => Err(err.to_string()),
-                                    }
-                                }
-                                res => Err(format!("expected User, received {res:?}")),
-                            }
+                let password_value = password.value();
+                let password_confirmation_value = password_confirmation.value();
+                let password_value =
+                    match proccess_password(password_value, Some(password_confirmation_value)) {
+                        Ok(v) => {
+                            err_password.clear();
+                            Some(v)
                         }
-                        Ok(res) => Err(format!("error, expected OK, received: {res:?}")),
-                        Err(ServerErr::RegistrationErr(ServerRegistrationErr::TokenExpired)) => {
-                            Err("This invite link is already expired.".to_string())
+                        Err(err) => {
+                            error!("on_register password input error: {err}");
+                            err_password.set(err);
+                            None
                         }
-                        Err(ServerErr::RegistrationErr(ServerRegistrationErr::TokenUsed)) => {
-                            Err("This invite link was already used.".to_string())
-                        }
-                        Err(ServerErr::RegistrationErr(ServerRegistrationErr::TokenNotFound)) => {
-                            Err("This invite link is invalid.".to_string())
-                        }
-                        Err(err) => Err(err.to_string()),
                     };
-                    if let Err(err) = err {
-                        error!(err);
-                        err_general.set(err);
-                    }
+
+                if !q_token.is_some_untracked() {
+                    err_general.set(String::from("token is missing from; invalid link"));
+                    return;
+                } else {
+                    err_general.clear();
                 }
-            });
+
+                let (Some(password),) = (password_value,) else {
+                    return;
+                };
+
+                // api.send_change_password(email)
+                //     .send_web(move |result| async move {
+                //         let err: Result<(), String> = match result {
+                //             Ok(ServerRes::PasswordChangeStage(PasswordChangeStage::Confirm)) => {
+                //                 q_stage.set(ChangePasswordFormStage::Confirm);
+                //                 Ok(())
+                //             }
+                //             Ok(res) => Err(format!("error, expected OK, received: {res:?}")),
+                //             Err(ServerErr::Cha) => Err("This invite link is already expired.".to_string()),
+                //             Err(ServerErr::RegistrationErr(ServerRegistrationErr::TokenUsed)) => {
+                //                 Err("This invite link was already used.".to_string())
+                //             }
+                //             Err(ServerErr::RegistrationErr(
+                //                 ServerRegistrationErr::TokenNotFound,
+                //             )) => Err("This invite link is invalid.".to_string()),
+                //             Err(err) => Err(err.to_string()),
+                //         };
+                //         if let Err(err) = err {
+                //             error!(err);
+                //             err_general.set(err);
+                //         }
+                //     });
+            }
+            ChangePasswordFormStage::Confirm => {
+                //
+            }
+        }
     };
 
     ChangePassword {

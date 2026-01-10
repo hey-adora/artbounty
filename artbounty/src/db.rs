@@ -345,9 +345,9 @@ pub mod confirm_email {
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
     pub use surrealdb::Connection;
     use surrealdb::RecordId;
+    use surrealdb::RecordIdKey;
     use surrealdb::engine::local::SurrealKv;
     use surrealdb::engine::local::{self, Mem};
-    use surrealdb::RecordIdKey;
     use surrealdb::{Surreal, opt::IntoEndpoint};
     use thiserror::Error;
     use tracing::{error, trace};
@@ -465,6 +465,28 @@ pub mod confirm_email {
                 .check_good(DB404Err::from)
                 .and_then_take_or(0, DB404Err::NotFound)
         }
+
+        pub async fn get_confirm_email_latest(
+            &self,
+            time: u128,
+            email: impl Into<String>,
+        ) -> Result<DBConfirmEmail, DB404Err> {
+            self.db
+                .query(
+                    r#"
+                        SELECT * FROM ONLY confirm_email WHERE
+                                expires >= $time AND
+                                completed = false AND
+                                to_email = $email
+                                ORDER BY created_at DESC
+                    "#,
+                )
+                .bind(("time", time))
+                .bind(("email", email.into()))
+                .await
+                .check_good(DB404Err::from)
+                .and_then_take_or(0, DB404Err::NotFound)
+        }
     }
 
     #[cfg(test)]
@@ -489,11 +511,15 @@ pub mod confirm_email {
             let db = Db::new::<Mem>(()).await.unwrap();
             db.migrate(0).await.unwrap();
 
-            let result = db
-                .add_confirm_email(0, "prime@heyadora.com", 1)
-                .await;
+            let result = db.get_confirm_email_latest(0, "prime@heyadora.com").await;
+            assert!(result.is_err());
+
+            let result = db.add_confirm_email(0, "prime@heyadora.com", 1).await;
             assert!(result.is_ok());
             let key = result.unwrap().id.key().to_string();
+
+            let result = db.get_confirm_email_latest(0, "prime@heyadora.com").await;
+            assert!(result.is_ok());
 
             // must fail because cant have dublicate tokens
             // let result = db
@@ -525,7 +551,6 @@ pub mod confirm_email {
             // must fail because token is completed/used
             let result = db.update_confirm_email_by_key(0, &key).await;
             assert!(result.is_err());
-
         }
     }
 }
@@ -1530,6 +1555,42 @@ impl<C: Connection> Db<C> {
             .and_then_take_or(0, DBChangeUsernameErr::NotFound)
     }
 
+    pub async fn update_user_password(
+        &self,
+        user: RecordId,
+        new_password: impl Into<String>,
+        time: u128,
+    ) -> Result<DBUser, DB404Err> {
+        self.db
+            .query(
+                "UPDATE user SET modified_at = $time, password = $new_password WHERE id = $user_id;",
+            )
+            .bind(("user_id", user))
+            .bind(("new_password", new_password.into()))
+            .bind(("time", time))
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_or(0, DB404Err::NotFound)
+    }
+
+    pub async fn update_user_password_by_email(
+        &self,
+        time: u128,
+        email: impl Into<String>,
+        new_password: impl Into<String>,
+    ) -> Result<DBUser, DB404Err> {
+        self.db
+            .query(
+                "UPDATE user SET modified_at = $time, password = $new_password WHERE email = $email;",
+            )
+            .bind(("email", email.into()))
+            .bind(("new_password", new_password.into()))
+            .bind(("time", time))
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_or(0, DB404Err::NotFound)
+    }
+
     pub async fn add_user<Username: Into<String>, Email: Into<String>, Password: Into<String>>(
         &self,
         time: u128,
@@ -1977,11 +2038,25 @@ mod tests {
             .await
             .unwrap();
 
-        let result = db.update_user_username(user1.id, "hey2", time).await;
+        let result = db
+            .update_user_username(user1.id.clone(), "hey2", time)
+            .await;
         assert!(matches!(
             result,
             Err(DBChangeUsernameErr::UsernameIsTaken(_))
         ));
+
+        let result = db
+            .update_user_password(user1.id.clone(), "pass1", time)
+            .await;
+
+        assert!(result.is_ok());
+
+        let result = db
+            .update_user_password_by_email(time, "hey@hey.com", "pass3")
+            .await;
+
+        assert!(result.is_ok());
     }
 
     #[test(tokio::test)]
