@@ -1692,6 +1692,15 @@ impl<C: Connection> Db<C> {
             .and_then_take_expect(2)
     }
 
+    pub async fn delete_session_user(&self, user_id: RecordId) -> Result<(), surrealdb::Error> {
+        self.db
+            .query("DELETE session WHERE user = $user_id;")
+            .bind(("user_id", user_id))
+            .await
+            .check_good(surrealdb::Error::from)
+            .map(|_| ())
+    }
+
     pub async fn delete_session<S: Into<String>>(&self, token: S) -> Result<(), surrealdb::Error> {
         self.db
             .query("DELETE session WHERE access_token = $access_token;")
@@ -2064,6 +2073,8 @@ mod tests {
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate(0).await.unwrap();
         let user = db.add_user(0, "hey", "hey@hey.com", "hey").await.unwrap();
+        let user2 = db.add_user(0, "hey11", "hey11@hey.com", "hey").await.unwrap();
+
         trace!("created {user:#?}");
         let session = db.add_session(0, "token", "hey").await.unwrap();
 
@@ -2084,5 +2095,17 @@ mod tests {
 
         let session = db.get_session("token").await;
         assert!(matches!(session, Err(DB404Err::NotFound)));
+
+        let session = db.add_session(0, "token", "hey").await.unwrap();
+        let session = db.add_session(0, "token11", "hey11").await.unwrap();
+        db.delete_session_user(user.id.clone()).await.unwrap();
+
+        let session = db.get_session("token").await;
+        assert!(matches!(session, Err(DB404Err::NotFound)));
+
+        let session = db.get_session("token11").await.unwrap();
+
+
+
     }
 }

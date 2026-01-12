@@ -56,11 +56,19 @@ pub mod leptos_helpers {
             }
         }
 
-        pub fn get(&self) -> T {
+        pub fn get(&self) -> Option<T> {
+            self.fn_get.get()
+        }
+
+        pub fn get_untracked(&self) -> Option<T> {
+            self.fn_get.get_untracked()
+        }
+
+        pub fn get_or_default(&self) -> T {
             self.fn_get.get().unwrap_or_default()
         }
 
-        pub fn get_untracked(&self) -> T {
+        pub fn get_or_default_untracked(&self) -> T {
             self.fn_get.get_untracked().unwrap_or_default()
         }
 

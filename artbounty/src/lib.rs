@@ -354,7 +354,6 @@ pub mod path {
 
     pub const PATH_API: &'static str = "/api";
 
-
     // change password
     pub const PATH_API_CHANGE_PASSWORD_SEND: &'static str = "/send_change_password";
     pub const PATH_API_CHANGE_PASSWORD_CONFIRM: &'static str = "/confirm_change_password";
@@ -640,16 +639,21 @@ pub mod path {
 
     pub fn link_settings_form_password(
         stage: ChangePasswordFormStage,
+        email: Option<impl Into<String>>,
         confirm_key: Option<impl Into<String>>,
         // old_username: Option<impl Into<String>>,
         // new_username: Option<impl Into<String>>,
         // current_email: impl AsRef<str>,
     ) -> String {
         format!(
-            "{}?{}={}{}",
+            "{}?{}={}{}{}",
             PATH_SETTINGS,
             ChangePasswordQueryFields::FormStage,
             stage,
+            match email {
+                Some(v) => format!("&{}={}", ChangePasswordQueryFields::Email, v.into()),
+                None => "".to_string(),
+            },
             match confirm_key {
                 Some(v) => format!("&{}={}", ChangePasswordQueryFields::Token, v.into()),
                 None => "".to_string(),
@@ -661,12 +665,19 @@ pub mod path {
         )
     }
 
-    pub fn link_settings_form_password_confirm(confirm_key: impl Into<String>) -> String {
-        link_settings_form_password(ChangePasswordFormStage::Confirm, Some(confirm_key))
+    pub fn link_settings_form_password_confirm(
+        email: impl Into<String>,
+        confirm_key: impl Into<String>,
+    ) -> String {
+        link_settings_form_password(
+            ChangePasswordFormStage::Confirm,
+            Some(email),
+            Some(confirm_key),
+        )
     }
 
-    pub fn link_settings_form_password_send() -> String {
-        link_settings_form_password(ChangePasswordFormStage::Send, None::<String>)
+    pub fn link_settings_form_password_send(email: impl Into<String>) -> String {
+        link_settings_form_password(ChangePasswordFormStage::Send, Some(email), None::<String>)
     }
 
     pub fn link_settings_form_username(

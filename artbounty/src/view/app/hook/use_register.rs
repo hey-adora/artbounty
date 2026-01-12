@@ -107,7 +107,7 @@ pub fn use_register(
 
     // let email = RwQuery::<String>::new("email");
     let token_decoded = LocalResource::new(move || async move {
-        let token = token.get();
+        let token = token.get_or_default();
         if token.is_empty() {
             return String::new();
         }
@@ -241,7 +241,7 @@ pub fn use_register(
             return;
         };
 
-        api.register(username, token.get_untracked(), password)
+        api.register(username, token.get_or_default_untracked(), password)
             .send_web(move |result| {
                 // let navigate = navigate.clone();
                 async move {

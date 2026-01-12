@@ -276,10 +276,12 @@ pub mod settings {
         let change_email_new_email_input = NodeRef::new();
         let change_email = use_change_email(api, change_email_new_email_input);
 
+        let change_password_email = NodeRef::new();
         let change_password_password = NodeRef::new();
         let change_password_password_confirmation = NodeRef::new();
         let change_password = use_password_change(
             api,
+            change_password_email,
             change_password_password,
             change_password_password_confirmation,
         );
@@ -299,7 +301,7 @@ pub mod settings {
         };
 
         let view_current_username_change_stage_label = move |stage: ChangeUsernameFormStage| {
-            view_current_stage_label(change_username.stage.get() as u8, stage as u8)
+            view_current_stage_label(change_username.stage.get_or_default() as u8, stage as u8)
         };
 
         let view_current_email_change_stage_label = move |stage: EmailChangeFormStage| {
@@ -307,7 +309,7 @@ pub mod settings {
         };
 
         let view_current_password_change_stage_label = move |stage: ChangePasswordFormStage| {
-            view_current_stage_label(change_password.form_stage.get() as u8, stage as u8)
+            view_current_stage_label(change_password.form_stage.get_or_default() as u8, stage as u8)
         };
 
         let view_stage_errors = move |stage: EmailChangeFormStage| {
@@ -348,28 +350,28 @@ pub mod settings {
                         <label for="current_email" class="text-[1.2rem] ">"Password"</label>
                         <div class="flex">
                             <input value="password" id="current_email" name="current_password" disabled type="password" class="bg-base01 text-base0B w-full pl-2 " />
-                            <a href=move || link_settings_form_password_send() class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
+                            <a href=move || link_settings_form_password_send(global_state.get_email_tracked().unwrap_or_default()) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
                         </div>
                     </form>
 
                 </div>
 
                 // username change
-                <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if !change_username.stage.get().is_none() { "flex" } else { "hidden" } )>
+                <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if !change_username.stage.get_or_default().is_none() { "flex" } else { "hidden" } )>
                     <div class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full border-0 border-base05 bg-base01">
                         <h2 class="text-[1.5rem]  text-center mt-[4rem]">"Change Username"</h2>
-                        <div class=move||format!("text-red-600 text-center my-[2rem] {}", if change_username.err_general.is_some() { "" } else { "invisible" } )>{move || { change_username.err_general.get() }}</div>
+                        <div class=move||format!("text-red-600 text-center my-[2rem] {}", if change_username.err_general.is_some() { "" } else { "invisible" } )>{move || { change_username.err_general.get_or_default() }}</div>
                         <div class="flex flex-col gap-6">
                             <ol class="text-[1.2rem] list-decimal grid gap-2">
                                 <li>
                                     {move || view_current_username_change_stage_label(ChangeUsernameFormStage::Change) }
                                     "Fill the form. "
-                                    <div class=move || format!("flex flex-col {}", if change_username.stage.get() == ChangeUsernameFormStage::Change { "" } else { "hidden" })>
+                                    <div class=move || format!("flex flex-col {}", if change_username.stage.get_or_default() == ChangeUsernameFormStage::Change { "" } else { "hidden" })>
                                         <div class="flex flex-col gap-0">
                                             <label for="username" class="text-[1.2rem] ">"New Username"</label>
                                             <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if false {"text-[0rem]"} else {"text-[1rem]"}) >
                                                 <ul class="list-disc ml-[1rem]">
-                                                    {move || change_username.err_username.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                                    {move || change_username.err_username.get_or_default().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                                 </ul>
                                             </div>
                                             <input placeholder="kaiju" id="username" name="username" node_ref=change_username_username type="text" class="border-b-2 border-base05 w-full mt-1 " />
@@ -388,9 +390,9 @@ pub mod settings {
                                 <li>
                                     {move || view_current_username_change_stage_label(ChangeUsernameFormStage::Finish) }
                                     "Completed - username changed from "
-                                    <span class="text-base0F">" "{move || change_username.old_username.get() }" "</span>
+                                    <span class="text-base0F">" "{move || change_username.old_username.get_or_default() }" "</span>
                                     <span>" to "</span>
-                                    <span class="text-base0B">" "{move || change_username.new_username.get() }" "</span>
+                                    <span class="text-base0B">" "{move || change_username.new_username.get_or_default() }" "</span>
                                 </li>
                             </ol>
                         </div>
@@ -473,7 +475,7 @@ pub mod settings {
                         </div>
                         <div class=move || format!("w-full flex gap-4 justify-between {}", if api.is_pending_tracked() {"hidden"} else {"visible"})>
                             <a href=link_settings() class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Close"</a>
-                            <div class="flex flex-col gap-4">
+                            <div class="flex gap-4">
                                 <form method="POST" action="" on:submit=change_email.post_cancel.to_fn() class=move || format!(" {}", if change_email.get_form_stage.run() > EmailChangeFormStage::CurrentSendConfirm && change_email.get_form_stage.run() < EmailChangeFormStage::Completed { "visible" } else { "hidden" })>
                                     <input type="submit" value="Cancel" class=move || format!("border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E")/>
                                 </form>
@@ -492,38 +494,43 @@ pub mod settings {
                 </div>
 
                 // password change
-                <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if !change_password.form_stage.get().is_none() { "flex" } else { "hidden" } )>
+                <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if !change_password.form_stage.get_or_default().is_none() { "flex" } else { "hidden" } )>
                     <div class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full border-0 border-base05 bg-base01">
-                        <h2 class="text-[1.5rem]  text-center mt-[4rem]">"Change Password"</h2>
-                        // <div class=move||format!("text-red-600 text-center my-[2rem] {}", if change_username.err_general.is_some() { "" } else { "invisible" } )>{move || { change_username.err_general.get() }}</div>
-                        <div class="flex flex-col gap-6">
+                        <h2 class="text-[1.5rem]  text-center mt-[4rem] mb-[1rem]">"Change Password"</h2>
+                        <div class=move||format!("text-red-600 text-center  {}", if change_password.err_general.is_some() { "visible" } else { "hidden" } )>{move || { change_password.err_general.get() }}</div>
+                        <div class="flex flex-col gap-6 mt-[1rem]">
                             <ol class="text-[1.2rem] list-decimal grid gap-2">
                                 <li>
-                                    {view_current_password_change_stage_label(ChangePasswordFormStage::Send)}
-                                    "Password change confirmation will be sent to " { move || change_password.email.get() }
+                                    { move || view_current_password_change_stage_label(ChangePasswordFormStage::Send)}
+                                    "Password change confirmation will be sent to " <span class="text-base0E">{move || change_password.email.get_or_default()}</span>"."
+                                    <input node_ref=change_password_email value=move || change_password.email.get_or_default() disabled class="hidden bg-base02 mt-2 pl-2" type="email" />
                                 </li>
                                 <li>
-                                    {view_current_password_change_stage_label(ChangePasswordFormStage::Confirm)}
+                                    { move || view_current_password_change_stage_label(ChangePasswordFormStage::Check)}
+                                    "Click on the confirmation link that was sent to "<span class="text-base0E">{move || change_password.email.get_or_default()}</span>"."
+                                </li>
+                                <li>
+                                    { move || view_current_password_change_stage_label(ChangePasswordFormStage::Confirm)}
                                     "Fill the form. "
-                                    <div class=move || format!(" {}", if change_password.form_stage.get() == ChangePasswordFormStage::Confirm { "visible" } else {"hidden"} )>
-                                        <input node_ref=change_password_password placeholder="new password" class="bg-base02 mt-2 pl-2" type="email" />
-                                        <input node_ref=change_password_password_confirmation placeholder="new password" class="bg-base02 mt-2 pl-2" type="email" />
+                                    <div class=move || format!(" {}", if change_password.form_stage.get_or_default() == ChangePasswordFormStage::Confirm { "visible" } else {"hidden"} )>
+                                        <input node_ref=change_password_password placeholder="new password" class="bg-base02 mt-2 pl-2" type="password" />
+                                        <input node_ref=change_password_password_confirmation placeholder="new password" class="bg-base02 mt-2 pl-2" type="password" />
                                     </div>
                                 </li>
                                 <li>
-                                    {view_current_password_change_stage_label(ChangePasswordFormStage::Finish)}
+                                    { move || view_current_password_change_stage_label(ChangePasswordFormStage::Finish)}
                                     "Password changed successfully."
                                 </li>
                             </ol>
                         </div>
 
-                        <div class=move || format!("w-full flex gap-4 justify-center {}", if api.is_pending_tracked() {"visible"} else {"hidden"})>
+                        <div class=move || format!("w-full flex gap-4 my-[4rem] justify-center {}", if api.is_pending_tracked() {"visible"} else {"hidden"})>
                             "loading..."
                         </div>
                         <div class= move || format!("flex flex-row gap-[1.3rem] my-[4rem] justify-between {}", if api.is_pending_tracked() {"hidden"} else {"visible"})>
                             <a href=link_settings() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Cancel"</a>
-                            <form method="POST" on:submit=change_username.on_change.to_fn() action="" class=move || format!("flex flex-col {}", if change_password.btn_stage.run() == ChangePasswordBtnStage::Send { "visible" } else { "hidden" }) >
-                                <input type="submit" value=move || if api.is_pending_tracked() {"Saving..."} else {"Send"} disabled=move || api.is_pending_tracked() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
+                            <form method="POST" on:submit=change_password.on_change.to_fn() action="" class=move || format!("flex flex-col {}", if change_password.btn_stage.run() != ChangePasswordBtnStage::None { "visible" } else { "hidden" }) >
+                                <input type="submit" value=move || if api.is_pending_tracked() { "Saving...".to_string() } else { change_password.btn_stage.run().to_string() } disabled=move || api.is_pending_tracked() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
                             </form>
                         </div>
 
@@ -925,15 +932,15 @@ pub mod register {
                     <div class=move||format!("mx-auto text-[1.5rem] {}", if api.is_pending_tracked() {""} else {"hidden"})>
                         <h1>"LOADING..."</h1>
                     </div>
-                    <div class=move||format!("mx-auto flex flex-col gap-2 text-center {}", if reg.stage.get().is_check_email() && !api.is_pending_tracked() {""} else {"hidden"})>
+                    <div class=move||format!("mx-auto flex flex-col gap-2 text-center {}", if reg.stage.get_or_default().is_check_email() && !api.is_pending_tracked() {""} else {"hidden"})>
                         <h1 class="text-[1.5rem] my-[4rem]">"VERIFY EMAIL"</h1>
-                        <p class="max-w-[30rem]">"Verification email was sent to \""{ move ||reg.email.get() }"\" click the confirmtion link in the email."</p>
+                        <p class="max-w-[30rem]">"Verification email was sent to \""{ move ||reg.email.get_or_default() }"\" click the confirmtion link in the email."</p>
                         // <a href="/login" class="underline">"Go to Login"</a>
                     </div>
                     // <form method="POST" action="" on:submit=on_invite class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if api_invite.is_pending() || api_invite.is_complete() || get_query_token().is_some() || get_query_email().is_some() {"hidden"} else {""})>
-                    <form method="POST" action="" on:submit=reg.on_invite.to_fn() class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if reg.stage.get().is_none() && !api.is_pending_tracked() {""} else {"hidden"})>
+                    <form method="POST" action="" on:submit=reg.on_invite.to_fn() class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if reg.stage.get_or_default().is_none() && !api.is_pending_tracked() {""} else {"hidden"})>
                         <h1 class="text-[1.5rem]  text-center my-[4rem]">"REGISTRATION"</h1>
-                        <div class=move||format!("text-red-600 text-center {}", if reg.err_general.is_some() {""} else {"hidden"})>{move || { reg.err_general.get() }}</div>
+                        <div class=move||format!("text-red-600 text-center {}", if reg.err_general.is_some() {""} else {"hidden"})>{move || { reg.err_general.get_or_default() }}</div>
                         <div class="flex flex-col gap-0">
                             <label for="email_invite" class="text-[1.2rem] ">"Email"</label>
                             // <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if invite_email_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
@@ -947,15 +954,15 @@ pub mod register {
                             <input type="submit" value="Register" class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
                         </div>
                     </form>
-                    <form method="POST" action="" on:submit=reg.on_reg.to_fn() class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if reg.stage.get().is_reg() && !api.is_pending_tracked() {""} else {"hidden"})>
+                    <form method="POST" action="" on:submit=reg.on_reg.to_fn() class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if reg.stage.get_or_default().is_reg() && !api.is_pending_tracked() {""} else {"hidden"})>
                         <h1 class="text-[1.5rem]  text-center my-[4rem]">"FINISH REGISTRATION"</h1>
-                        <div class=move||format!("text-red-600 text-center {}", if reg.err_general.is_some() {""} else {"hidden"})>{move || { reg.err_general.get() }}</div>
+                        <div class=move||format!("text-red-600 text-center {}", if reg.err_general.is_some() {""} else {"hidden"})>{move || { reg.err_general.get_or_default() }}</div>
                         <div class="flex flex-col justify-center gap-[3rem]">
                             <div class="flex flex-col gap-0">
                                 <label for="username" class="text-[1.2rem] ">"Username"</label>
                                 <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if reg.err_username.is_some() {"text-[1rem]"} else {"text-[0rem]"}) >
                                     <ul class="list-disc ml-[1rem]">
-                                        {move || reg.err_username.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                        {move || reg.err_username.get_or_default().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
                                 <input placeholder="Alice" id="username" node_ref=register_username type="text" class="border-b-2 border-base05 w-full mt-1 " />
@@ -964,7 +971,7 @@ pub mod register {
                                 <label for="email_reg" class="text-[1.2rem] ">"Email"</label>
                                 <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if reg.err_token.is_some() {"text-[1rem]"} else {"text-[0rem]"}) >
                                     <ul class="list-disc ml-[1rem]">
-                                        {move || reg.err_token.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                        {move || reg.err_token.get_or_default().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
                                 <input value=move|| reg.token_decoded.get() readonly placeholder="loading..." id="email_reg" type="text" class="border-b-2 border-base05 w-full mt-1 " />
@@ -973,7 +980,7 @@ pub mod register {
                                 <label for="password" class="text-[1.2rem] ">"Password"</label>
                                 <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if reg.err_password.is_some() {"text-[1rem]"} else {"text-[0rem]"}) >
                                     <ul class="list-disc ml-[1rem]">
-                                        {move || reg.err_password.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                        {move || reg.err_password.get_or_default().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
                                 <input id="password" node_ref=register_password type="password" class="border-b-2 border-base05 w-full mt-1 " />
