@@ -162,7 +162,7 @@ pub fn use_change_username(
     };
 
     let fn_btn_stage = move || -> ChangeUsernameBtnStage {
-        match q_stage.get() {
+        match q_stage.get_or_default() {
             ChangeUsernameFormStage::None => ChangeUsernameBtnStage::None,
             ChangeUsernameFormStage::Change => ChangeUsernameBtnStage::Confirm,
             ChangeUsernameFormStage::Finish => ChangeUsernameBtnStage::None,

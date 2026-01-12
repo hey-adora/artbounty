@@ -125,7 +125,7 @@ pub mod app_state {
             exp
         }
 
-        // pub async fn new_token_v2(&self) -> Result<(String, u128), ServerErr> {
+        // pub async fn new_token_v2(&self) -> (String, u128) {
         //     let time = self.time().await;
         //     let exp = time + self.get_invite_exp_ns().await;
         //     let key = self.gen_key().await;
@@ -331,11 +331,20 @@ pub mod app_state {
             // let to_email = to_email.into();
             // let id = id.key().to_string();
 
-            let link = link_settings_form_password_confirm(confim_key);
+            let to_email = to_email.into();
+            let link = link_settings_form_password_confirm(to_email.clone(), confim_key);
+            let link = format!("{}{}", &self.get_address().await, link);
 
-            trace!("{link}");
             self.db
-                .add_sent_email(time, link, to_email, DBSentEmailReason::ConfirmEmailChange);
+                .add_sent_email(
+                    time,
+                    link.clone(),
+                    to_email,
+                    DBSentEmailReason::ConfirmEmailChange,
+                )
+                .await
+                .map_err(|_| ServerErr::DbErr)?;
+            trace!("{link}");
 
             // let link = link_se;
             // let link = format!("{}{}", &self.get_address().await, link,);
@@ -2321,6 +2330,7 @@ pub mod backend {
             let token = encode_token(&secret, AuthToken::new(&user.username, time))
                 .inspect_err(|err| error!("jwt exploded {err}"))
                 .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
+
             // let (token, cookie) = create_cookie(&app_state.settings.auth.secret, &user.username, time)
             //     .map_err(|err| {
             //         ServerErr::ServerLoginErr(ServerLoginErr::ServerCreateCookieErr(err.to_string()))
@@ -3105,9 +3115,9 @@ pub mod backend {
 
         pub async fn send_password_change(
             State(app): State<AppState>,
+            req: ServerReq,
             // auth_token: Extension<AuthToken>,
             // db_user: Extension<DBUser>,
-            req: ServerReq,
         ) -> Result<ServerRes, ServerErr> {
             let ServerReq::EmailAddress { email } = req else {
                 return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
@@ -3187,6 +3197,11 @@ pub mod backend {
                     DB404Err::NotFound => ServerErr::from(ResErr::NotFound),
                     DB404Err::DB(_) => ServerErr::DbErr,
                 })?;
+
+            app.db
+                .delete_session_user(db_user.id)
+                .await
+                .map_err(|_err| ServerErr::DbErr)?;
 
             // let user = match user {
             //     Ok(v) => v,
@@ -4878,9 +4893,8 @@ mod tests {
         let result = app.login(0, "hey@heyadora.com", "pas$word123456789B").await;
         assert!(result.is_none());
 
-        let result = app.login(0, "hey@heyadora.com", "pas$word123456789A").await;
+        let result = app.login(1, "hey@heyadora.com", "pas$word123456789A").await;
         assert!(result.is_some());
-
     }
 
     #[tokio::test]
