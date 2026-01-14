@@ -68,6 +68,10 @@ pub mod leptos_helpers {
             self.fn_get.get().unwrap_or_default()
         }
 
+        pub fn get_or_else(&self, value: impl Into<T>) -> T {
+            self.fn_get.get().unwrap_or_else(|| value.into())
+        }
+
         pub fn get_or_default_untracked(&self) -> T {
             self.fn_get.get_untracked().unwrap_or_default()
         }

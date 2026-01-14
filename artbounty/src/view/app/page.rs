@@ -234,7 +234,7 @@ pub mod settings {
         link_settings_form_email_completed, link_settings_form_email_current_click,
         link_settings_form_email_current_send, link_settings_form_email_final_confirm,
         link_settings_form_email_new_click, link_settings_form_email_new_send,
-        link_settings_form_password_send, link_settings_form_username,
+        link_settings_form_password_send, link_settings_form_username, query_settings_form_password_send,
     };
     use crate::valid::auth::{
         proccess_email, proccess_post_description, proccess_post_title, proccess_username,
@@ -309,7 +309,10 @@ pub mod settings {
         };
 
         let view_current_password_change_stage_label = move |stage: ChangePasswordFormStage| {
-            view_current_stage_label(change_password.form_stage.get_or_default() as u8, stage as u8)
+            view_current_stage_label(
+                change_password.form_stage.get_or_default() as u8,
+                stage as u8,
+            )
         };
 
         let view_stage_errors = move |stage: EmailChangeFormStage| {
@@ -347,10 +350,10 @@ pub mod settings {
                         </div>
                     </form>
                     <form class="flex flex-col gap-2">
-                        <label for="current_email" class="text-[1.2rem] ">"Password"</label>
+                        <label for="current_passowrd" class="text-[1.2rem] ">"Password"</label>
                         <div class="flex">
                             <input value="password" id="current_email" name="current_password" disabled type="password" class="bg-base01 text-base0B w-full pl-2 " />
-                            <a href=move || link_settings_form_password_send(global_state.get_email_tracked().unwrap_or_default()) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
+                            <a href=move || query_settings_form_password_send(global_state.get_email_tracked().unwrap_or_default()) class="border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E">"Change"</a>
                         </div>
                     </form>
 
@@ -1025,8 +1028,9 @@ pub mod login {
     use leptos::{html::Input, prelude::*};
 
     use crate::api::{Api, ApiWeb, ServerLoginErr, ServerRes};
-    use crate::path::link_reg_invite;
+    use crate::path::{link_login, link_login_form_password_send, link_reg_invite, link_settings, query_form_password};
     use crate::view::app::components::nav::Nav;
+    use crate::view::app::hook::use_password_change::{use_password_change, ChangePasswordBtnStage, ChangePasswordFormStage};
     use crate::view::app::{Acc, GlobalState};
     use crate::view::toolbox::prelude::*;
     use tracing::{error, trace};
@@ -1047,6 +1051,17 @@ pub mod login {
         let email_err = RwSignal::new(String::new());
         let navigate = leptos_router::hooks::use_navigate();
         let api = ApiWeb::new();
+        let api_reset_password = ApiWeb::new();
+
+        let change_password_email = NodeRef::new();
+        let change_password_password = NodeRef::new();
+        let change_password_password_confirmation = NodeRef::new();
+        let change_password = use_password_change(
+            api_reset_password,
+            change_password_email,
+            change_password_password,
+            change_password_password_confirmation,
+        );
 
         // let api_login = controller::auth::route::login::client.ground();
         let on_login = move |e: SubmitEvent| {
@@ -1094,6 +1109,29 @@ pub mod login {
                 });
             // api_login.dispatch(controller::auth::route::login::Input { email, password });
         };
+
+        let view_current_stage_label = move |current_stage: u8, view_stage: u8| {
+
+            let (text, style) = if current_stage == view_stage {
+                ("Current", "text-base0C")
+            } else if current_stage > view_stage {
+                ("Done", "text-base0B")
+            } else {
+                ("Next", "text-base03")
+            };
+
+            view! {
+                <span class=style>"["{text}"] "</span>
+            }
+        };
+
+        let view_current_password_change_stage_label = move |stage: ChangePasswordFormStage| {
+            view_current_stage_label(
+                change_password.form_stage.get_or_default() as u8,
+                stage as u8,
+            )
+        };
+
         // let login_completed = {let login = login.clone(); move || login.is_complete()};
         // let login_pending = {let login = login.clone(); move || login.is_pending()};
         //
@@ -1129,7 +1167,7 @@ pub mod login {
         //     }
         // });
         view! {
-            <main node_ref=main_ref class="grid grid-rows-[auto_1fr] min-h-[100dvh]">
+            <main node_ref=main_ref class="grid grid-rows-[auto_1fr] min-h-[100dvh] relative">
                 <Nav/>
                 <div class=move || format!("grid  text-base05 {}", if api.is_pending_tracked() {"items-center"} else {"justify-stretch"})>
                     <div class=move||format!("mx-auto text-[1.5rem] {}", if api.is_pending_tracked() {""} else {"hidden"})>
@@ -1157,6 +1195,7 @@ pub mod login {
                                 // </div>
                                 <input id="password" node_ref=input_password type="password" class="border-b-2 border-base05" />
                             </div>
+                            <a href=link_login_form_password_send() class="underline">"forgot password?"</a>
                         </div>
                         <div class="flex flex-col gap-[1.3rem] mx-auto my-[4rem] text-center">
                             <input type="submit" value="Login" class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
@@ -1164,6 +1203,52 @@ pub mod login {
                         </div>
                     </form>
                 </div>
+
+
+                <div class=move || format!("absolute top-0 left-0 w-full h-full grid place-items-center bg-base00/80 {}", if !change_password.form_stage.get_or_default().is_none() { "flex" } else { "hidden" } )>
+                    <div class="flex flex-col px-[2rem] md:px-[4rem] max-w-[30rem] mx-auto w-full border-0 border-base05 bg-base01">
+                        <h2 class="text-[1.5rem]  text-center mt-[4rem] mb-[1rem]">"Reset Password"</h2>
+                        <div class=move||format!("text-red-600 text-center  {}", if change_password.err_general.is_some() { "visible" } else { "hidden" } )>{move || { change_password.err_general.get() }}</div>
+                        <div class="flex flex-col gap-6 mt-[1rem]">
+                            <ol class="text-[1.2rem] list-decimal grid gap-2">
+                                <li>
+                                    { move || view_current_password_change_stage_label(ChangePasswordFormStage::Send)}
+                                    "Input the account email address "
+                                    <input node_ref=change_password_email placeholder="user@example.com"  class=move || format!("bg-base02 mt-2 pl-2 {}", if change_password.form_stage.get_or_default() == ChangePasswordFormStage::Send { "visible" } else {"hidden"} ) type="email" />
+                                </li>
+                                <li>
+                                    { move || view_current_password_change_stage_label(ChangePasswordFormStage::Check)}
+                                    "Click on the confirmation link that was sent to "<span class="text-base0E">{move || change_password.email.get_or_else("specified email.")}</span>"."
+                                </li>
+                                <li>
+                                    { move || view_current_password_change_stage_label(ChangePasswordFormStage::Confirm)}
+                                    "Input the new password. "
+                                    <div class=move || format!(" {}", if change_password.form_stage.get_or_default() == ChangePasswordFormStage::Confirm { "visible" } else {"hidden"} )>
+                                        <input node_ref=change_password_password placeholder="new password" class="bg-base02 mt-2 pl-2" type="password" />
+                                        <input node_ref=change_password_password_confirmation placeholder="new password" class="bg-base02 mt-2 pl-2" type="password" />
+                                    </div>
+                                </li>
+                                <li>
+                                    { move || view_current_password_change_stage_label(ChangePasswordFormStage::Finish)}
+                                    "Password changed successfully."
+                                </li>
+                            </ol>
+                        </div>
+
+                        <div class=move || format!("w-full flex gap-4 my-[4rem] justify-center {}", if api.is_pending_tracked() {"visible"} else {"hidden"})>
+                            "loading..."
+                        </div>
+                        <div class= move || format!("flex flex-row gap-[1.3rem] my-[4rem] justify-between {}", if api.is_pending_tracked() {"hidden"} else {"visible"})>
+                            <a href=link_login() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Cancel"</a>
+                            <form method="POST" on:submit=change_password.on_change.to_fn() action="" class=move || format!("flex flex-col {}", if change_password.btn_stage.run() != ChangePasswordBtnStage::None { "visible" } else { "hidden" }) >
+                                <input type="submit" value=move || if api.is_pending_tracked() { "Saving...".to_string() } else { change_password.btn_stage.run().to_string() } disabled=move || api.is_pending_tracked() class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
+                            </form>
+                        </div>
+
+
+                    </div>
+                </div>
+
             </main>
         }
     }

@@ -101,17 +101,26 @@ pub fn create_api_router(
     };
 
     use crate::{
-        api::{self, backend::auth_middleware},
+        api::{self, backend::{auth_middleware, auth_optional_middleware}},
         path::{
-            PATH_API_CANCEL_EMAIL_CHANGE, PATH_API_CHANGE_EMAIL, PATH_API_CHANGE_EMAIL_STATUS, PATH_API_CHANGE_PASSWORD_CONFIRM, PATH_API_CHANGE_PASSWORD_SEND, PATH_API_CHANGE_USERNAME, PATH_API_CONFIRM_EMAIL_CHANGE, PATH_API_CONFIRM_EMAIL_NEW, PATH_API_POST_GET, PATH_API_POST_GET_NEWER, PATH_API_POST_GET_NEWER_OR_EQUAL, PATH_API_POST_GET_OLDER_OR_EQUAL, PATH_API_RESEND_EMAIL_CHANGE, PATH_API_RESEND_EMAIL_NEW, PATH_API_SEND_EMAIL_CHANGE, PATH_API_SEND_EMAIL_NEW, PATH_API_USER_POST_GET_NEWER, PATH_API_USER_POST_GET_NEWER_OR_EQUAL, PATH_API_USER_POST_GET_OLDER, PATH_API_USER_POST_GET_OLDER_OR_EQUAL
+            PATH_API_CANCEL_EMAIL_CHANGE, PATH_API_CHANGE_EMAIL, PATH_API_CHANGE_EMAIL_STATUS,
+            PATH_API_CHANGE_PASSWORD_CONFIRM, PATH_API_CHANGE_PASSWORD_SEND,
+            PATH_API_CHANGE_USERNAME, PATH_API_CONFIRM_EMAIL_CHANGE, PATH_API_CONFIRM_EMAIL_NEW,
+            PATH_API_POST_GET, PATH_API_POST_GET_NEWER, PATH_API_POST_GET_NEWER_OR_EQUAL,
+            PATH_API_POST_GET_OLDER_OR_EQUAL, PATH_API_RESEND_EMAIL_CHANGE,
+            PATH_API_RESEND_EMAIL_NEW, PATH_API_SEND_EMAIL_CHANGE, PATH_API_SEND_EMAIL_NEW,
+            PATH_API_USER_POST_GET_NEWER, PATH_API_USER_POST_GET_NEWER_OR_EQUAL,
+            PATH_API_USER_POST_GET_OLDER, PATH_API_USER_POST_GET_OLDER_OR_EQUAL,
         },
     };
 
     // use crate::api::{self, auth_middleware};
     let api_router_public = Router::new()
         //
-        .route(PATH_API_CHANGE_PASSWORD_SEND, post(api::backend::change_password::send_password_change))
-        .route(PATH_API_CHANGE_PASSWORD_CONFIRM, post(api::backend::change_password::confirm_password_change))
+        .route(
+            PATH_API_CHANGE_PASSWORD_CONFIRM,
+            post(api::backend::change_password::confirm_password_change),
+        )
         //
         .route(PATH_API_LOGIN, post(api::backend::auth::login))
         .route(PATH_API_LOGOUT, post(api::backend::auth::logout))
@@ -153,6 +162,7 @@ pub fn create_api_router(
             post(api::backend::get_posts_newer_or_equal_for_user),
         );
     let api_router_auth = Router::new()
+        // required auth
         .route(PATH_API_ACC, post(api::backend::get_account))
         .route(
             PATH_API_CHANGE_USERNAME,
@@ -200,9 +210,16 @@ pub fn create_api_router(
         //     post(api::backend::send_email_new),
         // )
         .route(PATH_API_POST_ADD, post(api::backend::add_post))
-        .route_layer(middleware::from_fn_with_state(app_state, auth_middleware));
+        .route_layer(middleware::from_fn_with_state(app_state.clone(), auth_middleware));
+    let api_router_auth_optional = Router::new()
+        .route(
+            PATH_API_CHANGE_PASSWORD_SEND,
+            post(api::backend::change_password::send_password_change),
+        )
+        .route_layer(middleware::from_fn_with_state(app_state, auth_optional_middleware));
     let api_router = Router::new()
         .merge(api_router_public)
+        .merge(api_router_auth_optional)
         .merge(api_router_auth);
     Router::new().nest(PATH_API, api_router)
 }
