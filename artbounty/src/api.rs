@@ -33,8 +33,9 @@ pub mod app_state {
         db::{self, DB404Err, DBSentEmailReason, DBUser, DbEngine},
         get_timestamp,
         path::{
-            link_settings_form_email_current_confirm, link_settings_form_email_new_confirm,
-            link_settings_form_password, link_settings_form_password_confirm,
+            link_login_form_password_confirm, link_settings_form_email_current_confirm,
+            link_settings_form_email_new_confirm, link_settings_form_password,
+            link_settings_form_password_confirm,
         },
         view::app::hook::{
             use_email_change::EmailChangeFormStage, use_password_change::ChangePasswordFormStage,
@@ -323,14 +324,8 @@ pub mod app_state {
             &self,
             time: u128,
             to_email: impl Into<String>,
-            // id: &RecordId,
             confim_key: impl Into<String>,
-            // old_email: impl Into<String>,
-            // expires: impl Into<u128>,
         ) -> Result<(), ServerErr> {
-            // let to_email = to_email.into();
-            // let id = id.key().to_string();
-
             let to_email = to_email.into();
             let link = link_settings_form_password_confirm(to_email.clone(), confim_key);
             let link = format!("{}{}", &self.get_address().await, link);
@@ -346,18 +341,29 @@ pub mod app_state {
                 .map_err(|_| ServerErr::DbErr)?;
             trace!("{link}");
 
-            // let link = link_se;
-            // let link = format!("{}{}", &self.get_address().await, link,);
-            // self.db
-            //     .add_sent_email(
-            //         time,
-            //         link.clone(),
-            //         to_email,
-            //         DBSentEmailReason::ConfirmEmailChangeNewEmail,
-            //     )
-            //     .await
-            //     .map_err(|_| ServerErr::DbErr)?;
-            // trace!("{link}");
+            Ok(())
+        }
+
+        pub async fn send_email_reset_password(
+            &self,
+            time: u128,
+            to_email: impl Into<String>,
+            confim_key: impl Into<String>,
+        ) -> Result<(), ServerErr> {
+            let to_email = to_email.into();
+            let link = link_login_form_password_confirm(to_email.clone(), confim_key);
+            let link = format!("{}{}", &self.get_address().await, link);
+
+            self.db
+                .add_sent_email(
+                    time,
+                    link.clone(),
+                    to_email,
+                    DBSentEmailReason::ConfirmEmailChange,
+                )
+                .await
+                .map_err(|_| ServerErr::DbErr)?;
+            trace!("{link}");
 
             Ok(())
         }
@@ -2171,8 +2177,8 @@ pub mod backend {
     use axum_extra::extract::CookieJar;
     use axum_extra::extract::cookie::Cookie;
     use gxhash::{gxhash64, gxhash128};
-    use http::HeaderMap;
     use http::header::{AUTHORIZATION, COOKIE};
+    use http::{HeaderMap, StatusCode};
     use image::{ImageFormat, ImageReader};
     use little_exif::{filetype::FileExtension, metadata::Metadata};
     use std::time::Duration;
@@ -3115,9 +3121,9 @@ pub mod backend {
 
         pub async fn send_password_change(
             State(app): State<AppState>,
+            auth_token: Extension<Option<AuthToken>>,
+            db_user: Extension<Option<DBUser>>,
             req: ServerReq,
-            // auth_token: Extension<AuthToken>,
-            // db_user: Extension<DBUser>,
         ) -> Result<ServerRes, ServerErr> {
             let ServerReq::EmailAddress { email } = req else {
                 return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
@@ -3148,8 +3154,13 @@ pub mod backend {
 
             let confirm_key = result.id.key().to_string();
 
-            app.send_email_change_password(time, &email, confirm_key)
-                .await?;
+            if db_user.as_ref().map(|v| v.email == email).unwrap_or_default() {
+                app.send_email_change_password(time, &email, confirm_key)
+                    .await?;
+            } else {
+                app.send_email_reset_password(time, &email, confirm_key)
+                    .await?;
+            }
 
             Ok(ServerRes::Ok)
         }
@@ -3847,6 +3858,31 @@ pub mod backend {
     //
     //     Ok(ServerRes::Ok)
     // }
+    pub async fn auth_optional_middleware(
+        State(app_state): State<AppState>,
+        mut req: axum::extract::Request,
+        next: axum::middleware::Next,
+    ) -> axum::response::Response {
+        let result = {
+            let headers = req.headers();
+            // let jar = CookieJar::from_headers(headers);
+            check_auth(&app_state, &headers).await
+        };
+
+        match result {
+            Ok((token, user)) => {
+                let extensions = req.extensions_mut();
+                extensions.insert(Some::<AuthToken>(token));
+                extensions.insert(Some::<DBUser>(user));
+            }
+            Err(err) => {
+                let extensions = req.extensions_mut();
+                extensions.insert(None::<AuthToken>);
+                extensions.insert(None::<DBUser>);
+            }
+        }
+        next.run(req).await
+    }
 
     pub async fn auth_middleware(
         State(app_state): State<AppState>,
@@ -3869,6 +3905,18 @@ pub mod backend {
                 return response;
             }
             Err(err) => {
+                // let response = next.run(req).await;
+                //     let status = response.status();
+                // if status == StatusCode::OK
+                // {
+                //
+                //     // TODO just make new middleware for optional auth
+                // let body = response.body();
+                //     body.dat;
+                // // let bytes = axum::body::to_bytes(body, 255).await;
+                //
+                // }
+                // return response;
                 return err.into_response();
             }
         }

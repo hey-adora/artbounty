@@ -9,14 +9,15 @@ use tracing::info;
 use crate::api::Api;
 use crate::api::ApiWeb;
 use crate::api::ApiWebTmp;
+use crate::api::ServerAuthErr;
 use crate::api::ServerErr;
 use crate::api::ServerRes;
 use crate::path::link_user;
 use crate::view::toolbox::prelude::*;
 
 pub mod components;
-pub mod page;
 pub mod hook;
+pub mod page;
 
 #[derive(Clone, Copy, Default, Debug)]
 pub struct GlobalState {
@@ -112,19 +113,27 @@ impl GlobalState {
         self.acc_pending.get()
     }
     pub fn logout(&self) {
-        let api = ApiWebTmp::new();
-        let acc = self.acc;
-        api.logout().send_web(move |result| async move {
-            match result {
-                Ok(_) => {
-                    let r = acc.try_set(None);
-                    if r.is_some() {
-                        error!("global state acc was disposed somehow");
+        if self.acc.with_untracked(|v| v.is_some()) {
+            let api = ApiWebTmp::new();
+            let acc = self.acc;
+            api.logout().send_web(move |result| async move {
+                match result {
+                    Ok(_) => {
+                        let r = acc.try_set(None);
+                        if r.is_some() {
+                            error!("global state acc was disposed somehow");
+                        }
                     }
+                    Err(ServerErr::AuthErr(_)) => {
+                        let r = acc.try_set(None);
+                        if r.is_some() {
+                            error!("global state acc was disposed somehow");
+                        }
+                    }
+                    Err(err) => error!("logout fail"),
                 }
-                Err(err) => error!("logout fail"),
-            }
-        });
+            });
+        }
     }
 }
 

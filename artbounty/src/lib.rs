@@ -423,6 +423,41 @@ pub mod path {
         PATH_SETTINGS.to_string()
     }
 
+    pub fn link_login() -> String {
+        PATH_LOGIN.to_string()
+    }
+
+    pub fn link_login_form_password_send() -> String {
+        link_login_form_password(
+            ChangePasswordFormStage::Send,
+            None::<String>,
+            None::<String>,
+        )
+    }
+
+    pub fn link_login_form_password_confirm(
+        email: impl Into<String>,
+        confirm_key: impl Into<String>,
+    ) -> String {
+        link_login_form_password(
+            ChangePasswordFormStage::Confirm,
+            Some(email),
+            Some(confirm_key),
+        )
+    }
+
+    pub fn link_login_form_password(
+        stage: ChangePasswordFormStage,
+        email: Option<impl Into<String>>,
+        confirm_key: Option<impl Into<String>>,
+    ) -> String {
+        format!(
+            "{}{}",
+            link_login(),
+            query_form_password(stage, email, confirm_key),
+        )
+    }
+
     pub fn link_settings_form_email_current_send(
         old_email: impl Into<String>,
         stage_error: Option<String>,
@@ -646,8 +681,19 @@ pub mod path {
         // current_email: impl AsRef<str>,
     ) -> String {
         format!(
-            "{}?{}={}{}{}",
+            "{}{}",
             PATH_SETTINGS,
+            query_form_password(stage, email, confirm_key),
+        )
+    }
+
+    pub fn query_form_password(
+        stage: ChangePasswordFormStage,
+        email: Option<impl Into<String>>,
+        confirm_key: Option<impl Into<String>>,
+    ) -> String {
+        format!(
+            "?{}={}{}{}",
             ChangePasswordQueryFields::FormStage,
             stage,
             match email {
@@ -680,6 +726,10 @@ pub mod path {
         link_settings_form_password(ChangePasswordFormStage::Send, Some(email), None::<String>)
     }
 
+    pub fn query_settings_form_password_send(email: impl Into<String>) -> String {
+        query_form_password(ChangePasswordFormStage::Send, Some(email), None::<String>)
+    }
+
     pub fn link_settings_form_username(
         stage: ChangeUsernameFormStage,
         old_username: Option<impl Into<String>>,
@@ -687,8 +737,20 @@ pub mod path {
         // current_email: impl AsRef<str>,
     ) -> String {
         format!(
-            "{}?form_stage={}{}{}",
+            "{}{}",
             PATH_SETTINGS,
+            query_settings_form_username(stage, old_username, new_username)
+        )
+    }
+
+    pub fn query_settings_form_username(
+        stage: ChangeUsernameFormStage,
+        old_username: Option<impl Into<String>>,
+        new_username: Option<impl Into<String>>,
+        // current_email: impl AsRef<str>,
+    ) -> String {
+        format!(
+            "?form_stage={}{}{}",
             stage,
             match old_username {
                 Some(v) => format!("&old_username={}", v.into()),

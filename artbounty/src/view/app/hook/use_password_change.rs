@@ -134,10 +134,11 @@ pub fn use_password_change(
                     return;
                 };
 
-                api.send_change_password(email_value)
+                api.send_change_password(email_value.clone())
                     .send_web(async move |result| {
                         let err = match result {
                             Ok(ServerRes::Ok) => {
+                                q_email.set(email_value);
                                 q_stage.set(ChangePasswordFormStage::Check);
                                 Ok(())
                             }
