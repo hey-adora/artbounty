@@ -566,7 +566,7 @@ pub enum ServerReq {
         invite_token: String,
         password: String,
     },
-    GetPost {
+    PostId {
         post_id: String,
     },
     GetPosts {
@@ -640,6 +640,9 @@ pub enum ServerErr {
 
     #[error("get invite err {0}")]
     TokenErr(#[from] ServerTokenErr),
+
+    #[error("add post err {0}")]
+    PostLikeErr(#[from] PostLikeErr),
 
     #[error("add post err {0}")]
     AddPostErr(#[from] ServerAddPostErr),
@@ -823,6 +826,15 @@ pub enum ServerRegistrationErr {
 //     #[error("user not found")]
 //     NotFound,
 // }
+#[derive(Error, Com!)]
+pub enum PostLikeErr {
+    #[error("post \"{0}\" was already liked")]
+    PostAlreadyLiked(String),
+
+    #[error("post \"{0}\" not found")]
+    PostNotFound(String),
+}
+
 #[derive(Error, Com!)]
 pub enum ChangePasswordErr {
     #[error("invalid password {0}")]
@@ -1416,6 +1428,20 @@ pub trait Api {
 
     //
 
+    // post like
+    // fn add_post_like(&self, email: impl Into<String>) -> ApiReq {
+    //     self.into_req(
+    //         crate::path::PATH_API_CHANGE_PASSWORD_SEND,
+    //         ServerReq::EmailAddress {
+    //             email: email.into(),
+    //         },
+    //     )
+    // }
+    
+
+    //
+    
+
     fn login(&self, email: impl Into<String>, password: impl Into<String>) -> ApiReq {
         let email = email.into();
         let password = password.into();
@@ -1487,7 +1513,7 @@ pub trait Api {
 
     fn get_post(&self, post_id: impl Into<String>) -> ApiReq {
         let builder = self.provide_builder(crate::path::PATH_API_POST_GET);
-        let server_req = ServerReq::GetPost {
+        let server_req = ServerReq::PostId {
             post_id: post_id.into(),
         };
         let result_signal = self.provide_signal_result();
@@ -3154,7 +3180,11 @@ pub mod backend {
 
             let confirm_key = result.id.key().to_string();
 
-            if db_user.as_ref().map(|v| v.email == email).unwrap_or_default() {
+            if db_user
+                .as_ref()
+                .map(|v| v.email == email)
+                .unwrap_or_default()
+            {
                 app.send_email_change_password(time, &email, confirm_key)
                     .await?;
             } else {
@@ -3244,6 +3274,83 @@ pub mod backend {
         }
     }
 
+    pub mod post_like {
+        use std::f64::consts::SQRT_2;
+
+        use axum::{Extension, extract::State};
+        use thiserror::Error;
+        use tracing::{debug, trace};
+
+        use crate::{
+            api::{
+                app_state::AppState, AuthToken, PostLikeErr, Server404Err, ServerDesErr, ServerErr, ServerReq, ServerRes
+            },
+            db::{post_like::create_post_like_id, DB404Err, DBPostLikeErr, DBUser},
+        };
+
+        pub async fn add_post_like(
+            State(app): State<AppState>,
+            auth_token: Extension<AuthToken>,
+            db_user: Extension<DBUser>,
+            req: ServerReq,
+        ) -> Result<ServerRes, ServerErr> {
+            type ResErr = PostLikeErr;
+            //
+            let ServerReq::PostId { post_id } = req else {
+                return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                    "expected PostId, received: {req:?}"
+                ))));
+            };
+            let time = app.time().await;
+
+            app.db
+                .add_post_like(time, db_user.id.clone(), &post_id)
+                .await
+                .map_err(|err| match err {
+                    DBPostLikeErr::PostNotFound(_) => ResErr::PostNotFound(post_id.clone()).into(),
+                    DBPostLikeErr::PostWasAlreadyLiked => {
+                        ResErr::PostAlreadyLiked(post_id.clone()).into()
+                    }
+                    DBPostLikeErr::DB(_) => ServerErr::DbErr,
+                })?;
+
+            // //
+            Ok(ServerRes::Ok)
+        }
+
+        pub async fn check_post_like(
+            State(app): State<AppState>,
+            auth_token: Extension<AuthToken>,
+            db_user: Extension<DBUser>,
+            req: ServerReq,
+        ) -> Result<ServerRes, ServerErr> {
+            type ResErr = Server404Err;
+            //
+            let ServerReq::PostId { post_id } = req else {
+                return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                    "expected PostId, received: {req:?}"
+                ))));
+            };
+            let time = app.time().await;
+
+            app.db
+                .check_post_like(time, db_user.id.clone(), post_id.clone())
+                .await
+                .map_err(|err| match err {
+                    DB404Err::NotFound => ResErr::NotFound.into(),
+                    // DBPostLikeErr::PostWasAlreadyLiked => {
+                    //     ResErr::PostAlreadyLiked(post_id.clone()).into()
+                    // }
+                    DB404Err::DB(_) => ServerErr::DbErr,
+                })?;
+
+            // //
+            Ok(ServerRes::Ok)
+        }
+
+
+    }
+
     //
 
     pub async fn get_user(
@@ -3285,7 +3392,7 @@ pub mod backend {
         State(app_state): State<AppState>,
         req: ServerReq,
     ) -> Result<ServerRes, ServerErr> {
-        let ServerReq::GetPost { post_id } = req else {
+        let ServerReq::PostId { post_id } = req else {
             return Err(ServerDesErr::ServerWrongInput(format!(
                 "expected GetPost, received: {req:?}"
             ))

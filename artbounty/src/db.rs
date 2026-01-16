@@ -299,6 +299,18 @@ pub enum DB404Err {
 }
 
 #[derive(Debug, Error)]
+pub enum DBPostLikeErr {
+    #[error("DB error {0}")]
+    DB(#[from] surrealdb::Error),
+
+    #[error("post was already liked")]
+    PostWasAlreadyLiked,
+
+    #[error("post \"{0}\" was not found")]
+    PostNotFound(String),
+}
+
+#[derive(Debug, Error)]
 pub enum EmailIsTakenErr {
     #[error("DB error {0}")]
     DB(#[from] surrealdb::Error),
@@ -332,25 +344,222 @@ pub fn create_user_id(id: impl Into<String>) -> RecordId {
     RecordId::from_table_key("user", id.into())
 }
 
-pub mod confirm_email {
+pub mod post_like {
     use crate::db::DB404Err;
+    use crate::db::DBPostLikeErr;
     use crate::db::DBUser;
-    use crate::db::EmailIsTakenErr;
+    use crate::db::DBUserPost;
     use crate::db::SurrealCheckUtils;
     use crate::db::SurrealErrUtils;
     use crate::db::SurrealSerializeUtils;
+    use crate::db::post::create_post_id;
 
     use super::Db;
-    use super::Save;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
     pub use surrealdb::Connection;
     use surrealdb::RecordId;
     use surrealdb::RecordIdKey;
-    use surrealdb::engine::local::SurrealKv;
-    use surrealdb::engine::local::{self, Mem};
-    use surrealdb::{Surreal, opt::IntoEndpoint};
-    use thiserror::Error;
-    use tracing::{error, trace};
+
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    pub struct DBPostLike {
+        pub id: RecordId,
+        pub user: RecordId,
+        pub post: RecordId,
+        pub modified_at: u128,
+        pub created_at: u128,
+    }
+
+    pub fn create_post_like_id(id: impl Into<RecordIdKey>) -> RecordId {
+        RecordId::from_table_key("post_like", id)
+    }
+
+    impl<C: Connection> Db<C> {
+        pub async fn add_post_like(
+            &self,
+            time: u128,
+            user_id: RecordId,
+            post_id: impl Into<RecordIdKey>,
+        ) -> Result<DBPostLike, DBPostLikeErr> {
+            let post_id = post_id.into();
+            self.db
+                .query(
+                    r#"
+                 LET $post = SELECT id FROM ONLY $post_id;
+                 CREATE post_like SET
+                    user = $user_id,
+                    post = $post.id,
+                    modified_at = $time,
+                    created_at = $time
+                 RETURN *;
+                "#,
+                )
+                .bind(("time", time))
+                .bind(("user_id", user_id))
+                .bind(("post_id", create_post_id(post_id.clone())))
+                .await
+                .check_good(|err| match err {
+                    err if err.index_exists("idx_user_post") => DBPostLikeErr::PostWasAlreadyLiked,
+                    err if err.field_value_null("post") => {
+                        DBPostLikeErr::PostNotFound(post_id.to_string())
+                    }
+                    err => err.into(),
+                })
+                .and_then_take_expect(1)
+        }
+
+        //
+        pub async fn delete_post_like(
+            &self,
+            user: RecordId,
+            post_id: impl Into<RecordIdKey>,
+        ) -> Result<(), surrealdb::Error> {
+            self.db
+                .query(
+                    r#"
+                        DELETE post_like WHERE
+                            user = $user_id AND
+                            post = $post_id;
+                    "#,
+                )
+                .bind(("user_id", user))
+                .bind(("post_id", create_post_id(post_id.into())))
+                .await
+                .check_good(surrealdb::Error::from)
+                // .check_good(Surreal::from)
+                .map(|_| ())
+            // .and_then_take_or(0, DB404Err::NotFound)
+        }
+
+        pub async fn get_post_like(
+            &self,
+            time: u128,
+            user: RecordId,
+            post: RecordId,
+        ) -> Result<DBPostLike, DB404Err> {
+            self.db
+                .query(
+                    r#"
+                        SELECT * FROM ONLY post_like WHERE
+                                user = $user_user AND
+                                post = $user_post
+                    "#,
+                )
+                .bind(("time", time))
+                .bind(("user_user", user))
+                .bind(("user_post", post))
+                .await
+                .check_good(DB404Err::from)
+                .and_then_take_or(0, DB404Err::NotFound)
+        }
+
+        pub async fn check_post_like(
+            &self,
+            time: u128,
+            user: RecordId,
+            post_id: impl Into<RecordIdKey>,
+        ) -> Result<RecordId, DB404Err> {
+            let post_id = post_id.into();
+            self.db
+                .query(
+                    r#"
+                        LET $result = SELECT id FROM ONLY post_like WHERE
+                                user = $user_id AND
+                                post = $post_id;
+                        return $result.id;
+                    "#,
+                )
+                .bind(("time", time))
+                .bind(("user_id", user))
+                .bind(("post_id", create_post_id(post_id.clone())))
+                .await
+                .check_good(DB404Err::from)
+                .and_then_take_or(1, DB404Err::NotFound)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::time::Duration;
+
+        use pretty_assertions::assert_eq;
+        use surrealdb::{RecordId, engine::local::Mem};
+        use test_log::test;
+        use tracing::trace;
+
+        use crate::{
+            api::{ChangeUsernameErr, ServerRes},
+            db::{
+                AddSessionErr, AddUserErr, DB404Err, DBChangeUsernameErr, DBPostLikeErr,
+                DBSentEmailReason, DBUserPostFile, Db, EmailIsTakenErr,
+                post_like::create_post_like_id,
+            },
+        };
+
+        #[test(tokio::test)]
+        async fn db_post_like() {
+            let db = Db::new::<Mem>(()).await.unwrap();
+            db.migrate(0).await.unwrap();
+
+            let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
+            let post = db
+                .add_post(0, "hey1", "title", "description", 0, vec![])
+                .await
+                .unwrap();
+
+            // TODO add more failure tests
+
+            // let result = db.add_post_like(0, user.id.clone(), post.id.clone()).await;
+            let result = db.add_post_like(0, user.id.clone(), "wtf").await;
+            assert!(matches!(result, Err(DBPostLikeErr::PostNotFound(_))));
+
+            let result = db.delete_post_like(user.id.clone(), "wtf").await;
+            assert!(result.is_ok());
+
+            let result = db
+                .add_post_like(0, user.id.clone(), post.id.key().clone())
+                .await;
+            assert!(result.is_ok());
+
+            let result = db
+                .delete_post_like(user.id.clone(), post.id.key().clone())
+                .await;
+            assert!(result.is_ok());
+
+            let result = db
+                .add_post_like(0, user.id.clone(), post.id.key().clone())
+                .await;
+            assert!(result.is_ok());
+
+            let result = db
+                .add_post_like(0, user.id.clone(), post.id.key().clone())
+                .await;
+            assert!(matches!(result, Err(DBPostLikeErr::PostWasAlreadyLiked)));
+
+            // let result = db.add_post_like(0, user.id.clone(), post.id.clone()).await;
+            // assert!(matches!(result, Err(DBPostLikeErr::PostWasAlreadyLiked)));
+
+            let result = db.get_post_like(0, user.id.clone(), post.id.clone()).await;
+            assert!(result.is_ok());
+
+            let result = db
+                .check_post_like(0, user.id.clone(), post.id.key().clone())
+                .await;
+            assert!(result.is_ok());
+
+            let result = db.check_post_like(0, user.id.clone(), "none").await;
+            assert!(matches!(result, Err(DB404Err::NotFound)));
+        }
+    }
+}
+
+pub mod confirm_email {
+    use crate::db::DB404Err;
+    use crate::db::SurrealCheckUtils;
+    use crate::db::SurrealSerializeUtils;
+
+    use super::Db;
+    pub use surrealdb::Connection;
+    use surrealdb::RecordId;
+    use surrealdb::RecordIdKey;
 
     #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
     pub struct DBConfirmEmail {
@@ -552,6 +761,14 @@ pub mod confirm_email {
             let result = db.update_confirm_email_by_key(0, &key).await;
             assert!(result.is_err());
         }
+    }
+}
+
+pub mod post {
+    use surrealdb::{RecordId, RecordIdKey};
+
+    pub fn create_post_id(id: impl Into<RecordIdKey>) -> RecordId {
+        RecordId::from_table_key("post", id.into())
     }
 }
 
@@ -1125,6 +1342,14 @@ impl<C: Connection> Db<C> {
                             DEFINE FIELD modified_at ON TABLE post TYPE number;
                             DEFINE FIELD created_at ON TABLE post TYPE number;
                             -- DEFINE INDEX idx_post_hash ON TABLE post COLUMNS hash UNIQUE;
+
+                            --post like 
+                            DEFINE TABLE post_like SCHEMAFULL;
+                            DEFINE FIELD user ON TABLE post_like TYPE record<user>;
+                            DEFINE FIELD post ON TABLE post_like TYPE record<post>;
+                            DEFINE FIELD modified_at ON TABLE post_like TYPE number;
+                            DEFINE FIELD created_at ON TABLE post_like TYPE number;
+                            DEFINE INDEX idx_user_post ON TABLE post_like COLUMNS user, post UNIQUE;
 
                             CREATE migration SET version = 0, modified_at = $time, created_at = $time;
                         };
@@ -2073,7 +2298,10 @@ mod tests {
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate(0).await.unwrap();
         let user = db.add_user(0, "hey", "hey@hey.com", "hey").await.unwrap();
-        let user2 = db.add_user(0, "hey11", "hey11@hey.com", "hey").await.unwrap();
+        let user2 = db
+            .add_user(0, "hey11", "hey11@hey.com", "hey")
+            .await
+            .unwrap();
 
         trace!("created {user:#?}");
         let session = db.add_session(0, "token", "hey").await.unwrap();
@@ -2104,8 +2332,5 @@ mod tests {
         assert!(matches!(session, Err(DB404Err::NotFound)));
 
         let session = db.get_session("token11").await.unwrap();
-
-
-
     }
 }
