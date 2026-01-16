@@ -197,7 +197,7 @@ pub mod post {
                         <div class="flex flex-col gap-2">
                             <div class="flex justify-between">
                                 <h1 class="text-[1.5rem] text-ellipsis text-base0F">{ fn_title }</h1>
-                                <div>"X"</div>
+                                <button class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Favorite"</button>
                             </div>
                             <div class="flex justify-between">
                                 <div class="flex gap-2">
