@@ -103,14 +103,7 @@ pub fn create_api_router(
     use crate::{
         api::{self, backend::{auth_middleware, auth_optional_middleware}},
         path::{
-            PATH_API_CANCEL_EMAIL_CHANGE, PATH_API_CHANGE_EMAIL, PATH_API_CHANGE_EMAIL_STATUS,
-            PATH_API_CHANGE_PASSWORD_CONFIRM, PATH_API_CHANGE_PASSWORD_SEND,
-            PATH_API_CHANGE_USERNAME, PATH_API_CONFIRM_EMAIL_CHANGE, PATH_API_CONFIRM_EMAIL_NEW,
-            PATH_API_POST_GET, PATH_API_POST_GET_NEWER, PATH_API_POST_GET_NEWER_OR_EQUAL,
-            PATH_API_POST_GET_OLDER_OR_EQUAL, PATH_API_RESEND_EMAIL_CHANGE,
-            PATH_API_RESEND_EMAIL_NEW, PATH_API_SEND_EMAIL_CHANGE, PATH_API_SEND_EMAIL_NEW,
-            PATH_API_USER_POST_GET_NEWER, PATH_API_USER_POST_GET_NEWER_OR_EQUAL,
-            PATH_API_USER_POST_GET_OLDER, PATH_API_USER_POST_GET_OLDER_OR_EQUAL,
+            PATH_API_CANCEL_EMAIL_CHANGE, PATH_API_CHANGE_EMAIL, PATH_API_CHANGE_EMAIL_STATUS, PATH_API_CHANGE_PASSWORD_CONFIRM, PATH_API_CHANGE_PASSWORD_SEND, PATH_API_CHANGE_USERNAME, PATH_API_CONFIRM_EMAIL_CHANGE, PATH_API_CONFIRM_EMAIL_NEW, PATH_API_POST_GET, PATH_API_POST_GET_NEWER, PATH_API_POST_GET_NEWER_OR_EQUAL, PATH_API_POST_GET_OLDER_OR_EQUAL, PATH_API_POST_LIKE_ADD, PATH_API_POST_LIKE_CHECK, PATH_API_POST_LIKE_DELETE, PATH_API_RESEND_EMAIL_CHANGE, PATH_API_RESEND_EMAIL_NEW, PATH_API_SEND_EMAIL_CHANGE, PATH_API_SEND_EMAIL_NEW, PATH_API_USER_POST_GET_NEWER, PATH_API_USER_POST_GET_NEWER_OR_EQUAL, PATH_API_USER_POST_GET_OLDER, PATH_API_USER_POST_GET_OLDER_OR_EQUAL
         },
     };
 
@@ -162,7 +155,19 @@ pub fn create_api_router(
             post(api::backend::get_posts_newer_or_equal_for_user),
         );
     let api_router_auth = Router::new()
-        // required auth
+        .route(
+            PATH_API_POST_LIKE_ADD,
+            post(api::backend::post_like::add_post_like),
+        )
+        .route(
+            PATH_API_POST_LIKE_CHECK,
+            post(api::backend::post_like::check_post_like),
+        )
+        .route(
+            PATH_API_POST_LIKE_DELETE,
+            post(api::backend::post_like::delete_post_like),
+
+        )
         .route(PATH_API_ACC, post(api::backend::get_account))
         .route(
             PATH_API_CHANGE_USERNAME,

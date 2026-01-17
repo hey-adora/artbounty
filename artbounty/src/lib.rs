@@ -354,6 +354,11 @@ pub mod path {
 
     pub const PATH_API: &'static str = "/api";
 
+    // post like
+    pub const PATH_API_POST_LIKE_ADD: &'static str = "/add_post_like";
+    pub const PATH_API_POST_LIKE_CHECK: &'static str = "/check_post_like";
+    pub const PATH_API_POST_LIKE_DELETE: &'static str = "/delete_post_like";
+
     // change password
     pub const PATH_API_CHANGE_PASSWORD_SEND: &'static str = "/send_change_password";
     pub const PATH_API_CHANGE_PASSWORD_CONFIRM: &'static str = "/confirm_change_password";
