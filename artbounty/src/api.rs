@@ -608,10 +608,12 @@ pub struct ServerReqImg {
     pub data: Vec<u8>,
 }
 
+// TODO make sure the "id" fields only send key value
 #[derive(Com!)]
 pub enum ServerRes {
     SetAuthCookie { token: String },
     DeleteAuthCookie,
+    Condition(bool),
     User { username: String },
     Acc { username: String, email: String },
     InviteToken(EmailToken),
@@ -1117,7 +1119,7 @@ impl From<&crate::db::email_change::DBEmailChange> for EmailChangeStage {
 impl From<crate::db::DBUserPost> for UserPost {
     fn from(value: crate::db::DBUserPost) -> Self {
         Self {
-            id: value.id.to_string(),
+            id: value.id.key().to_string(),
             user: value.user.into(),
             file: value.file.into_iter().map(UserPostFile::from).collect(),
             title: value.title,
@@ -1429,18 +1431,34 @@ pub trait Api {
     //
 
     // post like
-    // fn add_post_like(&self, email: impl Into<String>) -> ApiReq {
-    //     self.into_req(
-    //         crate::path::PATH_API_CHANGE_PASSWORD_SEND,
-    //         ServerReq::EmailAddress {
-    //             email: email.into(),
-    //         },
-    //     )
-    // }
-    
+    fn add_post_like(&self, post_id: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_POST_LIKE_ADD,
+            ServerReq::PostId {
+                post_id: post_id.into(),
+            },
+        )
+    }
+
+    fn check_post_like(&self, post_id: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_POST_LIKE_CHECK,
+            ServerReq::PostId {
+                post_id: post_id.into(),
+            },
+        )
+    }
+
+    fn delete_post_like(&self, post_id: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_POST_LIKE_DELETE,
+            ServerReq::PostId {
+                post_id: post_id.into(),
+            },
+        )
+    }
 
     //
-    
 
     fn login(&self, email: impl Into<String>, password: impl Into<String>) -> ApiReq {
         let email = email.into();
@@ -3283,9 +3301,10 @@ pub mod backend {
 
         use crate::{
             api::{
-                app_state::AppState, AuthToken, PostLikeErr, Server404Err, ServerDesErr, ServerErr, ServerReq, ServerRes
+                AuthToken, PostLikeErr, Server404Err, ServerDesErr, ServerErr, ServerReq,
+                ServerRes, app_state::AppState,
             },
-            db::{post_like::create_post_like_id, DB404Err, DBPostLikeErr, DBUser},
+            db::{DB404Err, DBPostLikeErr, DBUser, post_like::create_post_like_id},
         };
 
         pub async fn add_post_like(
@@ -3324,6 +3343,39 @@ pub mod backend {
             db_user: Extension<DBUser>,
             req: ServerReq,
         ) -> Result<ServerRes, ServerErr> {
+            // type ResErr = Server404Err;
+            //
+            let ServerReq::PostId { post_id } = req else {
+                return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+                    "expected PostId, received: {req:?}"
+                ))));
+            };
+            let time = app.time().await;
+
+            let err = app
+                .db
+                .check_post_like(time, db_user.id.clone(), post_id.clone())
+                .await;
+            // .map_err(|err| )?;
+            match err {
+                Ok(v) => Ok(ServerRes::Condition(true)),
+                Err(DB404Err::NotFound) => Ok(ServerRes::Condition(false)),
+                // DBPostLikeErr::PostWasAlreadyLiked => {
+                //     ResErr::PostAlreadyLiked(post_id.clone()).into()
+                // }
+                Err(DB404Err::DB(_)) => Err(ServerErr::DbErr),
+            }
+
+            // //
+            // Ok(ServerRes::Condition(true))
+        }
+
+        pub async fn delete_post_like(
+            State(app): State<AppState>,
+            auth_token: Extension<AuthToken>,
+            db_user: Extension<DBUser>,
+            req: ServerReq,
+        ) -> Result<ServerRes, ServerErr> {
             type ResErr = Server404Err;
             //
             let ServerReq::PostId { post_id } = req else {
@@ -3334,21 +3386,13 @@ pub mod backend {
             let time = app.time().await;
 
             app.db
-                .check_post_like(time, db_user.id.clone(), post_id.clone())
+                .delete_post_like(db_user.id.clone(), post_id.clone())
                 .await
-                .map_err(|err| match err {
-                    DB404Err::NotFound => ResErr::NotFound.into(),
-                    // DBPostLikeErr::PostWasAlreadyLiked => {
-                    //     ResErr::PostAlreadyLiked(post_id.clone()).into()
-                    // }
-                    DB404Err::DB(_) => ServerErr::DbErr,
-                })?;
+                .map_err(|err| ServerErr::DbErr)?;
 
             // //
             Ok(ServerRes::Ok)
         }
-
-
     }
 
     //
@@ -4085,13 +4129,13 @@ mod tests {
     use pretty_assertions::assert_eq;
     use test_log::test;
     use tokio::sync::Mutex;
-    use tracing::{error, trace};
+    use tracing::{debug, error, trace};
 
     use crate::api::app_state::AppState;
     use crate::api::{
         Api, ApiTest, EmailChangeErr, EmailChangeNewErr, EmailChangeStage, EmailChangeTokenErr,
-        EmailToken, Server404Err, ServerAuthErr, ServerErr, ServerLoginErr, ServerRegistrationErr,
-        ServerReqImg, ServerRes, encode_token,
+        EmailToken, PostLikeErr, Server404Err, ServerAuthErr, ServerErr, ServerLoginErr,
+        ServerRegistrationErr, ServerReqImg, ServerRes, UserPost, encode_token,
     };
     use crate::db::email_change::create_email_change_id;
     use crate::db::{DBUser, EmailIsTakenErr, email_change::DBEmailChange};
@@ -4152,7 +4196,11 @@ mod tests {
         //     self.state.set_invite_exp_ns(duration_ns);
         // }
 
-        pub async fn add_post(&self, time: u128, auth_token: impl Into<String>) -> Option<()> {
+        pub async fn add_post(
+            &self,
+            time: u128,
+            auth_token: impl Into<String>,
+        ) -> Option<UserPost> {
             self.set_time(time).await;
             let auth_token = auth_token.into();
 
@@ -4185,13 +4233,17 @@ mod tests {
 
             // let result_posts = self.api.get_posts_older(2, 25).send_native().await.unwrap();
 
-            let matched = matches!(result, Ok(crate::api::ServerRes::Post(_)));
+            match result {
+                Ok(crate::api::ServerRes::Post(post)) => Some(post),
+                _ => None,
+            }
+            // let matched = matches!(result, Ok(crate::api::ServerRes::Post(_)));
             // let matched = match result {
             //     Ok(crate::api::ServerRes::Posts(posts)) => posts.len() == 1,
             //     wrong => false,
             // };
 
-            if matched { Some(()) } else { None }
+            // if matched { Some(()) } else { None }
         }
 
         pub async fn expect_posts(
@@ -4276,6 +4328,112 @@ mod tests {
             }
 
             if matched_newer && matched_newer_or_equal && matched_older && matched_older_or_equal {
+                Some(())
+            } else {
+                None
+            }
+        }
+        pub async fn delete_post_like(
+            &self,
+            server_time: u128,
+            auth_token: impl AsRef<str>,
+            post_id: impl Into<String>,
+        ) -> Option<()> {
+            self.set_time(server_time).await;
+
+            let result = self
+                .api
+                .delete_post_like(post_id)
+                .send_native_with_token(auth_token)
+                .await;
+
+            if result == Ok(ServerRes::Ok) {
+                Some(())
+            } else {
+                None
+            }
+        }
+
+        pub async fn add_post_like(
+            &self,
+            server_time: u128,
+            auth_token: impl AsRef<str>,
+            post_id: impl Into<String>,
+        ) -> Option<()> {
+            self.set_time(server_time).await;
+            let result = self
+                .api
+                .add_post_like(post_id)
+                .send_native_with_token(auth_token)
+                .await;
+
+            if result == Ok(ServerRes::Ok) {
+                Some(())
+            } else {
+                None
+            }
+        }
+
+        pub async fn add_post_like_err_already_liked(
+            &self,
+            server_time: u128,
+            auth_token: impl AsRef<str>,
+            post_id: impl Into<String>,
+        ) -> Option<()> {
+            self.set_time(server_time).await;
+            let result = self
+                .api
+                .add_post_like(post_id)
+                .send_native_with_token(auth_token)
+                .await;
+
+            if matches!(
+                result,
+                Err(ServerErr::PostLikeErr(PostLikeErr::PostAlreadyLiked(_)))
+            ) {
+                Some(())
+            } else {
+                None
+            }
+        }
+
+        pub async fn add_post_like_err_not_found(
+            &self,
+            server_time: u128,
+            auth_token: impl AsRef<str>,
+            post_id: impl Into<String>,
+        ) -> Option<()> {
+            self.set_time(server_time).await;
+            let result = self
+                .api
+                .add_post_like(post_id)
+                .send_native_with_token(auth_token)
+                .await;
+            if matches!(
+                result,
+                Err(ServerErr::PostLikeErr(PostLikeErr::PostNotFound(_)))
+            ) {
+                Some(())
+            } else {
+                None
+            }
+        }
+
+        pub async fn check_post_like(
+            &self,
+            server_time: u128,
+            auth_token: impl AsRef<str>,
+            post_id: impl Into<String>,
+            condition: bool,
+        ) -> Option<()> {
+            self.set_time(server_time).await;
+            let result = self
+                .api
+                .check_post_like(post_id)
+                .send_native_with_token(auth_token)
+                .await
+                .unwrap();
+            if result == ServerRes::Condition(condition) {
                 Some(())
             } else {
                 None
@@ -5223,6 +5381,41 @@ mod tests {
             .await
             .unwrap();
         app.is_logged_in(0, &auth_token).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn api_post_like_test() {
+        let app = ApiTestApp::new(1).await;
+
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+
+        let post = app.add_post(0, &auth_token).await.unwrap();
+        debug!("wtf is that {post:#?}");
+
+        app.check_post_like(0, &auth_token, post.id.clone(), false)
+            .await
+            .unwrap();
+        app.add_post_like(0, &auth_token, post.id.clone())
+            .await
+            .unwrap();
+        app.check_post_like(0, &auth_token, post.id.clone(), true)
+            .await
+            .unwrap();
+        app.add_post_like_err_already_liked(0, &auth_token, post.id.clone())
+            .await
+            .unwrap();
+        app.add_post_like_err_not_found(0, &auth_token, "none")
+            .await
+            .unwrap();
+        app.delete_post_like(0, &auth_token, post.id.clone())
+            .await
+            .unwrap();
+        app.check_post_like(0, &auth_token, post.id.clone(), false)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
