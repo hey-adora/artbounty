@@ -2,6 +2,7 @@ pub mod post {
     use crate::api::{Api, ApiWeb, Server404Err, ServerErr};
     use crate::path::{link_home, link_img, link_user};
     use crate::view::app::components::nav::Nav;
+    use crate::view::app::hook::use_post_like::{self, PostLikeStage, use_post_like};
     use crate::view::toolbox::prelude::*;
     use leptos::prelude::*;
     use leptos::{Params, task::spawn_local};
@@ -30,6 +31,24 @@ pub mod post {
         let favorites = RwSignal::new(0_u64);
         let not_found = RwSignal::new(false);
         let location = use_location();
+        let post_like = use_post_like(param_post);
+        let post_like_btn_style = move || {
+            format!(
+                "border-2 text-[1.3rem] font-bold px-4 py-1 {}",
+                match post_like.stage.run() {
+                    PostLikeStage::Liked => "border-base01 bg-base05 text-base01",
+                    PostLikeStage::Unliked =>
+                        "border-base05 bg-base01 text-base05 hover:bg-base05 hover:text-base01",
+                    PostLikeStage::Loading => "border-base05 bg-base01 text-base05",
+                }
+            )
+        };
+        let post_like_btn_text = move || match post_like.stage.run() {
+            PostLikeStage::Liked => "Un-Favorite",
+            PostLikeStage::Unliked => "Favorite",
+            PostLikeStage::Loading => "Loading",
+        };
+        // let post_like = create_post_like_id("");
 
         let fn_link = move || {
             let author = author.get();
@@ -197,7 +216,7 @@ pub mod post {
                         <div class="flex flex-col gap-2">
                             <div class="flex justify-between">
                                 <h1 class="text-[1.5rem] text-ellipsis text-base0F">{ fn_title }</h1>
-                                <button class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950">"Favorite"</button>
+                                <button on:click=post_like.on_like.to_fn() disabled=move || post_like.stage.run() == PostLikeStage::Loading class=post_like_btn_style >{ post_like_btn_text }</button>
                             </div>
                             <div class="flex justify-between">
                                 <div class="flex gap-2">
@@ -234,7 +253,8 @@ pub mod settings {
         link_settings_form_email_completed, link_settings_form_email_current_click,
         link_settings_form_email_current_send, link_settings_form_email_final_confirm,
         link_settings_form_email_new_click, link_settings_form_email_new_send,
-        link_settings_form_password_send, link_settings_form_username, query_settings_form_password_send,
+        link_settings_form_password_send, link_settings_form_username,
+        query_settings_form_password_send,
     };
     use crate::valid::auth::{
         proccess_email, proccess_post_description, proccess_post_title, proccess_username,
@@ -1028,9 +1048,14 @@ pub mod login {
     use leptos::{html::Input, prelude::*};
 
     use crate::api::{Api, ApiWeb, ServerLoginErr, ServerRes};
-    use crate::path::{link_login, link_login_form_password_send, link_reg_invite, link_settings, query_form_password};
+    use crate::path::{
+        link_login, link_login_form_password_send, link_reg_invite, link_settings,
+        query_form_password,
+    };
     use crate::view::app::components::nav::Nav;
-    use crate::view::app::hook::use_password_change::{use_password_change, ChangePasswordBtnStage, ChangePasswordFormStage};
+    use crate::view::app::hook::use_password_change::{
+        ChangePasswordBtnStage, ChangePasswordFormStage, use_password_change,
+    };
     use crate::view::app::{Acc, GlobalState};
     use crate::view::toolbox::prelude::*;
     use tracing::{error, trace};
@@ -1111,7 +1136,6 @@ pub mod login {
         };
 
         let view_current_stage_label = move |current_stage: u8, view_stage: u8| {
-
             let (text, style) = if current_stage == view_stage {
                 ("Current", "text-base0C")
             } else if current_stage > view_stage {

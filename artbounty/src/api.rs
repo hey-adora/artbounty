@@ -3444,7 +3444,7 @@ pub mod backend {
         };
         let post = app_state
             .db
-            .get_post_str(post_id)
+            .get_post(post_id)
             .await
             .map_err(|err| match err {
                 DB404Err::NotFound => ServerErr::NotFoundErr(Server404Err::NotFound),

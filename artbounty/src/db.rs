@@ -3,12 +3,14 @@ use std::str::FromStr;
 use std::time::Duration;
 
 pub use surrealdb::Connection;
-use surrealdb::RecordId;
+use surrealdb::{RecordId, RecordIdKey};
 use surrealdb::engine::local::SurrealKv;
 use surrealdb::engine::local::{self, Mem};
 use surrealdb::{Surreal, opt::IntoEndpoint};
 use thiserror::Error;
 use tracing::{error, trace};
+
+use crate::db::post::create_post_id;
 
 // pub static DB: LazyLock<Db<local::Db>> = LazyLock::new(Db::init);
 derive_alias! {
@@ -1364,15 +1366,15 @@ impl<C: Connection> Db<C> {
         Ok(())
     }
 
-    pub async fn get_post_str(&self, post_id: impl AsRef<str>) -> Result<DBUserPost, DB404Err> {
-        let post_id = RecordId::from_str(post_id.as_ref())?;
-        self.get_post(post_id).await
-    }
+    // pub async fn get_post_str(&self, post_key: impl AsRef<str>) -> Result<DBUserPost, DB404Err> {
+    //     let post_id = RecordId::from_str(post_key.as_ref())?;
+    //     self.get_post(post_id).await
+    // }
 
-    pub async fn get_post(&self, post_id: RecordId) -> Result<DBUserPost, DB404Err> {
+    pub async fn get_post(&self, post_key: impl Into<RecordIdKey>) -> Result<DBUserPost, DB404Err> {
         self.db
             .query("SELECT *, user.* FROM ONLY $post_id;")
-            .bind(("post_id", post_id))
+            .bind(("post_id", create_post_id(post_key)))
             .await
             .check_good(DB404Err::from)
             .and_then_take_or(0, DB404Err::NotFound)
@@ -2084,10 +2086,10 @@ mod tests {
         assert_eq!(posts.len(), 1);
         assert_eq!(posts[0].title, "title2");
 
-        let post = db.get_post(posts[0].id.clone()).await.unwrap();
+        let post = db.get_post(posts[0].id.key().clone()).await.unwrap();
         assert_eq!(post.title, "title2");
 
-        let post = db.get_post_str("wow:wow").await;
+        let post = db.get_post("wow:wow").await;
         trace!("result: {post:#?}");
         assert!(matches!(post, Err(DB404Err::NotFound)));
 
