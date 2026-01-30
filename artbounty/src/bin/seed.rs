@@ -275,19 +275,19 @@ async fn main() {
                     x: height * 2.0,
                     y: height,
                 };
-                todo!("no fonts");
-                // let font = FontRef::try_from_slice(include_bytes!("/nix/store/5qc9yxwnfa074zrfsymmabhdbhg1rp7d-home-manager-path/share/fonts/noto/NotoSansMono[wdth,wght].ttf")).unwrap();
-                // let img = draw_text(
-                //     &mut image,
-                //     Rgb([0u8, 0u8, 0u8]),
-                //     // Rgb([255u8, 255u8, 255u8]),
-                //     0,
-                //     50,
-                //     scale,
-                //     &font,
-                //     &i.to_string(),
-                // );
-                // img.save(path).unwrap();
+
+                let font = FontRef::try_from_slice(include_bytes!("../../../font.ttf")).unwrap();
+                let img = draw_text(
+                    &mut image,
+                    Rgb([0u8, 0u8, 0u8]),
+                    // Rgb([255u8, 255u8, 255u8]),
+                    0,
+                    50,
+                    scale,
+                    &font,
+                    &i.to_string(),
+                );
+                img.save(path).unwrap();
 
                 // imgbuf.save(path).unwrap();
                 let img = fs::read(path).await.unwrap();

@@ -1,3 +1,55 @@
+pub mod infinite_scroll {
+    use crate::{
+        api::{Api, ApiWeb},
+        path::{PATH_LOGIN, PATH_UPLOAD, link_settings, link_user},
+        view::{app::GlobalState, toolbox::prelude::*},
+    };
+    use leptos::{html, prelude::*};
+    use tracing::{debug, trace};
+
+    #[component]
+    pub fn InfiteScroll() -> impl IntoView {
+        let infinite_scroll_ref = NodeRef::<html::Div>::new();
+        let delayed_scroll = RwSignal::new(0_usize);
+
+        infinite_scroll_ref.add_resize_observer(move |entry, _observer| {
+            trace!("RESIZINGGGGGG");
+            let width = entry.content_rect().width() as u32;
+
+            // let prev_imgs = gallery.get_untracked();
+            // trace!("stage r1: width:{width} {prev_imgs:#?} ");
+            // let resized_imgs = resize_v2(prev_imgs, width, row_height);
+            // trace!("stage r2 {resized_imgs:#?}");
+            // gallery.set(resized_imgs);
+        });
+
+        infinite_scroll_ref.add_mutation_observer(
+            move |entries, observer| {
+                trace!("IT HAS MUTATED");
+                let Some(infinite_scroll_elm) = infinite_scroll_ref.get_untracked() else {
+                    trace!("gallery NOT found");
+                    return;
+                };
+                let delayed_scroll_value = delayed_scroll.get_untracked();
+                if delayed_scroll_value == 0 {
+                    return;
+                }
+                infinite_scroll_elm.scroll_by_with_x_and_y(0.0, delayed_scroll_value as f64);
+                delayed_scroll.set(0);
+            },
+            MutationObserverOptions::new().set_child_list(true),
+        );
+
+        view! {
+
+            <div
+                node_ref=infinite_scroll_ref
+                class="relative overflow-y-scroll overflow-x-hidden"
+            >
+            </div>
+        }
+    }
+}
 pub mod nav {
     use crate::{
         api::{Api, ApiWeb},

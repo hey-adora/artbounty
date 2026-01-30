@@ -400,6 +400,18 @@ pub mod api {
         }
     }
 
+    // impl<Func, FuncFuture, DTO> Grounder<Func, FuncFuture, DTO, (), ()>
+    //     for Func
+    // where
+    //     Func: Fn(DTO) -> FuncFuture + Clone + Sync + Send + 'static,
+    //     FuncFuture: Future<Output = ()> + 'static,
+    //     DTO: Sync + Send + 'static,
+    // {
+    //     fn ground(self) -> Api<Func, FuncFuture, DTO, ApiValue, ApiErr> {
+    //         ground(self)
+    //     }
+    // }
+
     #[derive(Debug)]
     pub struct Api<Func, FuncFuture, DTO, ApiValue, ApiErr>
     where
@@ -645,6 +657,18 @@ pub mod uuid {
     use uuid::Uuid;
 
     use web_sys::Element;
+    const UUID_FIELD_NAME: &str = "data-leptos_toolbox_uuid";
+
+    pub fn get_uuid(target: &Element) -> Option<Uuid> {
+        get_id(target, UUID_FIELD_NAME)
+    }
+
+    pub fn set_uuid(target: &Element, id: Uuid) {
+        // let id = Uuid::new_v4();
+        target
+            .set_attribute(UUID_FIELD_NAME, &id.to_string())
+            .unwrap();
+    }
 
     pub fn get_id(target: &Element, field_name: &str) -> Option<Uuid> {
         let Some(id) = target.get_attribute(field_name) else {
@@ -1197,6 +1221,9 @@ pub mod mutation_observer {
         pub child_list: bool,
         pub attributes: bool,
         pub subtree: bool,
+        pub attribute_old_value: bool,
+        pub character_data: bool,
+        pub character_data_old_value: bool,
     }
 
     impl MutationObserverOptions {
@@ -1214,8 +1241,23 @@ pub mod mutation_observer {
             self
         }
 
-        pub fn set_subtree(mut self, value: bool) -> Self {
+        pub fn subtree(mut self, value: bool) -> Self {
             self.subtree = value;
+            self
+        }
+
+        pub fn character_data(mut self, value: bool) -> Self {
+            self.character_data = value;
+            self
+        }
+
+        pub fn attribute_old_value(mut self, value: bool) -> Self {
+            self.attribute_old_value = value;
+            self
+        }
+
+        pub fn character_data_old_value(mut self, value: bool) -> Self {
+            self.character_data_old_value = value;
             self
         }
     }
@@ -1234,6 +1276,18 @@ pub mod mutation_observer {
 
             if value.child_list {
                 options.set_child_list(value.child_list);
+            }
+
+            if value.character_data {
+                options.set_character_data(value.character_data);
+            }
+
+            if value.attribute_old_value {
+                options.set_attribute_old_value(value.attribute_old_value);
+            }
+
+            if value.character_data_old_value {
+                options.set_character_data_old_value(value.character_data_old_value);
             }
 
             options
@@ -1360,7 +1414,7 @@ pub mod mutation_observer {
     where
         F: FnMut(Vec<MutationRecord>, web_sys::MutationObserver) + Clone + 'static,
     {
-        let resize_observer_closure = Closure::<dyn FnMut(Array, web_sys::MutationObserver)>::new(
+        let observer_closure = Closure::<dyn FnMut(Array, web_sys::MutationObserver)>::new(
             move |entries: Array, observer: web_sys::MutationObserver| {
                 let entries: Vec<MutationRecord> = entries
                     .to_vec()
@@ -1371,7 +1425,7 @@ pub mod mutation_observer {
             },
         )
         .into_js_value();
-        web_sys::MutationObserver::new(resize_observer_closure.as_ref().unchecked_ref()).unwrap()
+        web_sys::MutationObserver::new(observer_closure.as_ref().unchecked_ref()).unwrap()
     }
 }
 

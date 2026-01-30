@@ -2,6 +2,7 @@ pub mod post {
     use crate::api::{Api, ApiWeb, Server404Err, ServerErr};
     use crate::path::{link_home, link_img, link_user};
     use crate::view::app::components::nav::Nav;
+    use crate::view::app::hook::use_infinite_scroll::{InfiniteStage, use_infinite_scroll};
     use crate::view::app::hook::use_post_like::{self, PostLikeStage, use_post_like};
     use crate::view::toolbox::prelude::*;
     use leptos::prelude::*;
@@ -187,6 +188,45 @@ pub mod post {
                 .collect_view()
         };
 
+        let index = StoredValue::new(0_usize);
+        let fff = move |stage: InfiniteStage| async move {
+            // vec![ view! { <div class="" >"wtf"</div> } ]
+            let index_val = index.get_value();
+            let views = match stage {
+                InfiniteStage::Init => {
+                    //
+                    (index_val..index_val + 100)
+                        .into_iter()
+                        .map(move |i| view! { <div class="" >"wtf "{i}</div> })
+                        .collect_view()
+                }
+                InfiniteStage::Top => {
+                    //
+                    (index_val..index_val + 10)
+                        .into_iter()
+                        .map(move |i| view! { <div class="" >"top "{i}</div> })
+                        .collect_view()
+                }
+                InfiniteStage::Btm => {
+                    //
+                    (index_val..index_val + 10)
+                        .into_iter()
+                        .map(move |i| view! { <div class="" >"btm "{i}</div> })
+                        .collect_view()
+                }
+            };
+            let views_len = views.len();
+            index.update_value(|v| {
+                *v += views_len;
+            });
+
+
+            views
+        };
+        let a = fff.clone();
+        let comment_ref = NodeRef::new();
+        let infinte = use_infinite_scroll(comment_ref,  fff);
+
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen text-base05">
                 <Nav/>
@@ -235,6 +275,13 @@ pub mod post {
                         <div class="flex flex-col gap-2 md:gap-4 justify-between mt-4">
                             <h1 class="text-[1.2rem] text-base0F">"Description"</h1>
                             <div class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}", if fn_description_is_empty() {"text-base03"} else {"text-base05"} )>{fn_description}</div>
+                        </div>
+                        <div  class="flex flex-col gap-2 md:gap-4 justify-between mt-4">
+                            <h1 class="text-[1.2rem] text-base0F">"Comments"</h1>
+                            <div node_ref=comment_ref class="max-h-[20rem] overflow-y-scroll relative">
+                                { infinte }
+                            </div>
+                            // <div class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}", if fn_description_is_empty() {"text-base03"} else {"text-base05"} )>{fn_description}</div>
                         </div>
                     </div>
                 </div>
@@ -860,33 +907,33 @@ pub mod home {
             fake_imgs.set(imgs);
         });
 
-        let fetch_init = Rc::new(move |count| -> Vec<Img> {
-            trace!("gog1");
-            if count == 0 || count > fake_imgs.with(|v| v.len()) {
-                Vec::new()
-            } else {
-                fake_imgs.with(|v| v[..count].to_vec())
-            }
-        });
-
-        let fetch_top = move |count: usize, last_img: Img| -> Vec<Img> {
-            trace!("gogtop");
-
-            fake_imgs
-                .with_untracked(|imgs| {
-                    imgs.iter()
-                        .position(|img| img.id == last_img.id)
-                        .and_then(|pos_end| {
-                            trace!("FETCH_TOP: POS_END {pos_end}");
-                            if pos_end == 0 {
-                                return None;
-                            }
-                            let pos_start = pos_end.saturating_sub(count);
-                            Some(imgs[pos_start..pos_end].to_vec())
-                        })
-                })
-                .unwrap_or_default()
-        };
+        // let fetch_init = Rc::new(move |count| -> Vec<Img> {
+        //     trace!("gog1");
+        //     if count == 0 || count > fake_imgs.with(|v| v.len()) {
+        //         Vec::new()
+        //     } else {
+        //         fake_imgs.with(|v| v[..count].to_vec())
+        //     }
+        // });
+        //
+        // let fetch_top = move |count: usize, last_img: Img| -> Vec<Img> {
+        //     trace!("gogtop");
+        //
+        //     fake_imgs
+        //         .with_untracked(|imgs| {
+        //             imgs.iter()
+        //                 .position(|img| img.id == last_img.id)
+        //                 .and_then(|pos_end| {
+        //                     trace!("FETCH_TOP: POS_END {pos_end}");
+        //                     if pos_end == 0 {
+        //                         return None;
+        //                     }
+        //                     let pos_start = pos_end.saturating_sub(count);
+        //                     Some(imgs[pos_start..pos_end].to_vec())
+        //                 })
+        //         })
+        //         .unwrap_or_default()
+        // };
 
         // <AwaitProps<>
         view! {
