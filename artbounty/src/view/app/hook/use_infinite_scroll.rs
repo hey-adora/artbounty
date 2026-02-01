@@ -75,7 +75,7 @@ where
     let observer_mutation = RwSignal::new(None::<SendWrapper<MutationObserver>>);
     let all_nodes = RwSignal::new(Vec::<NodeRef<html::Div>>::new());
     // let btm_nodes = RwSignal::new(Vec::<NodeRef<html::Div>>::new());
-    let delayed_scroll = StoredValue::new(0.0 as f64);
+    let delayed_scroll = StoredValue::<Option<(InfiniteStage, f64, f64)>>::new(None);
     let busy = StoredValue::new(false);
 
     let get_items = move |stage: InfiniteStage| {
@@ -161,8 +161,8 @@ where
                     match stage {
                         InfiniteStage::Btm | InfiniteStage::Init => {
                             if index > 0 {
-                                delayed_scroll.set_value(scroll_height_after - scroll_height);
-
+                                // delayed_scroll.set_value(scroll_height_after - scroll_height);
+                                delayed_scroll.set_value(Some((InfiniteStage::Btm, height, scroll_height_after)));
                                 trace!("draining nodes 0..{index}");
                                 current_nodes.drain(0..index);
                             }
@@ -171,8 +171,9 @@ where
                         InfiniteStage::Top => {
                             if index < current_nodes_len {
                                 trace!("set scroll scroll_height({scroll_height}) - scroll_height_after({scroll_height_after}) = {}", scroll_height - scroll_height_after);
-                                delayed_scroll.set_value(scroll_height - scroll_height_after);
+                                // delayed_scroll.set_value(scroll_height - scroll_height_after);
 
+                                delayed_scroll.set_value(Some((InfiniteStage::Top, height, scroll_height_after)));
                                 trace!("draining nodes {index}..");
                                 current_nodes.drain(index..);
                             }
@@ -320,19 +321,42 @@ where
             observer_intersection_top.set(Some(SendWrapper::new(observer)));
 
             let observer = mutation_observer::new_raw(move |a, b| {
-                let scroll = delayed_scroll.get_value();
-                if scroll == 0.0 {
+                let Some((stage, scroll_height_before, scroll_height_after)) =
+                    delayed_scroll.get_value()
+                else {
                     return;
-                }
+                };
+                // if scroll == 0.0 {
+                //     return;
+                // }
                 let Some(infinite_scroll_elm) = infinite_scroll_ref.get_untracked() else {
                     trace!("gallery NOT found");
                     return;
                 };
-
                 let infinite_scroll_elm: HtmlElement = infinite_scroll_elm.into();
+
+                let width = infinite_scroll_elm.client_width() as f64;
+                let height = infinite_scroll_elm.client_height() as f64;
+                let scroll_height_current = infinite_scroll_elm.scroll_height() as f64;
+                let scroll_top = infinite_scroll_elm.scroll_top() as f64;
+
+                trace!(
+                    "scroll_height_current{scroll_height_current} scroll_height_before{scroll_height_before} scroll_height_after{scroll_height_after}"
+                );
+                let scroll = match stage {
+                    InfiniteStage::Btm | InfiniteStage::Init => {
+                        scroll_height_after - scroll_height_current
+                    }
+                    InfiniteStage::Top => {
+                        // let removed = scroll_height_before - scroll_height_after;
+                        scroll_height_current - scroll_height_after
+                        // 50.0
+                    }
+                };
+
                 trace!("scrolling by {scroll}");
                 infinite_scroll_elm.scroll_by_with_x_and_y(0.0, scroll);
-                delayed_scroll.set_value(0.0);
+                delayed_scroll.set_value(None);
             });
             observer_mutation.set(Some(SendWrapper::new(observer)));
             //

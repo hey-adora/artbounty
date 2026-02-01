@@ -195,7 +195,7 @@ pub mod post {
             let views = match stage {
                 InfiniteStage::Init => {
                     //
-                    (index_val..index_val + 10)
+                    (index_val..index_val + 100)
                         .into_iter()
                         .map(move |i| view! { <div class="" >"wtf "{i}</div> })
                         .collect_view()
