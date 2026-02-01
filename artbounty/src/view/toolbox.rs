@@ -1659,7 +1659,11 @@ pub mod file {
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
     use web_sys::{
-        DragEvent, File, FileList, ReadableStreamDefaultReader,
+        DragEvent,
+        File,
+        FileList,
+        ReadableStreamDefaultReader,
+        // DragEvent, File, FileList, ReadableStreamDefaultReader,
         js_sys::{Object, Reflect, Uint8Array},
     };
 

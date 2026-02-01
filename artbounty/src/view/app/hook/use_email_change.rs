@@ -4,7 +4,7 @@ use std::time::Duration;
 use crate::get_timestamp;
 use crate::view::app::GlobalState;
 use crate::view::toolbox::prelude::*;
-use gloo::history::query;
+// use gloo::history::query;
 use humantime::format_duration;
 use jiff::Span;
 use jiff::{

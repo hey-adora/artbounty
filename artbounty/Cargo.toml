@@ -44,13 +44,13 @@ csr = ["leptos/csr"]
 cfg-if = { workspace = true }
 # regex = { workspace = true }
 # url = { workspace = true }
-macro_rules_attribute = { workspace = true }
+# macro_rules_attribute = { workspace = true }
 strum = { workspace = true }
 serde = { workspace = true }
-serde-untagged = { workspace = true }
-serde_urlencoded = { workspace = true }
-serde_json = { workspace = true }
-serde_qs = { workspace = true }
+# serde-untagged = { workspace = true }
+# serde_urlencoded = { workspace = true }
+# serde_json = { workspace = true }
+# serde_qs = { workspace = true }
 rkyv = { workspace = true }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
@@ -59,7 +59,7 @@ leptos = { workspace = true }
 leptos_router = { workspace = true }
 leptos_meta = { workspace = true }
 console_error_panic_hook = { workspace = true }
-gloo = { workspace = true }
+# gloo = { workspace = true }
 reactive_stores = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
