@@ -9,6 +9,19 @@ pub mod api;
 pub mod db;
 pub mod view;
 
+#[cfg(feature = "ssr")]
+pub fn init_test_log() {
+    let _ = tracing_subscriber::fmt()
+        .event_format(
+            tracing_subscriber::fmt::format()
+                .with_file(true)
+                .with_line_number(true),
+        )
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        // .with_writer(file)
+        .try_init();
+}
+
 pub fn get_timestamp() -> u128 {
     cfg_if::cfg_if! {
         if #[cfg(feature = "ssr")] {

@@ -11,7 +11,7 @@ pub mod prelude {
     pub use super::mutation_observer::{self, AddMutationObserver, MutationObserverOptions};
     pub use super::random::{random_u8, random_u32, random_u32_ranged, random_u64};
     pub use super::resize_observer::{self, AddResizeObserver, GetContentBoxSize};
-    pub use super::url::set_query;
+    // pub use super::url::set_query;
 }
 
 pub mod leptos_helpers {
@@ -594,41 +594,41 @@ pub mod api {
     }
 }
 
-pub mod url {
-    use leptos::prelude::*;
-    use tracing::{error, trace};
-
-    pub fn set_query(key: impl AsRef<str>, value: impl AsRef<str>) {
-        let location = window().location();
-        let Some(mut url) = location
-            .href()
-            .inspect_err(|err| error!("getting location err"))
-            .ok()
-            .and_then(|v| {
-                url::Url::parse(&v)
-                    .inspect_err(|err| error!("parsing location err"))
-                    .ok()
-            })
-            .inspect(|v| trace!("parsed url: {v}"))
-        else {
-            return;
-        };
-        {
-            let mut query = url.query_pairs_mut();
-            query.append_pair(key.as_ref(), value.as_ref());
-        }
-        let Some(query) = url.query() else {
-            return;
-        };
-        trace!("href: {query:?}");
-        let _ = location
-            .set_search(query)
-            .inspect_err(|_| error!("failed to set location err"));
-        // let _ = location
-        //     .set_href(&href)
-        //     .inspect_err(|_| error!("failed to set location err"));
-    }
-}
+// pub mod url {
+//     use leptos::prelude::*;
+//     use tracing::{error, trace};
+//
+//     pub fn set_query(key: impl AsRef<str>, value: impl AsRef<str>) {
+//         let location = window().location();
+//         let Some(mut url) = location
+//             .href()
+//             .inspect_err(|err| error!("getting location err"))
+//             .ok()
+//             .and_then(|v| {
+//                 url::Url::parse(&v)
+//                     .inspect_err(|err| error!("parsing location err"))
+//                     .ok()
+//             })
+//             .inspect(|v| trace!("parsed url: {v}"))
+//         else {
+//             return;
+//         };
+//         {
+//             let mut query = url.query_pairs_mut();
+//             query.append_pair(key.as_ref(), value.as_ref());
+//         }
+//         let Some(query) = url.query() else {
+//             return;
+//         };
+//         trace!("href: {query:?}");
+//         let _ = location
+//             .set_search(query)
+//             .inspect_err(|_| error!("failed to set location err"));
+//         // let _ = location
+//         //     .set_href(&href)
+//         //     .inspect_err(|_| error!("failed to set location err"));
+//     }
+// }
 
 pub mod random {
     use web_sys::js_sys::Math::random;

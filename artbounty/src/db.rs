@@ -13,9 +13,9 @@ use tracing::{error, trace};
 use crate::db::post::create_post_id;
 
 // pub static DB: LazyLock<Db<local::Db>> = LazyLock::new(Db::init);
-derive_alias! {
-    #[derive(Save!)] = #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)];
-}
+// derive_alias! {
+//     #[derive(Save!)] = #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)];
+// }
 
 pub type DbEngine = Db<local::Db>;
 pub async fn new_local(time: u128, path: impl AsRef<str>) -> Db<local::Db> {
@@ -171,7 +171,7 @@ pub struct Db<C: Connection> {
     pub db: Surreal<C>,
 }
 
-#[derive(Save!)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DBUser {
     pub id: RecordId,
     pub username: String,
@@ -181,7 +181,7 @@ pub struct DBUser {
     pub created_at: u128,
 }
 
-#[derive(Save!)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DBUserPost {
     pub id: RecordId,
     pub user: DBUser,
@@ -194,7 +194,7 @@ pub struct DBUserPost {
     pub created_at: u128,
 }
 
-#[derive(Save!)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DBUserPostFile {
     pub extension: String,
     pub hash: String,
@@ -202,7 +202,7 @@ pub struct DBUserPostFile {
     pub height: u32,
 }
 
-#[derive(Save!)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DBInvite {
     pub id: RecordId,
     pub token_raw: String,
@@ -214,7 +214,7 @@ pub struct DBInvite {
     pub created_at: u128,
 }
 
-#[derive(Save!)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DBSentEmail {
     pub id: RecordId,
     pub body: String,
@@ -224,7 +224,7 @@ pub struct DBSentEmail {
     pub created_at: u128,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum DBSentEmailReason {
     ConfirmPasswordChange,
     ConfirmEmailChange,
@@ -243,7 +243,7 @@ impl Display for DBSentEmailReason {
     }
 }
 
-#[derive(Save!)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DBSession {
     pub id: RecordId,
     pub access_token: String,
@@ -783,7 +783,7 @@ pub mod email_change {
     use crate::db::SurrealSerializeUtils;
 
     use super::Db;
-    use super::Save;
+    // use super::Save;
     pub use surrealdb::Connection;
     use surrealdb::RecordId;
     use surrealdb::engine::local::SurrealKv;
@@ -808,7 +808,7 @@ pub mod email_change {
         NotFound,
     }
 
-    #[derive(Save!)]
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
     pub struct DBEmailChange {
         pub id: RecordId,
         pub user: DBUser,
@@ -821,7 +821,7 @@ pub mod email_change {
         pub created_at: u128,
     }
 
-    #[derive(Save!)]
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
     pub struct DBEmailChangeToken {
         pub email: String,
         pub token_raw: String,
@@ -829,7 +829,7 @@ pub mod email_change {
         // pub token_expires: u128,
     }
 
-    #[derive(Save!)]
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
     pub enum DBEmailChangeStage {
         ConfirmCurrentEmail {
             email_current_token: String,

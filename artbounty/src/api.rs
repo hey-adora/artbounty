@@ -1,7 +1,7 @@
 use http::HeaderMap;
 use http::header::{AUTHORIZATION, SET_COOKIE};
 use leptos::prelude::*;
-use regex::Regex;
+// use regex::Regex;
 use reqwest::RequestBuilder;
 use rkyv::result::ArchivedResult;
 use std::fmt::Display;
@@ -1267,15 +1267,76 @@ pub fn auth_token_get(
     headers: &HeaderMap,
     header_name: http::header::HeaderName,
 ) -> Option<String> {
-    let rex = Regex::new(r"[a-zA-Z\d\-_]+\.[a-zA-Z\d\-_]+\.[a-zA-Z\d\-_]+").unwrap();
-
+    // let rex = Regex::new(r"[a-zA-Z\d\-_]+\.[a-zA-Z\d\-_]+\.[a-zA-Z\d\-_]+").unwrap();
     headers
         .get(header_name)
         .inspect(|v| trace!("extract auth value raw {v:?}"))
-        .and_then(|v| rex.find(v.to_str().unwrap()))
-        .map(|v| v.as_str().to_string())
+        // .and_then(|v| Some(v.to_str()))
+        // .and_then(|v| rex.find(v.to_str().unwrap()))
+        .and_then(|v| v.to_str().ok().and_then(|v| extract_auth_token(v)))
+        // .map(|v| v.as_str().to_string())
         // .map(|v| cut_cookie(v.to_str().unwrap(), COOKIE_PREFIX_FULL, COOKIE_POSTFIX).to_string())
         .inspect(|v| trace!("extract auth value cut {v:?}"))
+}
+
+fn extract_auth_token(input: impl AsRef<str>) -> Option<String> {
+    let input = input.as_ref();
+
+    let mut cursor = 0;
+    let mut end = 0_usize;
+    let mut stage = 0_usize;
+    for (i, c) in input.chars().map(|v| v).enumerate() {
+        if (c >= '0' && c <= '9')
+            || (c >= 'A' && c <= 'Z')
+            || (c >= 'a' && c <= 'z')
+            || c == '-'
+            || c == '_'
+        {
+            if stage == 0 {
+                stage = 1;
+                cursor = i;
+            }
+            trace!("0 {c} stage {stage} cursor {cursor} end {end}");
+            continue;
+        }
+
+        if c == '.' {
+            stage += 1;
+            trace!("1 {c} stage {stage} cursor {cursor} end {end}");
+            continue;
+        }
+
+        if stage == 3 {
+            end = i;
+            trace!("2 {c} stage {stage} cursor {cursor} end {end}");
+            break;
+        }
+
+        if stage > 0 {
+            stage = 0;
+        }
+
+        cursor = i;
+
+        trace!("3 {c} stage {stage} cursor {cursor} end {end}");
+    }
+
+    if stage == 3 && cursor < end && end < input.len() {
+        Some(input[cursor..end].to_string())
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn extract_auth_token_test() {
+    crate::init_test_log();
+
+    let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJ1c2VybmFtZSI6InByaW1lMSIsImNyZWF0ZWRfYXQiOjE3Njg3MzA1NjYwOTYzNTYxMTYsImV4cCI6MH0.naD94yClraAw9nEj-k6_zfXzad1EJ815C07IMCmTJX7yWIg78jFe2Up2EZcYt6q_Vug8AD0dwQzZ8w7pqAee-w";
+    let input = format!("Bearer: {token};gfogdfoign");
+    let output = extract_auth_token(&input);
+    assert_eq!(Some(token.to_string()), output);
 }
 
 // pub fn auth_token_get_short(
