@@ -518,7 +518,16 @@ pub mod clock {
 //     #[derive(Com!)] = #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)];
 // }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum ServerReq {
     Login {
         email: String,
@@ -602,14 +611,32 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub struct ServerReqImg {
     pub path: String,
     pub data: Vec<u8>,
 }
 
 // TODO make sure the "id" fields only send key value
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum ServerRes {
     SetAuthCookie { token: String },
     DeleteAuthCookie,
@@ -624,7 +651,17 @@ pub enum ServerRes {
     Ok,
 }
 
-#[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum ServerErr {
     #[error("client err {0}")]
     ClientErr(#[from] ClientErr),
@@ -682,7 +719,17 @@ pub enum ServerErr {
     DbErr,
 }
 
-#[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum ServerLoginErr {
     #[error("wrong credentials")]
     WrongCredentials,
@@ -691,7 +738,17 @@ pub enum ServerLoginErr {
     ServerCreateCookieErr(String),
 }
 
-#[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum ServerDesErr {
     #[error("wrong variant")]
     ServerWrongInput(String),
@@ -712,7 +769,17 @@ pub enum ServerDesErr {
     ServerDesGettingMultipartErr(String),
 }
 
-#[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum ClientErr {
     #[error("failed to deserialize req {0}")]
     ClientDesErr(String),
@@ -727,13 +794,33 @@ pub enum ClientErr {
 //     NotFound,
 // }
 
-#[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum Server404Err {
     #[error("not found")]
     NotFound,
 }
 
-#[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum ServerAuthErr {
     #[error("unauthorized no cookie")]
     ServerUnauthorizedNoCookie,
@@ -742,13 +829,33 @@ pub enum ServerAuthErr {
     ServerUnauthorizedInvalidCookie,
 }
 
-#[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum ServerTokenErr {
     #[error("jwt error")]
     ServerJWT,
 }
 
-#[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum ServerAddPostErr {
     #[error("failed to create dir {0}")]
     ServerDirCreationFailed(String),
@@ -766,7 +873,17 @@ pub enum ServerAddPostErr {
     ServerImgErr(Vec<ServerErrImgMeta>),
 }
 
-#[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum ServerDecodeInviteErr {
     #[error("invite not found")]
     InviteNotFound,
@@ -775,7 +892,17 @@ pub enum ServerDecodeInviteErr {
     JWT(String),
 }
 
-#[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum ServerRegistrationErr {
     #[error("invalid registration input")]
     ServerRegistrationInvalidInput {
@@ -828,7 +955,17 @@ pub enum ServerRegistrationErr {
 //     #[error("user not found")]
 //     NotFound,
 // }
-#[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum PostLikeErr {
     #[error("post \"{0}\" was already liked")]
     PostAlreadyLiked(String),
@@ -837,7 +974,17 @@ pub enum PostLikeErr {
     PostNotFound(String),
 }
 
-#[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum ChangePasswordErr {
     #[error("invalid password {0}")]
     InvalidPassword(String),
@@ -846,7 +993,17 @@ pub enum ChangePasswordErr {
     NotFound,
 }
 
-#[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum ChangeUsernameErr {
     #[error("username \"{0}\" is taken")]
     UsernameIsTaken(String),
@@ -858,7 +1015,17 @@ pub enum ChangeUsernameErr {
     NotFound,
 }
 
-#[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum EmailChangeNewErr {
     #[error("email \"{0}\" is taken")]
     EmailIsTaken(String),
@@ -870,7 +1037,17 @@ pub enum EmailChangeNewErr {
     InvalidStage(String),
 }
 
-#[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum EmailChangeTokenErr {
     #[error("token is invalid")]
     TokenInvalid,
@@ -879,7 +1056,17 @@ pub enum EmailChangeTokenErr {
     InvalidStage(String),
 }
 
-#[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum EmailChangeErr {
     #[error("invalid stage: {0}")]
     InvalidStage(String),
@@ -899,7 +1086,16 @@ pub enum EmailChangeErr {
 //     ChangeEmail,
 // }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub struct User {
     pub username: String,
     pub created_at: u128,
@@ -915,7 +1111,16 @@ impl From<crate::db::DBUser> for User {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub struct UserPost {
     pub id: String,
     pub user: User,
@@ -928,7 +1133,21 @@ pub struct UserPost {
     pub created_at: u128,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,  PartialOrd, strum::EnumString, strum::EnumIter, strum::Display, strum::EnumIs)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    PartialOrd,
+    strum::EnumString,
+    strum::EnumIter,
+    strum::Display,
+    strum::EnumIs,
+)]
 #[strum(serialize_all = "lowercase")]
 #[repr(u8)]
 pub enum PasswordChangeStage {
@@ -937,7 +1156,21 @@ pub enum PasswordChangeStage {
     Complete,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,  PartialOrd, strum::EnumString, strum::EnumIter, strum::Display, strum::EnumIs)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    PartialOrd,
+    strum::EnumString,
+    strum::EnumIter,
+    strum::Display,
+    strum::EnumIs,
+)]
 #[strum(serialize_all = "lowercase")]
 #[repr(u8)]
 pub enum EmailChangeStage {
@@ -1132,7 +1365,16 @@ impl From<crate::db::DBUserPost> for UserPost {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub struct UserPostFile {
     pub extension: String,
     pub hash: String,
@@ -1152,13 +1394,32 @@ impl From<crate::db::DBUserPostFile> for UserPostFile {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub struct ServerErrImgMeta {
     pub path: String,
     pub err: ServerErrImg,
 }
 
-#[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum ServerErrImg {
     #[error("failed to read img metadata {0}")]
     ServerImgMetadataReadFail(String),
@@ -1176,7 +1437,16 @@ pub enum ServerErrImg {
     ServerImgWebPEncodingFailed(String),
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub struct AuthToken {
     pub username: String,
     pub created_at: u128,
@@ -1194,7 +1464,16 @@ impl AuthToken {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub struct EmailToken {
     pub key: String,
     pub email: String,
@@ -1281,8 +1560,9 @@ pub fn auth_token_get(
 
 fn extract_auth_token(input: impl AsRef<str>) -> Option<String> {
     let input = input.as_ref();
+    let input_len = input.len();
 
-    let mut cursor = 0;
+    let mut start = 0;
     let mut end = 0_usize;
     let mut stage = 0_usize;
     for (i, c) in input.chars().map(|v| v).enumerate() {
@@ -1294,21 +1574,23 @@ fn extract_auth_token(input: impl AsRef<str>) -> Option<String> {
         {
             if stage == 0 {
                 stage = 1;
-                cursor = i;
+                start = i;
             }
-            trace!("0 {c} stage {stage} cursor {cursor} end {end}");
+            end = i;
+            trace!("0 {c} stage {stage} cursor {start} end {end}");
             continue;
         }
 
         if c == '.' {
             stage += 1;
-            trace!("1 {c} stage {stage} cursor {cursor} end {end}");
+            trace!("1 {c} stage {stage} cursor {start} end {end}");
             continue;
         }
 
         if stage == 3 {
-            end = i;
-            trace!("2 {c} stage {stage} cursor {cursor} end {end}");
+            // end = i;
+            // stage = 4;
+            trace!("2 {c} stage {stage} cursor {start} end {end}");
             break;
         }
 
@@ -1316,13 +1598,13 @@ fn extract_auth_token(input: impl AsRef<str>) -> Option<String> {
             stage = 0;
         }
 
-        cursor = i;
+        start = i;
 
-        trace!("3 {c} stage {stage} cursor {cursor} end {end}");
+        trace!("3 {c} stage {stage} cursor {start} end {end}");
     }
 
-    if stage == 3 && cursor < end && end < input.len() {
-        Some(input[cursor..end].to_string())
+    if stage == 3 && start < end && end < input.len() {
+        Some(input[start..=end].to_string())
     } else {
         None
     }
@@ -1333,8 +1615,17 @@ fn extract_auth_token(input: impl AsRef<str>) -> Option<String> {
 fn extract_auth_token_test() {
     crate::init_test_log();
 
-    let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJ1c2VybmFtZSI6InByaW1lMSIsImNyZWF0ZWRfYXQiOjE3Njg3MzA1NjYwOTYzNTYxMTYsImV4cCI6MH0.naD94yClraAw9nEj-k6_zfXzad1EJ815C07IMCmTJX7yWIg78jFe2Up2EZcYt6q_Vug8AD0dwQzZ8w7pqAee-w";
-    let input = format!("Bearer: {token};gfogdfoign");
+    // let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJ1c2VybmFtZSI6InByaW1lMSIsImNyZWF0ZWRfYXQiOjE3Njg3MzA1NjYwOTYzNTYxMTYsImV4cCI6MH0.naD94yClraAw9nEj-k6_zfXzad1EJ815C07IMCmTJX7yWIg78jFe2Up2EZcYt6q_Vug8AD0dwQzZ8w7pqAee-w";
+    let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJ1c2VybmFtZSI6InByaW1lIiwiY3JlYXRlZF9hdCI6MTc3MDEzNjY3NTMxMTY3Njc4OCwiZXhwIjowfQ.L8rQBPtF7kYpSPGKSV8pVG9tsWuE9agDz7sKquCPMXEy5Qy2q3PsiON3Tt3Z1-q8y1We6nnsRKbK79vZtPKSBA";
+    let input = format!("authorization=Bearer {token}");
+    let output = extract_auth_token(&input);
+    assert_eq!(Some(token.to_string()), output);
+
+    let input = format!("authorization=Bearer {token};gj04j3t");
+    let output = extract_auth_token(&input);
+    assert_eq!(Some(token.to_string()), output);
+
+    let input = format!("{token}");
     let output = extract_auth_token(&input);
     assert_eq!(Some(token.to_string()), output);
 }
@@ -4202,7 +4493,7 @@ mod tests {
     use crate::db::{DBUser, EmailIsTakenErr, email_change::DBEmailChange};
     // use crate::db::DBEmailTokenKind;
     use crate::server::create_api_router;
-    use tracing_appender::rolling;
+    // use tracing_appender::rolling;
 
     struct ApiTestApp {
         pub state: AppState,

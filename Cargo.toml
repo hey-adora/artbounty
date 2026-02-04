@@ -83,8 +83,8 @@ tower-http = { version = "0.6.4", features = [
 ] }
 surrealdb = { version = "2.3.3", features = ["kv-surrealkv", "kv-mem"] }
 console_error_panic_hook = "0.1.7"
-gloo = { version = "0.11.0", features = ["file", "futures"] }
-indexmap = "2.9.0"
+# gloo = { version = "0.11.0", features = ["file", "futures"] }
+# indexmap = "2.9.0"
 indextree = "4.7.4"
 leptos = { version = "0.8.2", features = [] }
 # leptos = { version = "0.8.2", features = ["rkyv"] }
@@ -92,14 +92,14 @@ leptos_router = { version = "0.8.2" }
 leptos_meta = "0.8.2"
 ordered-float = { version = "5.0.0", features = [] }
 # ordered-float = { version = "5.0.0", features = ["rkyv"] }
-reactive_stores = "0.2.2"
+# reactive_stores = "0.2.2"
 rkyv = { version = "0.8.10", features = [ "unaligned" ] }
 server_fn = { version = "0.8.2", features = [] }
 # server_fn = { version = "0.8.2", features = ["rkyv"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
-tracing-appender = "0.2"
-uuid = { version = "1.17.0", features = ["v4", "js"] }
+# tracing-appender = "0.2"
+# uuid = { version = "1.17.0", features = ["v4", "js"] }
 wasm-bindgen = { version = "0.2.100" }
 wasm-bindgen-futures = { version = "0.4.50" }
 wasm-bindgen-test = "0.3.50"
@@ -140,6 +140,7 @@ web-sys = { version = "0.3.77", features = [
     "Node",
     "File",
     "FileList",
+    "Crypto",
 ] }
 
 [[workspace.metadata.leptos]]

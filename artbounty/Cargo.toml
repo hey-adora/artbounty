@@ -60,12 +60,12 @@ leptos_router = { workspace = true }
 leptos_meta = { workspace = true }
 console_error_panic_hook = { workspace = true }
 # gloo = { workspace = true }
-reactive_stores = { workspace = true }
+# reactive_stores = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-tracing-appender = { workspace = true }
-indextree = { workspace = true }
-uuid = { workspace = true }
+# tracing-appender = { workspace = true }
+# indextree = { workspace = true }
+# uuid = { workspace = true }
 send_wrapper = { workspace = true }
 ordered-float = { workspace = true }
 sha2 = { workspace = true }

@@ -653,48 +653,55 @@ pub mod random {
 pub mod uuid {
     use std::str::FromStr;
 
+    use leptos::prelude::window;
     use tracing::error;
-    use uuid::Uuid;
+    // use uuid::Uuid;
 
     use web_sys::Element;
     const UUID_FIELD_NAME: &str = "data-leptos_toolbox_uuid";
 
-    pub fn get_uuid(target: &Element) -> Option<Uuid> {
+    #[cfg(target_arch = "wasm32")]
+    pub fn gen_uuid() -> String {
+        window()
+            .crypto()
+            .map(|v| v.random_uuid())
+            .inspect_err(|_| {
+                error!("failed to generated crypto uuid for some magical f#($)#* reason")
+            })
+            .unwrap_or("error".to_string())
+    }
+
+    #[cfg(target_os = "linux")]
+    // #[cfg(target_arch = "other")]
+    pub fn gen_uuid() -> String {
+        "only works on wasm".to_string()
+    }
+
+    pub fn get_uuid(target: &Element) -> Option<String> {
         get_id(target, UUID_FIELD_NAME)
     }
 
-    pub fn set_uuid(target: &Element, id: Uuid) {
+    pub fn set_uuid(target: &Element, id: String) {
         // let id = Uuid::new_v4();
         target
             .set_attribute(UUID_FIELD_NAME, &id.to_string())
             .unwrap();
     }
 
-    pub fn get_id(target: &Element, field_name: &str) -> Option<Uuid> {
-        let Some(id) = target.get_attribute(field_name) else {
+    pub fn get_id(target: &Element, field_name: &str) -> Option<String> {
+        let output = target.get_attribute(field_name);
+        if output.is_none() {
             error!(
                 "{} was not set {:?}",
                 field_name,
                 target.to_string().as_string()
             );
-            return None;
-        };
-        let id = match Uuid::from_str(&id) {
-            Ok(id) => id,
-            Err(_err) => {
-                error!(
-                    "{} is invalid {:?}",
-                    field_name,
-                    target.to_string().as_string()
-                );
-                return None;
-            }
         };
 
-        Some(id)
+        output
     }
 
-    pub fn set_id(target: &Element, field_name: &str, id: Uuid) {
+    pub fn set_id(target: &Element, field_name: &str, id: String) {
         target.set_attribute(field_name, &id.to_string()).unwrap();
     }
 }
@@ -829,14 +836,16 @@ pub mod intersection_observer {
     use leptos::prelude::*;
     use ordered_float::OrderedFloat;
     use send_wrapper::SendWrapper;
-    use tracing::{trace, trace_span, warn};
-    use uuid::Uuid;
+    use tracing::{error, trace, trace_span, warn};
+    // use uuid::Uuid;
     use wasm_bindgen::prelude::Closure;
     use wasm_bindgen::{JsCast, JsValue};
     use web_sys::{
         HtmlElement, IntersectionObserver, IntersectionObserverEntry, IntersectionObserverInit,
         js_sys::Array,
     };
+
+    use crate::view::toolbox::uuid::gen_uuid;
 
     use super::uuid::{get_id, set_id};
 
@@ -848,7 +857,7 @@ pub mod intersection_observer {
         static CALLBACKS: LazyLock<
             RefCell<
                 HashMap<
-                    Uuid,
+                    String,
                     Box<
                         dyn FnMut(IntersectionObserverEntry, IntersectionObserver)
                             + Send
@@ -992,7 +1001,10 @@ pub mod intersection_observer {
         //         expect_context::<GlobalState>()
         //     }
         // };
-        let id = Uuid::new_v4();
+        // let id = Uuid::new_v4();
+        // let id = web_sys::Crypto::random_uuid();
+        let id = gen_uuid();
+
         let options_hash = StoredValue::new(None::<u64>);
 
         Effect::new(move || {
@@ -1027,15 +1039,18 @@ pub mod intersection_observer {
 
             let target: HtmlElement = target.into();
 
-            set_id(&target, ID_FIELD_NAME, id);
+            set_id(&target, ID_FIELD_NAME, id.clone());
             trace!("id set");
 
             {
                 // HASHMAP.get(k);
-                CALLBACKS.with(|callbacks| {
-                    let mut callbacks = callbacks.borrow_mut();
-                    callbacks.insert(id, Box::new(callback.clone()));
-                    trace!("created callback");
+                CALLBACKS.with({
+                    let id = id.clone();
+                    |callbacks| {
+                        let mut callbacks = callbacks.borrow_mut();
+                        callbacks.insert(id, Box::new(callback.clone()));
+                        trace!("created callback");
+                    }
                 });
             }
             // LazyLock::force(&CALLBACKS).borrow_mut()(|v| {
@@ -1441,11 +1456,13 @@ pub mod resize_observer {
     };
     use send_wrapper::SendWrapper;
     use tracing::{trace, trace_span};
-    use uuid::Uuid;
+    // use uuid::Uuid;
     use wasm_bindgen::prelude::*;
     use web_sys::{
         self, HtmlElement, ResizeObserver, ResizeObserverEntry, ResizeObserverSize, js_sys::Array,
     };
+
+    use crate::view::toolbox::uuid::gen_uuid;
 
     use super::uuid::{get_id, set_id};
 
@@ -1489,7 +1506,7 @@ pub mod resize_observer {
         pub observer: StoredValue<Option<SendWrapper<ResizeObserver>>>,
         pub callbacks: StoredValue<
             HashMap<
-                Uuid,
+                String,
                 Box<dyn FnMut(ResizeObserverEntry, ResizeObserver) + Send + Sync + 'static>,
             >,
         >,
@@ -1509,7 +1526,7 @@ pub mod resize_observer {
             }
         };
         // let ctx = expect_context::<GlobalState>();
-        let id = Uuid::new_v4();
+        let id = gen_uuid();
 
         Effect::new(move || {
             let span = trace_span!("resize observer").entered();
@@ -1543,11 +1560,14 @@ pub mod resize_observer {
 
             let target: HtmlElement = target.into();
 
-            set_id(&target, ID_FIELD_NAME, id);
+            set_id(&target, ID_FIELD_NAME, id.clone());
 
-            ctx.callbacks.update_value(|v| {
-                v.insert(id, Box::new(callback.clone()));
-                trace!("created {}", &id);
+            ctx.callbacks.update_value({
+                let id = id.clone();
+                |v| {
+                    trace!("creating {}", &id);
+                    v.insert(id, Box::new(callback.clone()));
+                }
             });
 
             observer.observe(&target);
