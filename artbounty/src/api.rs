@@ -2488,10 +2488,7 @@ pub async fn send(
 ) -> (http::HeaderMap, Result<ServerRes, ServerErr>) {
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&req).unwrap();
     // http::header::REFERER
-    debug!(
-        "CLIENT SEND:\n{req:?} - {:?}",
-        bytes.as_ref()
-    );
+    debug!("CLIENT SEND:\n{req:?} - {:?}", bytes.as_ref());
     let part = reqwest::multipart::Part::bytes(bytes.to_vec());
     let form = reqwest::multipart::Form::new().part("data", part);
     if let Some(token) = token {
@@ -4479,7 +4476,7 @@ mod tests {
     use axum_test::TestServer;
     use gxhash::gxhash128;
     // use pretty_assertions::assert_eq;
-    use test_log::test;
+    // use test_log::test;
     use tokio::sync::Mutex;
     use tracing::{debug, error, trace};
 
@@ -5526,6 +5523,8 @@ mod tests {
     // }
     #[tokio::test]
     async fn api_change_password_test() {
+        crate::init_test_log();
+
         let app = ApiTestApp::new(1).await;
 
         let auth_token = app
@@ -5564,6 +5563,8 @@ mod tests {
 
     #[tokio::test]
     async fn api_email_change_test() {
+        crate::init_test_log();
+
         let app = ApiTestApp::new(1).await;
         let auth_token = app
             .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
@@ -5713,6 +5714,8 @@ mod tests {
 
     #[tokio::test]
     async fn api_auth_test() {
+        crate::init_test_log();
+
         let app = ApiTestApp::new(1).await;
         let auth_token = app
             .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
@@ -5737,6 +5740,8 @@ mod tests {
 
     #[tokio::test]
     async fn api_post_like_test() {
+        crate::init_test_log();
+
         let app = ApiTestApp::new(1).await;
 
         let auth_token = app
@@ -5772,6 +5777,8 @@ mod tests {
 
     #[tokio::test]
     async fn api_post_test() {
+        crate::init_test_log();
+
         let app = ApiTestApp::new(1).await;
         let auth_token = app
             .register(0, "hey", "hey@heyadora.com", "pas$word123456789")

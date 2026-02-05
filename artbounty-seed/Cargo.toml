@@ -1,0 +1,15 @@
+[package]
+name = "artbounty-seed"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+artbounty = { workspace = true }
+ab_glyph = "0.2.31"
+clap = "4.5.45"
+imageproc = "0.25.0"
+image = { workspace = true }
+rand = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

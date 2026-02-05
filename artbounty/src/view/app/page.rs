@@ -220,12 +220,11 @@ pub mod post {
                 *v += views_len;
             });
 
-
             views
         };
         let a = fff.clone();
         let comment_ref = NodeRef::new();
-        let infinte = use_infinite_scroll(comment_ref,  fff);
+        let infinte = use_infinite_scroll(comment_ref, fff);
 
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen text-base05">
@@ -1075,12 +1074,14 @@ pub mod register {
         use log::trace;
         // use pretty_assertions::assert_eq;
         use std::str::FromStr;
-        use test_log::test;
+        // use test_log::test;
 
         use super::RegKind;
 
         #[test]
         pub fn reg_kind() {
+            crate::init_test_log();
+
             let kind = RegKind::Reg;
             let kind_s = kind.to_string();
             trace!("kind as str: {kind_s}");

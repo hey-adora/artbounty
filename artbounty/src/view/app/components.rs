@@ -1345,7 +1345,7 @@ pub mod gallery {
         // use ordered_float::OrderedFloat;
         // use pretty_assertions::assert_eq;
         use std::fmt::Display;
-        use test_log::test;
+        // use test_log::test;
         use tracing::trace;
 
         use wasm_bindgen_test::*;
@@ -1490,6 +1490,8 @@ pub mod gallery {
 
         #[test]
         fn test_get_rows_forward() {
+            crate::init_test_log();
+
             let imgs = Vec::from([
                 //row 0
                 Img::new(0, 1000, 500),
@@ -1518,6 +1520,8 @@ pub mod gallery {
 
         #[test]
         fn test_get_rows_rev() {
+            crate::init_test_log();
+
             let imgs = Vec::from([
                 //row 0
                 Img::new(0, 500, 500),
@@ -1542,6 +1546,8 @@ pub mod gallery {
 
         #[test]
         fn test_resize() {
+            crate::init_test_log();
+
             let imgs = Vec::<Img>::from([
                 //row 0
             ]);
@@ -1552,6 +1558,8 @@ pub mod gallery {
 
         #[test]
         fn test_set_rows() {
+            crate::init_test_log();
+
             let rows = Vec::from([
                 Row::new(0, 0, 2.0, 1000, 1000.0),
                 Row::new(1, 2, 2.0, 1000, 1000.0),
@@ -1714,6 +1722,8 @@ pub mod gallery {
 
         #[test]
         fn test_get_row_end() {
+            crate::init_test_log();
+
             let imgs = Vec::from([
                 //row 0
                 Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
@@ -1737,6 +1747,8 @@ pub mod gallery {
 
         #[test]
         fn test_get_row_start() {
+            crate::init_test_log();
+
             let imgs = Vec::from([
                 //row 0
                 Img::new_full(0, 1000, 500, 1000.0, 500.0, 0.0, 0.0),
@@ -1760,6 +1772,8 @@ pub mod gallery {
 
         #[test]
         fn test_add_imgs() {
+            crate::init_test_log();
+
             // TODO, ASSET SCROLL_BY
             trace!("=======UPDATING IMGS=======");
             let imgs = Vec::from([]);
@@ -1836,6 +1850,8 @@ pub mod gallery {
 
         #[test]
         fn img_remove() {
+            crate::init_test_log();
+
             trace!("=================");
             let mut imgs = [
                 //row 0
@@ -1936,6 +1952,8 @@ pub mod gallery {
 
         #[test]
         fn test_normalize_negative() {
+            crate::init_test_log();
+
             trace!("=================");
             let mut imgs = Vec::from([
                 //row 0

@@ -3,9 +3,9 @@ use std::str::FromStr;
 use std::time::Duration;
 
 pub use surrealdb::Connection;
-use surrealdb::{RecordId, RecordIdKey};
 use surrealdb::engine::local::SurrealKv;
 use surrealdb::engine::local::{self, Mem};
+use surrealdb::{RecordId, RecordIdKey};
 use surrealdb::{Surreal, opt::IntoEndpoint};
 use thiserror::Error;
 use tracing::{error, trace};
@@ -484,7 +484,7 @@ pub mod post_like {
 
         // use pretty_assertions::assert_eq;
         use surrealdb::{RecordId, engine::local::Mem};
-        use test_log::test;
+        // use test_log::test;
         use tracing::trace;
 
         use crate::{
@@ -496,8 +496,9 @@ pub mod post_like {
             },
         };
 
-        #[test(tokio::test)]
+        #[tokio::test]
         async fn db_post_like() {
+            crate::init_test_log();
             let db = Db::new::<Mem>(()).await.unwrap();
             db.migrate(0).await.unwrap();
 
@@ -706,7 +707,7 @@ pub mod confirm_email {
 
         // use pretty_assertions::assert_eq;
         use surrealdb::engine::local::Mem;
-        use test_log::test;
+        // use test_log::test;
         use tracing::trace;
 
         use crate::{
@@ -717,8 +718,10 @@ pub mod confirm_email {
             },
         };
 
-        #[test(tokio::test)]
+        #[tokio::test]
         async fn db_confirm_email() {
+            crate::init_test_log();
+
             let db = Db::new::<Mem>(()).await.unwrap();
             db.migrate(0).await.unwrap();
 
@@ -1112,13 +1115,15 @@ pub mod email_change {
 
         // use pretty_assertions::assert_eq;
         use surrealdb::engine::local::Mem;
-        use test_log::test;
+        // use test_log::test;
         use tracing::trace;
 
         use crate::db::{DB404Err, Db, EmailIsTakenErr, email_change::DBChangeEmailErr};
 
-        #[test(tokio::test)]
+        #[tokio::test]
         async fn db_email_change() {
+            crate::init_test_log();
+
             let db = Db::new::<Mem>(()).await.unwrap();
             db.migrate(0).await.unwrap();
 
@@ -1201,7 +1206,7 @@ pub mod email_change {
             }
         }
 
-        #[test(tokio::test)]
+        #[tokio::test]
         async fn update_user_email() {
             let db = Db::new::<Mem>(()).await.unwrap();
             db.migrate(0).await.unwrap();
@@ -1961,7 +1966,6 @@ mod tests {
 
     // use pretty_assertions::assert_eq;
     use surrealdb::engine::local::Mem;
-    use test_log::test;
     use tracing::trace;
 
     use crate::{
@@ -1972,8 +1976,10 @@ mod tests {
         },
     };
 
-    #[test(tokio::test)]
+    #[tokio::test]
     async fn db_sent_email() {
+        crate::init_test_log();
+
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate(0).await.unwrap();
 
@@ -2012,7 +2018,7 @@ mod tests {
         assert_eq!(latest_email.body, "wowza2");
     }
 
-    #[test(tokio::test)]
+    #[tokio::test]
     async fn db_post() {
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate(0).await.unwrap();
@@ -2122,7 +2128,7 @@ mod tests {
         // assert_eq!(posts, posts3);
     }
 
-    #[test(tokio::test)]
+    #[tokio::test]
     async fn db_email_token() {
         let db = Db::new::<Mem>(()).await.unwrap();
         let time = Duration::from_nanos(0);
@@ -2220,7 +2226,7 @@ mod tests {
         assert!(matches!(invite2, Err(EmailIsTakenErr::EmailIsTaken(_))));
     }
 
-    #[test(tokio::test)]
+    #[tokio::test]
     async fn db_user() {
         let db = Db::new::<Mem>(()).await.unwrap();
         let time = 0;
@@ -2295,7 +2301,7 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[test(tokio::test)]
+    #[tokio::test]
     async fn db_session() {
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate(0).await.unwrap();

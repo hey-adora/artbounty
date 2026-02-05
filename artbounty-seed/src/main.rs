@@ -276,7 +276,7 @@ async fn main() {
                     y: height,
                 };
 
-                let font = FontRef::try_from_slice(include_bytes!("../../../assets/noto_sans.ttf")).unwrap();
+                let font = FontRef::try_from_slice(include_bytes!("../../assets/noto_sans.ttf")).unwrap();
                 let img = draw_text(
                     &mut image,
                     Rgb([0u8, 0u8, 0u8]),

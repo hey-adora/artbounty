@@ -182,10 +182,11 @@ pub mod valid {
         #[cfg(test)]
         mod auth_tests {
             use super::{proccess_email, proccess_password, proccess_username};
-            use test_log::test;
+            // use test_log::test;
 
             #[test]
             fn test_proccess_username() {
+                crate::init_test_log();
                 assert!(proccess_username("hey").is_ok());
                 assert!(proccess_username("hey%").is_err());
                 assert!(proccess_username("he").is_err());
@@ -196,6 +197,7 @@ pub mod valid {
 
             #[test]
             fn test_proccess_password() {
+                crate::init_test_log();
                 assert!(proccess_password("password", Some("password")).is_err());
                 assert!(proccess_password("password123", Some("password123")).is_err());
                 assert!(proccess_password("passw*rd123", Some("passw*rd123")).is_err());
@@ -206,6 +208,7 @@ pub mod valid {
 
             #[test]
             fn test_proccess_email() {
+                crate::init_test_log();
                 assert!(proccess_email("hey@hey..com").is_ok());
                 // assert!(proccess_email("heyhey.com").is_err());
                 assert!(proccess_email("").is_err());
@@ -323,10 +326,11 @@ pub mod valid {
     #[cfg(test)]
     mod valid_tests {
         use super::Validator;
-        use test_log::test;
+        // use test_log::test;
 
         #[test]
         fn test_validator() {
+            crate::init_test_log();
             assert!("input".is_alphanumerc());
             assert!(!"input@".is_alphanumerc());
             assert!(!"input".is_smaller_than(5));
