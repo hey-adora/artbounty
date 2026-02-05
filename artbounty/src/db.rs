@@ -36,11 +36,11 @@ pub async fn new_mem(time: u128) -> Db<local::Db> {
     db
 }
 
-pub fn surreal_time_from_duration(time: Duration) -> surrealdb::Datetime {
-    surrealdb::Datetime::from(chrono::DateTime::from_timestamp_nanos(
-        time.as_nanos() as i64
-    ))
-}
+// pub fn surreal_time_from_duration(time: Duration) -> surrealdb::Datetime {
+//     surrealdb::Datetime::from(chrono::DateTime::from_timestamp_nanos(
+//         time.as_nanos() as i64
+//     ))
+// }
 
 pub trait SurrealCheckUtils {
     fn check_good<ERR: std::error::Error + From<surrealdb::Error>>(
@@ -482,7 +482,7 @@ pub mod post_like {
     mod tests {
         use std::time::Duration;
 
-        use pretty_assertions::assert_eq;
+        // use pretty_assertions::assert_eq;
         use surrealdb::{RecordId, engine::local::Mem};
         use test_log::test;
         use tracing::trace;
@@ -704,7 +704,7 @@ pub mod confirm_email {
     mod tests {
         use std::time::Duration;
 
-        use pretty_assertions::assert_eq;
+        // use pretty_assertions::assert_eq;
         use surrealdb::engine::local::Mem;
         use test_log::test;
         use tracing::trace;
@@ -1110,7 +1110,7 @@ pub mod email_change {
     mod tests {
         use std::time::Duration;
 
-        use pretty_assertions::assert_eq;
+        // use pretty_assertions::assert_eq;
         use surrealdb::engine::local::Mem;
         use test_log::test;
         use tracing::trace;
@@ -1959,7 +1959,7 @@ impl<C: Connection> Db<C> {
 mod tests {
     use std::time::Duration;
 
-    use pretty_assertions::assert_eq;
+    // use pretty_assertions::assert_eq;
     use surrealdb::engine::local::Mem;
     use test_log::test;
     use tracing::trace;

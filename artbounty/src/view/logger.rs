@@ -1,4 +1,4 @@
-use colored::Colorize;
+// use colored::Colorize;
 use tracing::span;
 use tracing_subscriber::fmt::format::PrettyVisitor;
 use tracing_subscriber::fmt::format::Writer;
@@ -147,15 +147,15 @@ impl<S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'
                 let msg = format!(
                     "{}{}{}{}: {}",
                     match level {
-                        tracing::Level::TRACE => "TRACE".on_blue(),
-                        tracing::Level::DEBUG => "TRACE".on_green(),
-                        tracing::Level::INFO => "TRACE".on_white(),
-                        tracing::Level::WARN => "TRACE".on_yellow(),
-                        tracing::Level::ERROR => "TRACE".on_red(),
+                        tracing::Level::TRACE => "TRACE",//.on_blue(),
+                        tracing::Level::DEBUG => "TRACE",//.on_green(),
+                        tracing::Level::INFO => "TRACE",//.on_white(),
+                        tracing::Level::WARN => "TRACE",//.on_yellow(),
+                        tracing::Level::ERROR => "TRACE",//.on_red(),
                     },
-                    spans_combined.bold(),
-                    target.bright_black(),
-                    origin.bright_black(),
+                    spans_combined,//.bold(),
+                    target,//.bright_black(),
+                    origin,//.bright_black(),
                     value
                 );
                 if use_println {

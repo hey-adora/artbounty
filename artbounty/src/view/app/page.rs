@@ -1073,7 +1073,7 @@ pub mod register {
     #[cfg(test)]
     mod fe {
         use log::trace;
-        use pretty_assertions::assert_eq;
+        // use pretty_assertions::assert_eq;
         use std::str::FromStr;
         use test_log::test;
 

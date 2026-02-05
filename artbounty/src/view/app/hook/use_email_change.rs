@@ -5,12 +5,12 @@ use crate::get_timestamp;
 use crate::view::app::GlobalState;
 use crate::view::toolbox::prelude::*;
 // use gloo::history::query;
-use humantime::format_duration;
-use jiff::Span;
-use jiff::{
-    ToSpan,
-    fmt::friendly::{Designator, SpanPrinter},
-};
+// use humantime::format_duration;
+// use jiff::Span;
+// use jiff::{
+//     ToSpan,
+//     fmt::friendly::{Designator, SpanPrinter},
+// };
 use leptos::html;
 use leptos::{prelude::*, task::spawn_local};
 use leptos_router::params::Params;
@@ -326,7 +326,9 @@ pub fn use_change_email<API: Api + Sync + Send + Clone + Copy + 'static>(
                 EXPIRED_STR.to_string()
             } else {
                 let elapsed = Duration::from_nanos(elapsed as u64);
-                format_duration(elapsed).to_string()
+                // TODO make human time
+                // format_duration(elapsed).to_string()
+                format!("{elapsed:?}")
             };
             let _ = time_until_expires.try_set(output);
         },

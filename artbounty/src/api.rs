@@ -2224,7 +2224,7 @@ impl ApiReq {
         Option<jsonwebtoken::TokenData<AuthToken>>,
         Result<ServerRes, ServerErr>,
     ) {
-        use axum_extra::extract::{CookieJar, cookie::Cookie};
+        // use axum_extra::extract::{CookieJar, cookie::Cookie};
         use http::header::SET_COOKIE;
 
         let secret = secret.into();
@@ -2344,7 +2344,7 @@ pub async fn recv(
     headers: impl AsRef<str>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<ServerReq, ServerErr> {
-    let mut bytes = bytes::Bytes::new();
+    let mut bytes = Default::default();
     while let Some(field) = multipart
         .next_field()
         .await
@@ -2378,7 +2378,7 @@ pub async fn recv(
 #[cfg(feature = "ssr")]
 impl axum::response::IntoResponse for ServerErr {
     fn into_response(self) -> axum::response::Response {
-        use axum_extra::extract::{CookieJar, cookie::Cookie};
+        // use axum_extra::extract::{CookieJar, cookie::Cookie};
 
         let status = axum::http::StatusCode::INTERNAL_SERVER_ERROR;
         // let status = match self {
@@ -2427,7 +2427,7 @@ impl axum::response::IntoResponse for ServerErr {
                 let result: Result<ServerRes, ServerErr> = Err(self);
                 let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&result).unwrap();
                 let bytes = bytes.to_vec();
-                let bytes: bytes::Bytes = bytes.into();
+                // let bytes: bytes::Bytes = bytes.into();
                 let headers = create_deleted_cookie();
                 // let jar = CookieJar::new().add(Cookie::new(AUTHORIZATION.as_str(), COOKIE_DELETED));
                 (status, headers, bytes).into_response()
@@ -2436,7 +2436,7 @@ impl axum::response::IntoResponse for ServerErr {
                 let result: Result<ServerRes, ServerErr> = Err(server_err);
                 let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&result).unwrap();
                 let bytes = bytes.to_vec();
-                let bytes: bytes::Bytes = bytes.into();
+                // let bytes: bytes::Bytes = bytes.into();
                 (status, bytes).into_response()
             }
         }
@@ -2446,14 +2446,14 @@ impl axum::response::IntoResponse for ServerErr {
 #[cfg(feature = "ssr")]
 impl axum::response::IntoResponse for ServerRes {
     fn into_response(self) -> axum::response::Response {
-        use axum_extra::extract::{CookieJar, cookie::Cookie};
+        // use axum_extra::extract::{CookieJar, cookie::Cookie};
 
         match self {
             ServerRes::DeleteAuthCookie => {
                 let result: Result<ServerRes, ServerErr> = Ok(ServerRes::Ok);
                 let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&result).unwrap();
                 let bytes = bytes.to_vec();
-                let bytes: bytes::Bytes = bytes.into();
+                // let bytes: bytes::Bytes = bytes.into();
                 let headers = create_deleted_cookie();
                 (headers, bytes).into_response()
             }
@@ -2461,10 +2461,10 @@ impl axum::response::IntoResponse for ServerRes {
                 let result: Result<ServerRes, ServerErr> = Ok(ServerRes::Ok);
                 let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&result).unwrap();
                 let bytes = bytes.to_vec();
-                let bytes: bytes::Bytes = bytes.into();
+                // let bytes: bytes::Bytes = bytes.into();
                 let headers = create_auth_cookie(token);
 
-                debug!("SERVER SEND:\n{result:?} - {bytes:X}");
+                debug!("SERVER SEND:\n{result:?} - {bytes:?}");
 
                 (headers, bytes).into_response()
             }
@@ -2472,8 +2472,8 @@ impl axum::response::IntoResponse for ServerRes {
                 let result: Result<ServerRes, ServerErr> = Ok(res);
                 let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&result).unwrap();
                 let bytes = bytes.to_vec();
-                let bytes: bytes::Bytes = bytes.into();
-                debug!("SERVER SEND:\n{result:?} - {bytes:X}");
+                // let bytes: bytes::Bytes = bytes.into();
+                debug!("SERVER SEND:\n{result:?} - {bytes:?}");
 
                 bytes.into_response()
             }
@@ -2489,8 +2489,8 @@ pub async fn send(
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&req).unwrap();
     // http::header::REFERER
     debug!(
-        "CLIENT SEND:\n{req:?} - {:X}",
-        bytes::Bytes::copy_from_slice(bytes.as_ref())
+        "CLIENT SEND:\n{req:?} - {:?}",
+        bytes.as_ref()
     );
     let part = reqwest::multipart::Part::bytes(bytes.to_vec());
     let form = reqwest::multipart::Form::new().part("data", part);
@@ -2570,8 +2570,8 @@ pub mod backend {
     use axum::Extension;
     use axum::extract::State;
     use axum::response::IntoResponse;
-    use axum_extra::extract::CookieJar;
-    use axum_extra::extract::cookie::Cookie;
+    // use axum_extra::extract::CookieJar;
+    // use axum_extra::extract::cookie::Cookie;
     use gxhash::{gxhash64, gxhash128};
     use http::header::{AUTHORIZATION, COOKIE};
     use http::{HeaderMap, StatusCode};
@@ -2597,7 +2597,7 @@ pub mod backend {
         use crate::db::DB404Err;
         use crate::valid::auth::{proccess_password, proccess_username};
         use axum::extract::State;
-        use axum_extra::extract::CookieJar;
+        // use axum_extra::extract::CookieJar;
         use http::header::COOKIE;
         use tracing::{debug, error, info, trace};
 
@@ -2750,7 +2750,7 @@ pub mod backend {
         pub async fn logout(
             State(app_state): State<AppState>,
             mut parts: http::request::Parts,
-            jar: CookieJar,
+            // jar: CookieJar,
             req: ServerReq,
         ) -> Result<ServerRes, ServerErr> {
             let ServerReq::None = req else {
@@ -2881,7 +2881,7 @@ pub mod backend {
         use crate::valid::auth::{proccess_password, proccess_username};
         use axum::Extension;
         use axum::extract::State;
-        use axum_extra::extract::CookieJar;
+        // use axum_extra::extract::CookieJar;
         use http::header::COOKIE;
         use tracing::{debug, error, info, trace};
 
@@ -4478,7 +4478,7 @@ mod tests {
 
     use axum_test::TestServer;
     use gxhash::gxhash128;
-    use pretty_assertions::assert_eq;
+    // use pretty_assertions::assert_eq;
     use test_log::test;
     use tokio::sync::Mutex;
     use tracing::{debug, error, trace};

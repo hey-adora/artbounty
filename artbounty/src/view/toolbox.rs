@@ -11,7 +11,18 @@ pub mod prelude {
     pub use super::mutation_observer::{self, AddMutationObserver, MutationObserverOptions};
     pub use super::random::{random_u8, random_u32, random_u32_ranged, random_u64};
     pub use super::resize_observer::{self, AddResizeObserver, GetContentBoxSize};
-    // pub use super::url::set_query;
+    pub use super::time::time_now_ms;
+}
+
+pub mod time {
+    use wasm_bindgen::prelude::*;
+
+    #[wasm_bindgen]
+    extern "C" {
+        #[wasm_bindgen(js_namespace = date, js_name = now)]
+        pub fn time_now_ms() -> f64;
+
+    }
 }
 
 pub mod leptos_helpers {
@@ -834,7 +845,7 @@ pub mod intersection_observer {
 
     use leptos::html::ElementType;
     use leptos::prelude::*;
-    use ordered_float::OrderedFloat;
+    // use ordered_float::OrderedFloat;
     use send_wrapper::SendWrapper;
     use tracing::{error, trace, trace_span, warn};
     // use uuid::Uuid;
@@ -930,7 +941,7 @@ pub mod intersection_observer {
     {
         root: Option<NodeRef<E>>,
         root_margin: Option<String>,
-        threshold: Option<OrderedFloat<f64>>,
+        threshold: Option<u64>,
     }
 
     impl<E> Default for IntersectionOptions<E>
@@ -963,7 +974,7 @@ pub mod intersection_observer {
         }
 
         pub fn set_threshold(mut self, threshold: f64) -> Self {
-            self.threshold = Some(OrderedFloat(threshold));
+            self.threshold = Some(threshold.to_bits());
             self
         }
     }
@@ -1086,7 +1097,8 @@ pub mod intersection_observer {
 
                             if let Some(threshold) = options.threshold {
                                 trace!("threshold option set");
-                                observer_settings.set_threshold(&JsValue::from_f64(*threshold));
+                                observer_settings
+                                    .set_threshold(&JsValue::from_f64(f64::from_bits(threshold)));
                             }
 
                             trace!("creating raw observer");

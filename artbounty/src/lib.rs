@@ -9,6 +9,8 @@ pub mod api;
 pub mod db;
 pub mod view;
 
+// pub struct OrdFloat(u64);
+
 #[cfg(feature = "ssr")]
 pub fn init_test_log() {
     let _ = tracing_subscriber::fmt()

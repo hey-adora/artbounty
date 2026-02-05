@@ -15,7 +15,7 @@ ssr = [
     "leptos/ssr",
     "leptos_router/ssr",
     "dep:axum",
-    "dep:axum-extra",
+    # "dep:axum-extra",
     "dep:tower",
     "dep:leptos_axum",
     "dep:tower_governor",
@@ -67,28 +67,28 @@ tracing-subscriber = { workspace = true }
 # indextree = { workspace = true }
 # uuid = { workspace = true }
 send_wrapper = { workspace = true }
-ordered-float = { workspace = true }
-sha2 = { workspace = true }
+# ordered-float = { workspace = true }
+# sha2 = { workspace = true }
 futures = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
-pretty_assertions = { workspace = true }
-itertools = { workspace = true }
-colored = { workspace = true }
+# pretty_assertions = { workspace = true }
+# itertools = { workspace = true }
+# colored = { workspace = true }
 log = { workspace = true }
 server_fn = { workspace = true }
-chrono = { workspace = true }
-jiff = { workspace = true }
-humantime = { workspace = true }
-bytecheck = { workspace = true }
+# chrono = { workspace = true }
+# jiff = { workspace = true }
+# humantime = { workspace = true }
+# bytecheck = { workspace = true }
 reqwest = { workspace = true }
 http = { workspace = true }
-bytes = { workspace = true }
+# bytes = { workspace = true }
 rand = { workspace = true, optional = true }
 argon2 = { workspace = true, optional = true }
-pin-project-lite = { workspace = true }
+# pin-project-lite = { workspace = true }
 axum = { workspace = true, optional = true }
-axum-extra = { workspace = true, optional = true }
+# axum-extra = { workspace = true, optional = true }
 leptos_axum = { workspace = true, optional = true }
 tower = { workspace = true, optional = true }
 tower-http = { workspace = true, optional = true }

@@ -113,7 +113,7 @@ pub mod gallery {
     use crate::api::{Api, ApiWeb, UserPost, UserPostFile};
     use crate::path::{link_img, link_post, link_post_with_history};
     use crate::view::toolbox::prelude::*;
-    use chrono::Utc;
+    // use chrono::Utc;
     use leptos::html;
     use leptos::{html::Div, prelude::*};
     use leptos_router::hooks::{query_signal, use_params_map, use_query_map};
@@ -463,7 +463,7 @@ pub mod gallery {
             ) else {
                 let count = calc_fit_count(width, height, row_height) as u32;
                 let direction_is_bottom = true;
-                let time = Utc::now().timestamp_micros() as u128 * 1000;
+                let time = time_now_ms() as u128 * 1000_000;
                 trace!(
                     "initial gallery init - using new params {} {} {} {} {}",
                     direction_is_bottom, width, height, time, count
@@ -522,7 +522,7 @@ pub mod gallery {
             let width = gallery_elm.client_width() as u32;
             let height = gallery_elm.client_height() as f64;
             let count = calc_fit_count(width, height, row_height) as u32;
-            let time = Utc::now().timestamp_micros() as u128 * 1000;
+            let time = time_now_ms() as u128 * 1000_000;
 
             gallery.set(Vec::new());
 
@@ -1342,8 +1342,8 @@ pub mod gallery {
             remove_until_fit_from_top, resize_v2, set_rows_to_bottom, set_rows_to_top,
         };
         // use leptos::prelude::*;
-        use ordered_float::OrderedFloat;
-        use pretty_assertions::assert_eq;
+        // use ordered_float::OrderedFloat;
+        // use pretty_assertions::assert_eq;
         use std::fmt::Display;
         use test_log::test;
         use tracing::trace;
@@ -1354,15 +1354,27 @@ pub mod gallery {
 
         wasm_bindgen_test_configure!(run_in_browser);
 
-        #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq)]
+        #[derive(Debug, Clone)]
         struct Img {
             pub id: String,
             pub width: u32,
             pub height: u32,
-            pub view_width: OrderedFloat<f64>,
-            pub view_height: OrderedFloat<f64>,
-            pub view_pos_x: OrderedFloat<f64>,
-            pub view_pos_y: OrderedFloat<f64>,
+            pub view_width: f64,
+            pub view_height: f64,
+            pub view_pos_x: f64,
+            pub view_pos_y: f64,
+        }
+
+        impl PartialEq for Img {
+            fn eq(&self, other: &Self) -> bool {
+                self.id == other.id
+                    && self.width == other.width
+                    && self.height == other.height
+                    && self.view_width == other.view_width
+                    && self.view_height == other.view_height
+                    && self.view_pos_x == other.view_pos_x
+                    && self.view_pos_y == other.view_pos_y
+            }
         }
 
         impl Display for Img {
@@ -1398,10 +1410,14 @@ pub mod gallery {
                     id: id.to_string(),
                     width,
                     height,
-                    view_width: OrderedFloat(0.0),
-                    view_height: OrderedFloat(0.0),
-                    view_pos_x: OrderedFloat(0.0),
-                    view_pos_y: OrderedFloat(0.0),
+                    view_width: 0.0_f64,
+                    view_height: 0.0_f64,
+                    view_pos_x: 0.0_f64,
+                    view_pos_y: 0.0_f64,
+                    // view_width: 0.0_f64.to_bits(),
+                    // view_height: 0.0_f64.to_bits(),
+                    // view_pos_x: 0.0_f64.to_bits(),
+                    // view_pos_y: 0.0_f64.to_bits(),
                 }
             }
 
@@ -1418,10 +1434,14 @@ pub mod gallery {
                     id: id.to_string(),
                     width,
                     height,
-                    view_width: OrderedFloat(view_width),
-                    view_height: OrderedFloat(view_height),
-                    view_pos_x: OrderedFloat(view_pos_x),
-                    view_pos_y: OrderedFloat(view_pos_y),
+                    view_width: view_width,
+                    view_height: view_height,
+                    view_pos_x: view_pos_x,
+                    view_pos_y: view_pos_y,
+                    // view_width: view_width.to_bits(),
+                    // view_height: view_height.to_bits(),
+                    // view_pos_x: view_pos_x.to_bits(),
+                    // view_pos_y: view_pos_y.to_bits(),
                 }
             }
         }
@@ -1446,25 +1466,25 @@ pub mod gallery {
                 (self.width, self.height)
             }
             fn get_pos_x(&self) -> f64 {
-                *self.view_pos_x
+                self.view_pos_x
             }
             fn get_pos_y(&self) -> f64 {
-                *self.view_pos_y
+                self.view_pos_y
             }
             fn get_view_height(&self) -> f64 {
-                *self.view_height
+                self.view_height
             }
             fn set_size(&mut self, view_width: f64, view_height: f64, pos_x: f64, pos_y: f64) {
-                *self.view_width = view_width;
-                *self.view_height = view_height;
-                self.view_pos_x = OrderedFloat::from(pos_x);
-                self.view_pos_y = OrderedFloat::from(pos_y);
+                self.view_width = view_width;
+                self.view_height = view_height;
+                self.view_pos_x = pos_x;
+                self.view_pos_y = pos_y;
             }
             fn set_pos_x(&mut self, pos_x: f64) {
-                *self.view_pos_x = pos_x;
+                self.view_pos_x = pos_x;
             }
             fn set_pos_y(&mut self, pos_y: f64) {
-                *self.view_pos_y = pos_y;
+                self.view_pos_y = pos_y;
             }
         }
 

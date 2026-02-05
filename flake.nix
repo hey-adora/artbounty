@@ -75,6 +75,7 @@
               yarn
               pkg-config
               openssl
+              ripgrep
               # openssl.dev
               # bun
               # nodejs_24
