@@ -65,7 +65,7 @@ where
     Elm::Output: JsCast + Clone + 'static + Into<HtmlElement>,
     F: Fn(InfiniteStage) -> Fut + Clone + Sync + Send + 'static,
     Fut: Future<Output = Vec<Item>> + Sync + Send + 'static,
-    Item: IntoView + Clone + Sync + Send + 'static,
+    Item: IntoView + 'static,
     // Attr: Attribute,
     Item::Output<NodeRefAttr<html::Div, NodeRef<html::Div>>>: Clone,
 {

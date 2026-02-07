@@ -9,24 +9,6 @@ members = [
     "artbounty", "artbounty-seed",
 ]
 
-[profile.wasm-release]
-inherits = "release"
-opt-level = 'z'
-lto = true
-codegen-units = 1
-panic = "abort"
-
-[profile.dev]
-opt-level = 0
-incremental = true
-codegen-units = 256
-lto = "off"
-debug = "none"
-strip = "none"
-
-[profile.dev.package."*"]
-opt-level = 0
-
 [workspace.dependencies]
 # url = "2.5.7"
 # pin-project-lite = "0.2.16"

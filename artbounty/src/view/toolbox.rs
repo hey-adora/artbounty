@@ -15,13 +15,10 @@ pub mod prelude {
 }
 
 pub mod time {
-    use wasm_bindgen::prelude::*;
+    use web_sys::js_sys;
 
-    #[wasm_bindgen]
-    extern "C" {
-        #[wasm_bindgen(js_namespace = date, js_name = now)]
-        pub fn time_now_ms() -> f64;
-
+    pub fn time_now_ms() -> f64 {
+        js_sys::Date::now()
     }
 }
 

@@ -1,15 +1,48 @@
 [target.x86_64-unknown-linux-gnu]
 linker = "clang"
-rustflags = ["-C", "link-arg=-fuse-ld=mold", "-C", "target-feature=+aes,+sse2"]
+rustflags = ["-C", "link-arg=-fuse-ld=mold", "-C", "target-feature=+aes,+sse2", "-Z", "share-generics=y", "-Z", "threads=4", "-Z", "time-passes"]
+# rustflags = ["-C", "link-arg=-fuse-ld=mold", "-C", "target-feature=+aes,+sse2", "-Z", "share-generics=y", "--cfg", "erase_components"]
 
 [target.wasm32-unknown-unknown]
+linker = "clang"
 runner = 'wasm-bindgen-test-runner'
+rustflags = ["-C", "link-arg=-fuse-ld=mold", "-Z", "share-generics=y"]
+# rustflags = ["-C", "link-arg=-fuse-ld=mold", "-Z", "share-generics=y", "--cfg", "erase_components"]
 
-# [unstable]
-# codegen-backend = true
-#
-# [profile.dev]
-# codegen-backend = "cranelift"
-#
-# [profile.dev.package."*"]
-# codegen-backend = "cranelift"
+[unstable]
+codegen-backend = true
+
+[profile.wasm-debug]
+inherits = "dev"
+incremental = true
+opt-level = 0
+lto = "off" 
+codegen-backend = "llvm"
+codegen-units = 256
+panic = "abort"
+debug = "none"
+strip = "none"
+
+[profile.wasm-release]
+inherits = "release"
+opt-level = 'z'
+lto = true
+codegen-units = 256
+panic = "abort"
+
+[profile.dev]
+codegen-backend = "cranelift"
+opt-level = 0
+incremental = true
+codegen-units = 256
+lto = "off"
+debug = "none"
+strip = "none"
+
+[profile.dev.package."*"]
+opt-level = 0
+codegen-backend = "cranelift"
+
+[profile.dev.package.gxhash]
+opt-level = 0
+codegen-backend = "llvm"
