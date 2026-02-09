@@ -301,6 +301,18 @@ pub enum DB404Err {
 }
 
 #[derive(Debug, Error)]
+pub enum DBPostCommentErr {
+    #[error("DB error {0}")]
+    DB(#[from] surrealdb::Error),
+
+    #[error("post \"{0}\" was not found")]
+    PostNotFound(String),
+
+    #[error("reply_comment \"{0}\" was not found")]
+    ReplyCommentNotFound(String),
+}
+
+#[derive(Debug, Error)]
 pub enum DBPostLikeErr {
     #[error("DB error {0}")]
     DB(#[from] surrealdb::Error),
@@ -344,6 +356,184 @@ impl Db<local::Db> {
 
 pub fn create_user_id(id: impl Into<String>) -> RecordId {
     RecordId::from_table_key("user", id.into())
+}
+pub mod comment {
+    use crate::db::DB404Err;
+    use crate::db::DBPostCommentErr;
+    use crate::db::DBPostLikeErr;
+    use crate::db::DBUser;
+    use crate::db::DBUserPost;
+    use crate::db::SurrealCheckUtils;
+    use crate::db::SurrealErrUtils;
+    use crate::db::SurrealSerializeUtils;
+    use crate::db::post::create_post_id;
+
+    use super::Db;
+    pub use surrealdb::Connection;
+    use surrealdb::RecordId;
+    use surrealdb::RecordIdKey;
+
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    pub struct DBPostComment {
+        pub id: RecordId,
+        pub user: RecordId,
+        pub post: RecordId,
+        pub comment: Option<RecordId>,
+        pub text: String,
+        pub modified_at: u128,
+        pub created_at: u128,
+    }
+
+    pub fn create_post_comment_id(id: impl Into<RecordIdKey>) -> RecordId {
+        RecordId::from_table_key("post_comment", id.into())
+    }
+
+    impl<C: Connection> Db<C> {
+        pub async fn add_post_comment(
+            &self,
+            time: u128,
+            user_id: RecordId,
+            post_id: impl Into<RecordIdKey>,
+            post_comment_reply: Option<String>,
+            text: impl Into<String>,
+        ) -> Result<DBPostComment, DBPostCommentErr> {
+            let post_id = post_id.into();
+            let post_comment = post_comment_reply.map(|v| create_post_comment_id(v));
+            self.db
+                .query(
+                    r#"
+                 LET $post = SELECT id FROM ONLY $post_id;
+                 CREATE post_comment SET
+                    user = $user_id,
+                    post = $post.id,
+                    post_comment = if $post_comment != NULL {
+                        LET $post = SELECT id FROM ONLY $post_comment;
+                        $post.id
+                    } else {
+                        NULL
+                    },
+                    text = $comment_text,
+                    modified_at = $time,
+                    created_at = $time
+                 RETURN *;
+                "#,
+                )
+                .bind(("time", time))
+                .bind(("user_id", user_id))
+                .bind(("post_id", create_post_id(post_id.clone())))
+                .bind(("comment_text", text.into()))
+                .bind(("post_comment", post_comment))
+                .await
+                .check_good(|err| match err {
+                    err if err.field_value_null("post_comment") => {
+                        DBPostCommentErr::ReplyCommentNotFound(post_id.to_string())
+                    }
+                    err if err.field_value_null("post") => {
+                        DBPostCommentErr::PostNotFound(post_id.to_string())
+                    }
+                    err => err.into(),
+                })
+                .and_then_take_expect(1)
+        }
+
+        pub async fn get_post_comments(
+            &self,
+            time: u128,
+            post_id: impl Into<RecordIdKey>,
+            // time_after: Option<u128>, time_before: Option<u128>,
+        ) -> Result<Vec<DBPostComment>, DB404Err> {
+            self.db
+                .query(
+                    r#"
+                        SELECT * FROM post_comment WHERE
+                                post = $post_id
+                                ORDER BY created_at DESC
+                    "#,
+                )
+                .bind(("time", time))
+                // .bind(("user_user", user))
+                .bind(("post_id", create_post_id(post_id.into())))
+                .await
+                .check_good(DB404Err::from)
+                .and_then_take_all(0)
+        }
+
+        pub async fn delete_post_comment(
+            &self,
+            user_id: RecordId,
+            comment_id: impl Into<RecordIdKey>,
+        ) -> Result<(), surrealdb::Error> {
+            self.db
+                .query(
+                    r#"
+                        DELETE post_comment WHERE id = $comment_id AND $user = $user_id
+                    "#,
+                )
+                .bind(("comment_id", create_post_comment_id(comment_id.into())))
+                .bind(("user_id", user_id))
+                .await
+                .check_good(surrealdb::Error::from)
+                // .check_good(Surreal::from)
+                .map(|_| ())
+            // .and_then_take_or(0, DB404Err::NotFound)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::time::Duration;
+
+        // use pretty_assertions::assert_eq;
+        use surrealdb::{RecordId, engine::local::Mem};
+        // use test_log::test;
+        use tracing::trace;
+
+        use crate::{
+            api::{ChangeUsernameErr, ServerRes},
+            db::{
+                AddSessionErr, AddUserErr, DB404Err, DBChangeUsernameErr, DBPostLikeErr,
+                DBSentEmailReason, DBUserPostFile, Db, EmailIsTakenErr,
+                post_like::create_post_like_id,
+            },
+            init_test_log,
+        };
+
+        #[tokio::test]
+        async fn db_post_comment() {
+            init_test_log();
+
+            crate::init_test_log();
+            let db = Db::new::<Mem>(()).await.unwrap();
+            db.migrate(0).await.unwrap();
+
+            let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
+            let post = db
+                .add_post(0, "hey1", "title", "description", 0, vec![])
+                .await
+                .unwrap();
+
+            db.add_post_comment(0, user.id.clone(), post.id.key().clone(), None, "wow")
+                .await
+                .unwrap();
+
+            let comments = db
+                .get_post_comments(0, post.id.key().clone())
+                .await
+                .unwrap();
+
+            let comment_first = comments.first().unwrap();
+
+            db.delete_post_comment(user.id.clone(), comment_first.id.key().clone())
+                .await
+                .unwrap();
+
+            let comments = db
+                .get_post_comments(0, post.id.key().clone())
+                .await
+                .unwrap();
+            assert!(comments.len() == 0);
+        }
+    }
 }
 
 pub mod post_like {
@@ -1357,6 +1547,15 @@ impl<C: Connection> Db<C> {
                             DEFINE FIELD modified_at ON TABLE post_like TYPE number;
                             DEFINE FIELD created_at ON TABLE post_like TYPE number;
                             DEFINE INDEX idx_user_post ON TABLE post_like COLUMNS user, post UNIQUE;
+
+                            --post comment 
+                            DEFINE TABLE post_comment SCHEMAFULL;
+                            DEFINE FIELD user ON TABLE post_comment TYPE record<user>;
+                            DEFINE FIELD post ON TABLE post_comment TYPE record<post>;
+                            DEFINE FIELD post_comment ON TABLE post_comment TYPE option<record<post_comment>>;
+                            DEFINE FIELD text ON TABLE post_comment TYPE string;
+                            DEFINE FIELD modified_at ON TABLE post_comment TYPE number;
+                            DEFINE FIELD created_at ON TABLE post_comment TYPE number;
 
                             CREATE migration SET version = 0, modified_at = $time, created_at = $time;
                         };

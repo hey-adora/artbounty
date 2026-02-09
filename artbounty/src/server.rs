@@ -101,132 +101,156 @@ pub fn create_api_router(
     };
 
     use crate::{
-        api::{self, backend::{auth_middleware, auth_optional_middleware}},
-        path::{
-            PATH_API_CANCEL_EMAIL_CHANGE, PATH_API_CHANGE_EMAIL, PATH_API_CHANGE_EMAIL_STATUS, PATH_API_CHANGE_PASSWORD_CONFIRM, PATH_API_CHANGE_PASSWORD_SEND, PATH_API_CHANGE_USERNAME, PATH_API_CONFIRM_EMAIL_CHANGE, PATH_API_CONFIRM_EMAIL_NEW, PATH_API_POST_GET, PATH_API_POST_GET_NEWER, PATH_API_POST_GET_NEWER_OR_EQUAL, PATH_API_POST_GET_OLDER_OR_EQUAL, PATH_API_POST_LIKE_ADD, PATH_API_POST_LIKE_CHECK, PATH_API_POST_LIKE_DELETE, PATH_API_RESEND_EMAIL_CHANGE, PATH_API_RESEND_EMAIL_NEW, PATH_API_SEND_EMAIL_CHANGE, PATH_API_SEND_EMAIL_NEW, PATH_API_USER_POST_GET_NEWER, PATH_API_USER_POST_GET_NEWER_OR_EQUAL, PATH_API_USER_POST_GET_OLDER, PATH_API_USER_POST_GET_OLDER_OR_EQUAL
+        api::{
+            self,
+            backend::{auth_middleware, auth_optional_middleware},
         },
+        path::{self},
     };
 
     // use crate::api::{self, auth_middleware};
     let api_router_public = Router::new()
+        .route(
+            path::PATH_API_POST_COMMENT_GET,
+            post(api::backend::post_comment::get_post_comment),
+        )
         //
         .route(
-            PATH_API_CHANGE_PASSWORD_CONFIRM,
+            path::PATH_API_CHANGE_PASSWORD_CONFIRM,
             post(api::backend::change_password::confirm_password_change),
         )
         //
-        .route(PATH_API_LOGIN, post(api::backend::auth::login))
-        .route(PATH_API_LOGOUT, post(api::backend::auth::logout))
-        .route(PATH_API_REGISTER, post(api::backend::auth::register))
+        .route(path::PATH_API_LOGIN, post(api::backend::auth::login))
+        .route(path::PATH_API_LOGOUT, post(api::backend::auth::logout))
+        .route(path::PATH_API_REGISTER, post(api::backend::auth::register))
         .route(
-            PATH_API_INVITE_DECODE,
+            path::PATH_API_INVITE_DECODE,
             post(api::backend::auth::decode_email_token),
         )
         .route(
-            PATH_API_SEND_EMAIL_INVITE,
+            path::PATH_API_SEND_EMAIL_INVITE,
             post(api::backend::send_email_invite),
         )
-        .route(PATH_API_USER, post(api::backend::get_user))
-        .route(PATH_API_POST_GET, post(api::backend::get_post))
-        .route(PATH_API_POST_GET_OLDER, post(api::backend::get_posts_older))
-        .route(PATH_API_POST_GET_NEWER, post(api::backend::get_posts_newer))
+        .route(path::PATH_API_USER, post(api::backend::get_user))
+        .route(path::PATH_API_POST_GET, post(api::backend::get_post))
         .route(
-            PATH_API_POST_GET_OLDER_OR_EQUAL,
+            path::PATH_API_POST_GET_OLDER,
+            post(api::backend::get_posts_older),
+        )
+        .route(
+            path::PATH_API_POST_GET_NEWER,
+            post(api::backend::get_posts_newer),
+        )
+        .route(
+            path::PATH_API_POST_GET_OLDER_OR_EQUAL,
             post(api::backend::get_posts_older_or_equal),
         )
         .route(
-            PATH_API_POST_GET_NEWER_OR_EQUAL,
+            path::PATH_API_POST_GET_NEWER_OR_EQUAL,
             post(api::backend::get_posts_newer_or_equal),
         )
         .route(
-            PATH_API_USER_POST_GET_OLDER,
+            path::PATH_API_USER_POST_GET_OLDER,
             post(api::backend::get_posts_older_for_user),
         )
         .route(
-            PATH_API_USER_POST_GET_NEWER,
+            path::PATH_API_USER_POST_GET_NEWER,
             post(api::backend::get_posts_newer_for_user),
         )
         .route(
-            PATH_API_USER_POST_GET_OLDER_OR_EQUAL,
+            path::PATH_API_USER_POST_GET_OLDER_OR_EQUAL,
             post(api::backend::get_posts_older_or_equal_for_user),
         )
         .route(
-            PATH_API_USER_POST_GET_NEWER_OR_EQUAL,
+            path::PATH_API_USER_POST_GET_NEWER_OR_EQUAL,
             post(api::backend::get_posts_newer_or_equal_for_user),
         );
     let api_router_auth = Router::new()
         .route(
-            PATH_API_POST_LIKE_ADD,
+            path::PATH_API_POST_COMMENT_ADD,
+            post(api::backend::post_comment::add_post_comment),
+        )
+        .route(
+            path::PATH_API_POST_COMMENT_DELETE,
+            post(api::backend::post_comment::delete_post_comment),
+        )
+        .route(
+            path::PATH_API_POST_LIKE_ADD,
             post(api::backend::post_like::add_post_like),
         )
         .route(
-            PATH_API_POST_LIKE_CHECK,
+            path::PATH_API_POST_LIKE_CHECK,
             post(api::backend::post_like::check_post_like),
         )
         .route(
-            PATH_API_POST_LIKE_DELETE,
+            path::PATH_API_POST_LIKE_DELETE,
             post(api::backend::post_like::delete_post_like),
-
         )
-        .route(PATH_API_ACC, post(api::backend::get_account))
+        .route(path::PATH_API_ACC, post(api::backend::get_account))
         .route(
-            PATH_API_CHANGE_USERNAME,
+            path::PATH_API_CHANGE_USERNAME,
             post(api::backend::change_username::change_username),
         )
         .route(
-            PATH_API_CHANGE_EMAIL,
+            path::PATH_API_CHANGE_EMAIL,
             post(api::backend::change_email::change_email),
         )
         .route(
-            PATH_API_RESEND_EMAIL_CHANGE,
+            path::PATH_API_RESEND_EMAIL_CHANGE,
             post(api::backend::change_email::resend_email_change),
         )
         .route(
-            PATH_API_RESEND_EMAIL_NEW,
+            path::PATH_API_RESEND_EMAIL_NEW,
             post(api::backend::change_email::resend_email_new),
         )
         .route(
-            PATH_API_SEND_EMAIL_CHANGE,
+            path::PATH_API_SEND_EMAIL_CHANGE,
             post(api::backend::change_email::send_email_change),
         )
         .route(
-            PATH_API_SEND_EMAIL_NEW,
+            path::PATH_API_SEND_EMAIL_NEW,
             post(api::backend::change_email::send_email_new),
         )
         .route(
-            PATH_API_CHANGE_EMAIL_STATUS,
+            path::PATH_API_CHANGE_EMAIL_STATUS,
             post(api::backend::change_email::status_email_change),
         )
         // .route(PATH_API_CHANGE_EMAIL, post(api::backend::change_email))
         .route(
-            PATH_API_CANCEL_EMAIL_CHANGE,
+            path::PATH_API_CANCEL_EMAIL_CHANGE,
             post(api::backend::change_email::cancel_email_change),
         )
         .route(
-            PATH_API_CONFIRM_EMAIL_CHANGE,
+            path::PATH_API_CONFIRM_EMAIL_CHANGE,
             post(api::backend::change_email::confirm_email_change),
         )
         .route(
-            PATH_API_CONFIRM_EMAIL_NEW,
+            path::PATH_API_CONFIRM_EMAIL_NEW,
             post(api::backend::change_email::confirm_email_new),
         )
         // .route(
         //     PATH_API_EMAIL_CHANGE,
         //     post(api::backend::send_email_new),
         // )
-        .route(PATH_API_POST_ADD, post(api::backend::add_post))
-        .route_layer(middleware::from_fn_with_state(app_state.clone(), auth_middleware));
+        .route(path::PATH_API_POST_ADD, post(api::backend::add_post))
+        .route_layer(middleware::from_fn_with_state(
+            app_state.clone(),
+            auth_middleware,
+        ));
     let api_router_auth_optional = Router::new()
         .route(
-            PATH_API_CHANGE_PASSWORD_SEND,
+            path::PATH_API_CHANGE_PASSWORD_SEND,
             post(api::backend::change_password::send_password_change),
         )
-        .route_layer(middleware::from_fn_with_state(app_state, auth_optional_middleware));
+        .route_layer(middleware::from_fn_with_state(
+            app_state,
+            auth_optional_middleware,
+        ));
     let api_router = Router::new()
         .merge(api_router_public)
         .merge(api_router_auth_optional)
         .merge(api_router_auth);
-    Router::new().nest(PATH_API, api_router)
+    Router::new().nest(path::PATH_API, api_router)
 }
 
 // use artbounty_api::app_state::AppState;
