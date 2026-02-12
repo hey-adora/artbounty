@@ -24,7 +24,7 @@ use tracing::{debug, error, trace};
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
     Element, HtmlElement, IntersectionObserver, MutationObserver, MutationObserverInit,
-    js_sys::Array,
+    SubmitEvent, js_sys::Array,
 };
 
 #[derive(
@@ -43,11 +43,34 @@ pub enum InfiniteStage {
     Init,
     Top,
     Btm,
+    Manual,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    PartialOrd,
+    strum::EnumString,
+    strum::Display,
+    strum::EnumIter,
+    strum::EnumIs,
+)]
+#[strum(serialize_all = "lowercase")]
+pub enum InfiniteMerge<Item>
+where
+    Item: IntoView + 'static,
+{
+    Top(Vec<Item>),
+    Btm(Vec<Item>),
+    None,
 }
 
 #[derive(Clone, Copy)]
-pub struct InfiniteScroll<Item: IntoView + Sync + Send + 'static> {
-    pub items: RwSignal<Item>,
+pub struct InfiniteScroll {
+    pub view: StoredValue<Box<dyn Fn() -> AnyView + Sync + Send + 'static>>,
+    pub trigger: StoredValue<Box<dyn Fn() + Sync + Send + 'static>>,
+    // pub view: Memo<SendWrapper<AnyView>>,
     // pub btn_stage: StoredValue<Box<dyn (Fn() -> impl IntoView) + Sync + Send + 'static>>,
     // pub email: RwQuery<String>,
     // pub form_stage: RwQuery<ChangePasswordFormStage>,
@@ -59,12 +82,12 @@ pub struct InfiniteScroll<Item: IntoView + Sync + Send + 'static> {
 pub fn use_infinite_scroll<Elm, F, Fut, Item>(
     infinite_scroll_ref: NodeRef<Elm>,
     callback: F,
-) -> impl IntoView
+) -> InfiniteScroll
 where
     Elm: ElementType,
     Elm::Output: JsCast + Clone + 'static + Into<HtmlElement>,
     F: Fn(InfiniteStage) -> Fut + Clone + Sync + Send + 'static,
-    Fut: Future<Output = Vec<Item>> + Sync + Send + 'static,
+    Fut: Future<Output = InfiniteMerge<Item>> + 'static,
     Item: IntoView + 'static,
     // Attr: Attribute,
     Item::Output<NodeRefAttr<html::Div, NodeRef<html::Div>>>: Clone,
@@ -75,8 +98,13 @@ where
     let observer_mutation = RwSignal::new(None::<SendWrapper<MutationObserver>>);
     let all_nodes = RwSignal::new(Vec::<NodeRef<html::Div>>::new());
     // let btm_nodes = RwSignal::new(Vec::<NodeRef<html::Div>>::new());
-    let delayed_scroll = StoredValue::<Option<(InfiniteStage, f64, f64)>>::new(None);
+    let delayed_scroll = StoredValue::<Option<(bool, f64, f64)>>::new(None);
     let busy = StoredValue::new(false);
+
+    // let add = move |stage: InfiniteStage| {
+    //
+    //     //
+    // };
 
     let get_items = move |stage: InfiniteStage| {
         // let stage = *stage;
@@ -94,7 +122,20 @@ where
                     return;
                 };
                 let items = callback(stage).await;
-                let items_len = items.len();
+                let (items, items_len, is_top) = match items {
+                    InfiniteMerge::Top(items) => {
+                        let items_len = items.len();
+                        (items, items_len, true)
+                    }
+                    InfiniteMerge::Btm(items) => {
+                        let items_len = items.len();
+                        (items, items_len, false)
+                    }
+                    InfiniteMerge::None => {
+                        return;
+                    }
+                };
+
                 let mut new_nodes = Vec::new();
                 let mut new_views = Vec::new();
 
@@ -123,10 +164,16 @@ where
                     let current_nodes_len = current_nodes.len();
                     // let mut removed = 0_usize;
 
-                    let mut index = match stage {
-                        InfiniteStage::Btm | InfiniteStage::Init => 0,
-                        InfiniteStage::Top => current_nodes_len.saturating_sub(1),
+                    let mut index = if is_top {
+                        current_nodes_len.saturating_sub(1)
+                    } else {
+                        0
                     };
+
+                    //     match stage {
+                    //     InfiniteStage::Btm | InfiniteStage::Init => 0,
+                    //     InfiniteStage::Top => current_nodes_len.saturating_sub(1),
+                    // };
 
                     while let Some(node) = current_nodes.get(index) {
                         if scroll_height_after <= expected_scroll_height {
@@ -148,38 +195,53 @@ where
                             break;
                         }
 
-                        match stage {
-                            InfiniteStage::Btm | InfiniteStage::Init => {
-                                index += 1;
-                            }
-                            InfiniteStage::Top => {
+                        if is_top {
+
                                 index = index.saturating_sub(1);
-                            }
+                        } else {
+
+                                index += 1;
                         }
+
+
+                        // match stage {
+                        //     InfiniteStage::Btm | InfiniteStage::Init => {
+                        //     }
+                        //     InfiniteStage::Top => {
+                        //     }
+                        // }
                     }
 
-                    match stage {
-                        InfiniteStage::Btm | InfiniteStage::Init => {
-                            if index > 0 {
-                                // delayed_scroll.set_value(scroll_height_after - scroll_height);
-                                delayed_scroll.set_value(Some((InfiniteStage::Btm, height, scroll_height_after)));
-                                trace!("draining nodes 0..{index}");
-                                current_nodes.drain(0..index);
-                            }
-                            current_nodes.extend(new_nodes);
-                        }
-                        InfiniteStage::Top => {
+                    if is_top {
+
                             if index < current_nodes_len {
                                 trace!("set scroll scroll_height({scroll_height}) - scroll_height_after({scroll_height_after}) = {}", scroll_height - scroll_height_after);
                                 // delayed_scroll.set_value(scroll_height - scroll_height_after);
 
-                                delayed_scroll.set_value(Some((InfiniteStage::Top, height, scroll_height_after)));
+                                delayed_scroll.set_value(Some((true, height, scroll_height_after)));
                                 trace!("draining nodes {index}..");
                                 current_nodes.drain(index..);
                             }
                             *current_nodes = [new_nodes, current_nodes.clone()].concat();
-                        }
+                    } else {
+                            if index > 0 {
+                                // delayed_scroll.set_value(scroll_height_after - scroll_height);
+                                delayed_scroll.set_value(Some((false, height, scroll_height_after)));
+                                trace!("draining nodes 0..{index}");
+                                current_nodes.drain(0..index);
+                            }
+                            current_nodes.extend(new_nodes);
+
                     }
+
+
+
+                    // match stage {
+                    //     InfiniteStage::Btm | InfiniteStage::Init => {
+                    //     }
+                    //     InfiniteStage::Top => {
+                    //     }
+                    // }
 
                     // trace!("extending notes with {} new nodes", new_nodes.len());
 
@@ -191,20 +253,26 @@ where
 
                 all_items.try_update(|current_views| {
                     if let Some(removed) = removed {
-                        match stage {
-                            InfiniteStage::Btm | InfiniteStage::Init => {
-                                trace!("draining nodes 0..{removed}");
-                                current_views.drain(0..removed);
-                                trace!("extending views with {} new views", new_views.len());
-                                current_views.extend(new_views);
-                            }
-                            InfiniteStage::Top => {
-                                trace!("draining nodes {removed}..");
-                                current_views.drain(removed..);
-                                *current_views = [new_views, current_views.clone()].concat();
-                            }
+                        if is_top {
+                            trace!("draining nodes {removed}..");
+                            current_views.drain(removed..);
+                            *current_views = [new_views, current_views.clone()].concat();
+                        } else {
+                            trace!("draining nodes 0..{removed}");
+                            current_views.drain(0..removed);
+                            trace!("extending views with {} new views", new_views.len());
+                            current_views.extend(new_views);
                         }
                     }
+
+                    // if let Some(removed) = removed {
+                    //     match stage {
+                    //         InfiniteStage::Btm | InfiniteStage::Init => {
+                    //         }
+                    //         InfiniteStage::Top => {
+                    //         }
+                    //     }
+                    // }
                     // if let Some(removed) = removed
                     //     && removed > 0
                     // {
@@ -217,6 +285,17 @@ where
             fut.await;
             busy.set_value(false);
         });
+    };
+
+    let trigger = {
+        let get_items = get_items.clone();
+        move || {
+            // e.prevent_default();
+
+            get_items(InfiniteStage::Manual);
+
+            //
+        }
     };
 
     infinite_scroll_ref.add_resize_observer(move |entry, _observer| {
@@ -321,7 +400,7 @@ where
             observer_intersection_top.set(Some(SendWrapper::new(observer)));
 
             let observer = mutation_observer::new_raw(move |a, b| {
-                let Some((stage, scroll_height_before, scroll_height_after)) =
+                let Some((is_top, scroll_height_before, scroll_height_after)) =
                     delayed_scroll.get_value()
                 else {
                     return;
@@ -343,16 +422,20 @@ where
                 trace!(
                     "scroll_height_current{scroll_height_current} scroll_height_before{scroll_height_before} scroll_height_after{scroll_height_after}"
                 );
-                let scroll = match stage {
-                    InfiniteStage::Btm | InfiniteStage::Init => {
-                        scroll_height_after - scroll_height_current
-                    }
-                    InfiniteStage::Top => {
-                        // let removed = scroll_height_before - scroll_height_after;
-                        scroll_height_current - scroll_height_after
-                        // 50.0
-                    }
+
+                let scroll = if is_top {
+                    scroll_height_after - scroll_height_current
+                } else {
+                    scroll_height_current - scroll_height_after
                 };
+                // let scroll = match stage {
+                //     InfiniteStage::Btm | InfiniteStage::Init => {
+                //     }
+                //     InfiniteStage::Top => {
+                //         // let removed = scroll_height_before - scroll_height_after;
+                //         // 50.0
+                //     }
+                // };
 
                 trace!("scrolling by {scroll}");
                 infinite_scroll_elm.scroll_by_with_x_and_y(0.0, scroll);
@@ -385,10 +468,19 @@ where
         get_items(InfiniteStage::Init);
     });
 
-    let get_all_items = move || all_items.get();
+    InfiniteScroll {
+        view: StoredValue::new(Box::new(move || {
+            let items = all_items.get();
 
-    view! {
-        { get_all_items }
+            let view = view! {
+                { items }
+            }
+            .into_view()
+            .into_any();
+
+            view
+        })),
+        trigger: StoredValue::new(Box::new(trigger)),
     }
 }
 

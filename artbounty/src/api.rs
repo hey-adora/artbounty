@@ -10,7 +10,7 @@ use thiserror::Error;
 use tracing::{debug, error, trace};
 use wasm_bindgen_futures::spawn_local;
 
-use crate::api::post_comment::UserPostComment;
+use crate::api::shared::post_comment::UserPostComment;
 use crate::path::{
     link_settings_form_email_completed, link_settings_form_email_current_click,
     link_settings_form_email_current_send, link_settings_form_email_final_confirm,
@@ -20,7 +20,7 @@ use crate::path::{
 #[cfg(feature = "ssr")]
 pub mod backend;
 
-pub mod post_comment;
+pub mod shared;
 
 #[cfg(feature = "ssr")]
 pub mod app_state {
@@ -989,7 +989,6 @@ pub enum PostLikeErr {
     PostNotFound(String),
 }
 
-
 #[derive(
     Error,
     Debug,
@@ -1808,7 +1807,7 @@ pub trait Api {
 
     fn get_post_comment(&self, post_id: impl Into<String>) -> ApiReq {
         self.into_req(
-            crate::path::PATH_API_POST_COMMENT_ADD,
+            crate::path::PATH_API_POST_COMMENT_GET,
             ServerReq::PostId {
                 post_id: post_id.into(),
             },
@@ -2586,9 +2585,8 @@ pub async fn send(
     (headers, body)
 }
 
-
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use axum::Router;
     use std::path::Path;
     use std::sync::Arc;
@@ -2604,18 +2602,20 @@ mod tests {
     use tracing::{debug, error, trace};
 
     use crate::api::app_state::AppState;
+    use crate::api::shared::post_comment::UserPostComment;
     use crate::api::{
         Api, ApiTest, EmailChangeErr, EmailChangeNewErr, EmailChangeStage, EmailChangeTokenErr,
         EmailToken, PostLikeErr, Server404Err, ServerAuthErr, ServerErr, ServerLoginErr,
         ServerRegistrationErr, ServerReqImg, ServerRes, UserPost, encode_token,
     };
+    use crate::db::post_comment::DBPostComment;
     use crate::db::email_change::create_email_change_id;
     use crate::db::{DBUser, EmailIsTakenErr, email_change::DBEmailChange};
     // use crate::db::DBEmailTokenKind;
     use crate::server::create_api_router;
     // use tracing_appender::rolling;
 
-    struct ApiTestApp {
+    pub struct ApiTestApp {
         pub state: AppState,
         // pub router: Router,
         // pub server: TestServer,
@@ -2718,26 +2718,27 @@ mod tests {
             // if matched { Some(()) } else { None }
         }
 
-        pub async fn add_post_comment(
-            &self,
-            server_time: u128,
-            auth_token: impl AsRef<str>,
-            post_id: impl Into<String>,
-            text: impl Into<String>,
-        ) -> Option<()> {
-            self.set_time(server_time).await;
-            let result = self
-                .api
-                .add_post_comment(post_id, text)
-                .send_native_with_token(auth_token)
-                .await;
-
-            if result == Ok(ServerRes::Ok) {
-                Some(())
-            } else {
-                None
-            }
-        }
+        // pub async fn add_post_comment(
+        //     &self,
+        //     server_time: u128,
+        //     auth_token: impl AsRef<str>,
+        //     post_id: impl Into<String>,
+        //     text: impl Into<String>,
+        // ) -> Option<UserPostComment> {
+        //     self.set_time(server_time).await;
+        //     let result = self
+        //         .api
+        //         .add_post_comment(post_id, text)
+        //         .send_native_with_token(auth_token)
+        //         .await;
+        //
+        //     let Ok(ServerRes::Comment(comment)) = result else {
+        //
+        //         return None;
+        //     };
+        //
+        //     Some(comment)
+        // }
 
         pub async fn expect_posts(
             &self,
@@ -3882,42 +3883,6 @@ mod tests {
         app.is_logged_in(0, &auth_token).await.unwrap();
     }
 
-    #[tokio::test]
-    async fn api_post_comment_test() {
-        crate::init_test_log();
-
-        let app = ApiTestApp::new(1).await;
-
-        let auth_token = app
-            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
-            .await
-            .unwrap();
-
-        let post = app.add_post(0, &auth_token).await.unwrap();
-        debug!("wtf is that {post:#?}");
-
-        app.add_post_like(0, &auth_token, post.id.clone(), false)
-            .await
-            .unwrap();
-        app.add_post_like(0, &auth_token, post.id.clone())
-            .await
-            .unwrap();
-        app.check_post_like(0, &auth_token, post.id.clone(), true)
-            .await
-            .unwrap();
-        app.add_post_like_err_already_liked(0, &auth_token, post.id.clone())
-            .await
-            .unwrap();
-        app.add_post_like_err_not_found(0, &auth_token, "none")
-            .await
-            .unwrap();
-        app.delete_post_like(0, &auth_token, post.id.clone())
-            .await
-            .unwrap();
-        app.check_post_like(0, &auth_token, post.id.clone(), false)
-            .await
-            .unwrap();
-    }
 
     #[tokio::test]
     async fn api_post_like_test() {

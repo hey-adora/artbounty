@@ -1,3 +1,4 @@
+
 #[derive(
     Debug,
     Clone,
@@ -38,8 +39,8 @@ pub enum PostCommentErr {
 }
 
 #[cfg(feature = "ssr")]
-impl From<crate::db::comment::DBPostComment> for UserPostComment {
-    fn from(value: crate::db::comment::DBPostComment) -> Self {
+impl From<crate::db::post_comment::DBPostComment> for UserPostComment {
+    fn from(value: crate::db::post_comment::DBPostComment) -> Self {
         Self {
             key: value.id.key().to_string(),
             user_key: value.user.key().to_string(),

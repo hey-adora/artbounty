@@ -39,7 +39,8 @@ pub enum PostLikeStage {
 }
 
 pub fn use_post_like(
-    post_id: impl Fn() -> Option<String> + Clone + Sync + Send + 'static,
+    // post_id: impl Fn() -> Option<String> + Clone + Sync + Send + 'static,
+    post_id: Memo<Option<String>>,
 ) -> PostLike {
     // let post_id = post_id.into();
     let api = ApiWeb::new();
@@ -87,7 +88,7 @@ pub fn use_post_like(
     Effect::new({
         let post_id = post_id.clone();
         move || {
-            let Some(post_id) = post_id() else {
+            let Some(post_id) = post_id.get() else {
                 return;
             };
             api.check_post_like(post_id)
@@ -112,7 +113,7 @@ pub fn use_post_like(
     });
 
     let on_like = move |_: MouseEvent| {
-        let Some(post_id) = post_id() else {
+        let Some(post_id) = post_id.get() else {
             return;
         };
         match stage.get_untracked() {
