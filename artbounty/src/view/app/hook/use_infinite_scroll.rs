@@ -30,19 +30,18 @@ use web_sys::{
 #[derive(
     Debug,
     Clone,
-    Copy,
     PartialEq,
     PartialOrd,
-    strum::EnumString,
+    // strum::EnumString,
     strum::Display,
-    strum::EnumIter,
+    // strum::EnumIter,
     strum::EnumIs,
 )]
 #[strum(serialize_all = "lowercase")]
-pub enum InfiniteStage {
+pub enum InfiniteStage<ItemData: Clone> {
     Init,
-    Top,
-    Btm,
+    Top(ItemData),
+    Btm(ItemData),
     Manual,
 }
 
@@ -57,12 +56,19 @@ pub enum InfiniteStage {
     strum::EnumIs,
 )]
 #[strum(serialize_all = "lowercase")]
-pub enum InfiniteMerge<Item>
+pub enum InfiniteMerge<ItemData, ItemView>
 where
-    Item: IntoView + 'static,
+    ItemView: IntoView + 'static,
+    ItemData: Clone,
 {
-    Top(Vec<Item>),
-    Btm(Vec<Item>),
+    Top {
+        data: Vec<ItemData>,
+        views: Vec<ItemView>,
+    },
+    Btm {
+        data: Vec<ItemData>,
+        views: Vec<ItemView>,
+    },
     None,
 }
 
@@ -79,26 +85,28 @@ pub struct InfiniteScroll {
     // pub token: RwQuery<String>,
 }
 
-pub fn use_infinite_scroll<Elm, F, Fut, Item>(
+pub fn use_infinite_scroll<Elm, F, Fut, ItemView, ItemData>(
     infinite_scroll_ref: NodeRef<Elm>,
     callback: F,
 ) -> InfiniteScroll
 where
     Elm: ElementType,
     Elm::Output: JsCast + Clone + 'static + Into<HtmlElement>,
-    F: Fn(InfiniteStage) -> Fut + Clone + Sync + Send + 'static,
-    Fut: Future<Output = InfiniteMerge<Item>> + 'static,
-    Item: IntoView + 'static,
+    ItemData: Clone + 'static,
+    F: Fn(InfiniteStage<ItemData>) -> Fut + Clone + Sync + Send + 'static,
+    Fut: Future<Output = InfiniteMerge<ItemData, ItemView>> + 'static,
+    ItemView: IntoView + 'static,
     // Attr: Attribute,
-    Item::Output<NodeRefAttr<html::Div, NodeRef<html::Div>>>: Clone,
+    ItemView::Output<NodeRefAttr<html::Div, NodeRef<html::Div>>>: Clone,
 {
-    let all_items = RwSignal::new_local(Vec::new());
+    let item_views = RwSignal::new_local(Vec::new());
+    let item_data = RwSignal::new_local(Vec::<ItemData>::new());
+    let item_refs = RwSignal::new(Vec::<NodeRef<html::Div>>::new());
     let observer_intersection_top = RwSignal::new(None::<SendWrapper<IntersectionObserver>>);
     let observer_intersection_bottom = RwSignal::new(None::<SendWrapper<IntersectionObserver>>);
     let observer_mutation = RwSignal::new(None::<SendWrapper<MutationObserver>>);
-    let all_nodes = RwSignal::new(Vec::<NodeRef<html::Div>>::new());
     // let btm_nodes = RwSignal::new(Vec::<NodeRef<html::Div>>::new());
-    let delayed_scroll = StoredValue::<Option<(bool, f64, f64)>>::new(None);
+    let delayed_scroll = StoredValue::<Option<(bool, f64, f64, usize)>>::new(None);
     let busy = StoredValue::new(false);
 
     // let add = move |stage: InfiniteStage| {
@@ -106,7 +114,7 @@ where
     //     //
     // };
 
-    let get_items = move |stage: InfiniteStage| {
+    let get_items = move |stage: InfiniteStage<ItemData>| {
         // let stage = *stage;
         if busy.get_value() {
             return;
@@ -122,19 +130,27 @@ where
                     return;
                 };
                 let items = callback(stage).await;
-                let (items, items_len, is_top) = match items {
-                    InfiniteMerge::Top(items) => {
-                        let items_len = items.len();
-                        (items, items_len, true)
+                let (data, items, data_len, items_len, is_top) = match items {
+                    InfiniteMerge::Top { data, views } => {
+                        let items_len = views.len();
+                        let data_len = data.len();
+                        (data, views, items_len, data_len, true)
                     }
-                    InfiniteMerge::Btm(items) => {
-                        let items_len = items.len();
-                        (items, items_len, false)
+                    InfiniteMerge::Btm { data, views } => {
+                        let items_len = views.len();
+                        let data_len = data.len();
+                        (data, views, data_len, items_len, false)
                     }
                     InfiniteMerge::None => {
                         return;
                     }
                 };
+
+                if items_len != data_len {
+                    error!("data and view length must be equal");
+                    return;
+
+                }
 
                 let mut new_nodes = Vec::new();
                 let mut new_views = Vec::new();
@@ -158,16 +174,19 @@ where
 
                 trace!("expected scroll {expected_scroll_height} scroll_top {scroll_top}");
 
-                let removed = all_nodes.try_update(|current_nodes| {
+                let removed = item_refs.try_update(|current_nodes| {
                     trace!("updating all_nodes");
-                    let mut scroll_height_after = scroll_height;
+                    let mut scroll_height_save = 0.0_f64;
+                    // let mut scroll_height_after = scroll_height;
                     let current_nodes_len = current_nodes.len();
                     // let mut removed = 0_usize;
 
                     let mut index = if is_top {
-                        current_nodes_len.saturating_sub(1)
-                    } else {
+                        // current_nodes_len.saturating_sub(1)
                         0
+                    } else {
+                        // 0
+                        current_nodes_len.saturating_sub(1)
                     };
 
                     //     match stage {
@@ -176,20 +195,20 @@ where
                     // };
 
                     while let Some(node) = current_nodes.get(index) {
-                        if scroll_height_after <= expected_scroll_height {
-                            trace!("exiting node remove loop");
+                        if scroll_height_save >= expected_scroll_height {
+                            trace!("exiting saving loop");
                             break;
                         }
 
                         if let Some(node) = node.get_untracked() {
-                            if scroll_height_after <= expected_scroll_height {
-                                break;
-                            }
+                            // if scroll_height_save >= expected_scroll_height {
+                            //     break;
+                            // }
                             let width = node.client_width() as f64;
                             let height = node.client_height() as f64;
-                            trace!("removing {height}");
+                            trace!("saving {height}");
 
-                            scroll_height_after -= height;
+                            scroll_height_save += height;
                             // removed += 1;
                         } else {
                             break;
@@ -197,10 +216,12 @@ where
 
                         if is_top {
 
-                                index = index.saturating_sub(1);
+                                // index = index.saturating_sub(1);
+                                index += 1;
                         } else {
 
-                                index += 1;
+                                // index += 1;
+                                index = index.saturating_sub(1);
                         }
 
 
@@ -214,25 +235,29 @@ where
 
                     if is_top {
 
+                            trace!("index({index}) < current_nodes_len({current_nodes_len})");
                             if index < current_nodes_len {
-                                trace!("set scroll scroll_height({scroll_height}) - scroll_height_after({scroll_height_after}) = {}", scroll_height - scroll_height_after);
+                                trace!("set scroll scroll_height({scroll_height}) - scroll_height_save({scroll_height_save}) = {}", scroll_height - scroll_height_save);
                                 // delayed_scroll.set_value(scroll_height - scroll_height_after);
 
-                                delayed_scroll.set_value(Some((true, height, scroll_height_after)));
+                                delayed_scroll.set_value(Some((true, height, scroll_height_save, items_len)));
                                 trace!("draining nodes {index}..");
                                 current_nodes.drain(index..);
                             }
                             *current_nodes = [new_nodes, current_nodes.clone()].concat();
                     } else {
+                            trace!("index({index}) > 0");
                             if index > 0 {
                                 // delayed_scroll.set_value(scroll_height_after - scroll_height);
-                                delayed_scroll.set_value(Some((false, height, scroll_height_after)));
+                               delayed_scroll.set_value(Some((false, height, scroll_height_save, items_len)));
                                 trace!("draining nodes 0..{index}");
                                 current_nodes.drain(0..index);
                             }
                             current_nodes.extend(new_nodes);
 
                     }
+
+                    
 
 
 
@@ -251,18 +276,24 @@ where
                     index
                 });
 
-                all_items.try_update(|current_views| {
+                item_views.try_update(|current_views| {
                     if let Some(removed) = removed {
                         if is_top {
                             trace!("draining nodes {removed}..");
                             current_views.drain(removed..);
-                            *current_views = [new_views, current_views.clone()].concat();
                         } else {
                             trace!("draining nodes 0..{removed}");
                             current_views.drain(0..removed);
-                            trace!("extending views with {} new views", new_views.len());
-                            current_views.extend(new_views);
                         }
+                    }
+
+                    if is_top {
+                        trace!("extending views [new_view({}), current_views({})]", new_views.len(), current_views.len());
+                        *current_views = [new_views, current_views.clone()].concat();
+
+                    } else {
+                        trace!("extending views with {} new views", new_views.len());
+                        current_views.extend(new_views);
                     }
 
                     // if let Some(removed) = removed {
@@ -280,7 +311,41 @@ where
                     //     v.drain(0..removed);
                     // }
                 });
+
+                item_data.try_update(|current_data| {
+                    if let Some(removed) = removed {
+                        if is_top {
+                            trace!("draining data {removed}..");
+                            current_data.drain(removed..);
+                        } else {
+                            trace!("draining data 0..{removed}");
+                            current_data.drain(0..removed);
+                        }
+                    }
+
+                    if is_top {
+                        trace!("extending data [new_data({}), current_data({})]", data.len(), current_data.len());
+                        *current_data = [data, current_data.clone()].concat();
+                    } else {
+                        trace!("extending views with {} new data", data.len());
+                        current_data.extend(data);
+                    }
+
+                });
+
+
+                let item_views_len = item_views.with_untracked(|v| v.len());
+                let item_refs_len = item_refs.with_untracked(|v| v.len());
+                let item_data_len = item_data.with_untracked(|v| v.len());
+
+                if item_views_len != item_refs_len || item_refs_len != item_data_len {
+                    error!("items buffers missmatch item_views_len({item_views_len}) item_refs_len({item_refs_len}) item_data_len({item_data_len})");
+                }
+
             };
+
+
+
 
             fut.await;
             busy.set_value(false);
@@ -320,8 +385,8 @@ where
             return;
         };
 
-        let first = all_nodes.with(move |v| v.first().cloned());
-        let last = all_nodes.with(move |v| v.last().cloned());
+        let first = item_refs.with(move |v| v.first().cloned());
+        let last = item_refs.with(move |v| v.last().cloned());
         let (Some(first), Some(last)) = (first.and_then(|v| v.get()), last.and_then(|v| v.get()))
         else {
             return;
@@ -367,7 +432,12 @@ where
 
                     activated_btm.set_value(false);
                     trace!("yo wtf is going on");
-                    get_items(InfiniteStage::Btm);
+
+                    let Some(data) = item_data.with_untracked(|v| v.last().cloned()) else {
+                        error!("missing data for item last");
+                        return;
+                    };
+                    get_items(InfiniteStage::Btm(data));
                 }
             });
             observer_intersection_bottom.set(Some(SendWrapper::new(observer)));
@@ -393,18 +463,26 @@ where
                     }
 
                     activated_top.set_value(false);
+
+                    let Some(data) = item_data.with_untracked(|v| v.first().cloned()) else {
+                        error!("missing data for item 0");
+                        return;
+                    };
                     trace!("yo wtf is going on");
-                    get_items(InfiniteStage::Top);
+                    get_items(InfiniteStage::Top(data));
                 }
             });
             observer_intersection_top.set(Some(SendWrapper::new(observer)));
 
             let observer = mutation_observer::new_raw(move |a, b| {
-                let Some((is_top, scroll_height_before, scroll_height_after)) =
+                let Some((is_top, scroll_height_before, scroll_height_save, count)) =
                     delayed_scroll.get_value()
                 else {
                     return;
                 };
+                if count == 0 {
+                    return;
+                }
                 // if scroll == 0.0 {
                 //     return;
                 // }
@@ -420,14 +498,38 @@ where
                 let scroll_top = infinite_scroll_elm.scroll_top() as f64;
 
                 trace!(
-                    "scroll_height_current{scroll_height_current} scroll_height_before{scroll_height_before} scroll_height_after{scroll_height_after}"
+                    "scroll_height_current{scroll_height_current} scroll_height_before{scroll_height_before} scroll_height_save{scroll_height_save}"
                 );
 
-                let scroll = if is_top {
-                    scroll_height_after - scroll_height_current
-                } else {
-                    scroll_height_current - scroll_height_after
+                let elms = infinite_scroll_elm.children();
+                let elm_first = elms.get_with_index(0 as u32);
+                let elm_n = elms.get_with_index(count as u32);
+
+                let (Some(elm_n), Some(elm_first)) = (elm_n, elm_first) else {
+                    return;
                 };
+
+                let scroll = if is_top {
+                    let rect_first = elm_first.get_bounding_client_rect();
+                    let rect_n = elm_n.get_bounding_client_rect();
+
+                    let y_first = rect_first.y();
+                    let y_n = rect_n.y();
+
+                    let y_diff = y_n - y_first;
+                    trace!("y_n({y_n}) - y_first({y_first}) = y_diff({})", y_diff);
+
+                    y_diff
+                } else {
+                    0.0
+                };
+
+                // let scroll = if is_top {
+                //     scroll_height_save - scroll_height_current
+                // } else {
+                //     scroll_height_current - scroll_height_save
+                // };
+
                 // let scroll = match stage {
                 //     InfiniteStage::Btm | InfiniteStage::Init => {
                 //     }
@@ -470,7 +572,7 @@ where
 
     InfiniteScroll {
         view: StoredValue::new(Box::new(move || {
-            let items = all_items.get();
+            let items = item_views.get();
 
             let view = view! {
                 { items }

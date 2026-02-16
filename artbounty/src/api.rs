@@ -588,6 +588,11 @@ pub enum ServerReq {
     CommentId {
         comment_id: String,
     },
+    GetComments {
+        post_id: String,
+        limit: usize,
+        time_range: TimeRange,
+    },
     PostId {
         post_id: String,
     },
@@ -606,6 +611,31 @@ pub enum ServerReq {
         files: Vec<ServerReqImg>,
     },
     None,
+}
+
+#[derive(
+    Debug,
+    Default,
+    Clone,
+    PartialEq,
+    PartialOrd,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    strum::EnumString,
+    strum::Display,
+    strum::EnumIter,
+    strum::EnumIs,
+)]
+pub enum TimeRange {
+    #[default]
+    None,
+    Before(u128),
+    BeforeOrEqual(u128),
+    After(u128),
+    AfterOrEqual(u128),
 }
 
 #[cfg(feature = "ssr")]
@@ -1805,11 +1835,18 @@ pub trait Api {
         )
     }
 
-    fn get_post_comment(&self, post_id: impl Into<String>) -> ApiReq {
+    fn get_post_comment(
+        &self,
+        post_id: impl Into<String>,
+        limit: usize,
+        time_range: TimeRange,
+    ) -> ApiReq {
         self.into_req(
             crate::path::PATH_API_POST_COMMENT_GET,
-            ServerReq::PostId {
+            ServerReq::GetComments {
                 post_id: post_id.into(),
+                limit,
+                time_range,
             },
         )
     }
@@ -2608,8 +2645,8 @@ pub mod tests {
         EmailToken, PostLikeErr, Server404Err, ServerAuthErr, ServerErr, ServerLoginErr,
         ServerRegistrationErr, ServerReqImg, ServerRes, UserPost, encode_token,
     };
-    use crate::db::post_comment::DBPostComment;
     use crate::db::email_change::create_email_change_id;
+    use crate::db::post_comment::DBPostComment;
     use crate::db::{DBUser, EmailIsTakenErr, email_change::DBEmailChange};
     // use crate::db::DBEmailTokenKind;
     use crate::server::create_api_router;
@@ -3882,7 +3919,6 @@ pub mod tests {
             .unwrap();
         app.is_logged_in(0, &auth_token).await.unwrap();
     }
-
 
     #[tokio::test]
     async fn api_post_like_test() {

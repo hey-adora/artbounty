@@ -45,7 +45,7 @@ strip = "none"
 
 [profile.dev.package."*"]
 opt-level = 0
-codegen-backend = "cranelift"
+codegen-backend = "llvm"
 
 [profile.dev.package.gxhash]
 opt-level = 0

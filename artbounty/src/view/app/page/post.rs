@@ -37,7 +37,7 @@ pub fn Page() -> impl IntoView {
 
     let comment_container_ref = NodeRef::<html::Div>::new();
     let comment_input_ref = NodeRef::<html::Textarea>::new();
-    let post_comments = use_post_comment(comment_container_ref,comment_input_ref, param_post);
+    let post_comments = use_post_comment(10, comment_container_ref,comment_input_ref, param_post);
 
     let post_like = use_post_like(param_post);
     let post_like_btn_style = move || {

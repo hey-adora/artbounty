@@ -5,7 +5,7 @@ use tracing::{error, trace};
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlElement, MouseEvent, SubmitEvent};
 
-use crate::api::{Api, ApiWeb, ServerRes};
+use crate::api::{Api, ApiWeb, ServerRes, TimeRange};
 use crate::get_timestamp;
 use crate::view::app::GlobalState;
 use crate::view::app::hook::use_infinite_scroll::{
@@ -28,6 +28,7 @@ pub struct PostComment {
 }
 
 pub fn use_post_comment<ContainerElm>(
+    fetch_count: usize,
     comment_container_ref: NodeRef<ContainerElm>,
     text_area_ref: NodeRef<html::Textarea>,
     // input_new_email: NodeRef<html::Input>,
@@ -41,7 +42,7 @@ where
 {
     let api = ApiWeb::new();
 
-    let infinite_fn = move |stage: InfiniteStage| async move {
+    let infinite_fn = move |stage: InfiniteStage<u128>| async move {
         // vec![ view! { <div class="" >"wtf"</div> } ]
 
         //
@@ -53,79 +54,158 @@ where
         let Some(post_id) = post_id else {
             return InfiniteMerge::None;
         };
-        let views = match stage {
+        let (is_top, result) = match stage {
             InfiniteStage::Manual => {
-                if let Some(text_input) = text_area_ref.get_untracked() {
+                let Some(text_input) = text_area_ref.get_untracked() else {
+                    return InfiniteMerge::None;
                     // let text_input: HtmlElement = text_input.into();
-                    let text = text_input.value();
-                    let result = api.add_post_comment(post_id, text).send_native().await;
-
-                    match result {
-                        Ok(ServerRes::Comment(comment)) => {
-                            // if condition {
-                            //     stage.set(PostLikeStage::Liked);
-                            // } else {
-                            //     stage.set(PostLikeStage::Unliked);
-                            // }
-
-                            text_input.set_value("");
-
-                            let comments = vec![comment]
-                            .into_iter()
-                            .map(move |comment| view! { <div class="border border-base0E px-2 py-1" >{comment.text}</div> })
-                            .collect_view();
-
-
-                            InfiniteMerge::Top(comments)
-                        }
-                        Ok(err) => {
-                            error!("unexpected server response: {err:?}");
-
-                            InfiniteMerge::None
-                        }
-                        Err(err) => {
-                            error!("use_post_like: {err}");
-                            InfiniteMerge::None
-                        }
-                    }
-                } else {
-                    InfiniteMerge::None
-                }
+                    // match result {
+                    //     Ok(ServerRes::Comment(comment)) => {
+                    //         text_input.set_value("");
+                    //
+                    //         let comments = vec![comment]
+                    //         .into_iter()
+                    //         .map(move |comment| view! { <div class="border border-base0E px-2 py-1" >{comment.text}</div> })
+                    //         .collect_view();
+                    //
+                    //
+                    //         InfiniteMerge::Top(comments)
+                    //     }
+                    //     Ok(err) => {
+                    //         error!("unexpected server response: {err:?}");
+                    //
+                    //         InfiniteMerge::None
+                    //     }
+                    //     Err(err) => {
+                    //         error!("use_post_like: {err}");
+                    //         InfiniteMerge::None
+                    //     }
+                    // }
+                };
+                let text = text_input.value();
+                (
+                    true,
+                    api.add_post_comment(post_id, text).send_native().await,
+                )
             }
             InfiniteStage::Init => {
-                let result = api.get_post_comment(post_id).send_native().await;
+                let time = get_timestamp();
+                (
+                    true,
+                    api.get_post_comment(post_id, fetch_count, TimeRange::BeforeOrEqual(time))
+                        .send_native()
+                        .await,
+                )
 
-                match result {
-                    Ok(ServerRes::Comments(comments)) => {
-                        // if condition {
-                        //     stage.set(PostLikeStage::Liked);
-                        // } else {
-                        //     stage.set(PostLikeStage::Unliked);
-                        // }
-                        let comments = comments
+                // match result {
+                //     Ok(ServerRes::Comments(comments)) => {
+                //         let comments = comments
+                //             .into_iter()
+                //             .map(move |comment| view! { <div class="border border-base0E px-2 py-1" >{comment.text}</div> })
+                //             .collect_view();
+                //
+                //         InfiniteMerge::Btm(comments)
+                //     }
+                //     Ok(err) => {
+                //         error!("unexpected server response: {err:?}");
+                //
+                //         InfiniteMerge::None
+                //     }
+                //     Err(err) => {
+                //         error!("use_post_like: {err}");
+                //         InfiniteMerge::None
+                //     }
+                // }
+            }
+            InfiniteStage::Top(data) => {
+                (
+                    true,
+                    api.get_post_comment(post_id, fetch_count, TimeRange::Before(data))
+                        .send_native()
+                        .await,
+                )
+                // let result = api.get_post_comment(post_id, fetch_count, none).send_native().await;
+
+                // match result {
+                //     ok(serverres::comments(comments)) => {
+                //         let comments = comments
+                //             .into_iter()
+                //             .map(move |comment| view! { <div class="border border-base0e px-2 py-1" >{comment.text}</div> })
+                //             .collect_view();
+                //
+                //         infinitemerge::btm(comments)
+                //     }
+                //     ok(err) => {
+                //         error!("unexpected server response: {err:?}");
+                //
+                //         infinitemerge::none
+                //     }
+                //     err(err) => {
+                //         error!("use_post_like: {err}");
+                //         infinitemerge::none
+                //     }
+                // }
+                // InfiniteMerge::None
+            }
+            InfiniteStage::Btm(data) => {
+                (
+                    false,
+                    api.get_post_comment(post_id, fetch_count, TimeRange::After(data))
+                        .send_native()
+                        .await,
+                )
+                //
+                // InfiniteMerge::None
+            }
+        };
+
+        let views = match result {
+            Ok(ServerRes::Comment(comment)) => {
+                let Some(text_input) = text_area_ref.get_untracked() else {
+                    return InfiniteMerge::None;
+                };
+                text_input.set_value("");
+
+                let comments = vec![comment];
+                let data = comments.iter().map(|v| v.created_at).collect::<Vec<u128>>();
+
+                let comments = comments
                             .into_iter()
                             .map(move |comment| view! { <div class="border border-base0E px-2 py-1" >{comment.text}</div> })
                             .collect_view();
 
-                        InfiniteMerge::Btm(comments)
-                    }
-                    Ok(err) => {
-                        error!("unexpected server response: {err:?}");
+                InfiniteMerge::Top {
+                    data,
+                    views: comments,
+                }
+            }
+            Ok(ServerRes::Comments(comments)) => {
+                let data = comments.iter().map(|v| v.created_at).collect::<Vec<u128>>();
 
-                        InfiniteMerge::None
+                let comments = comments
+                            .into_iter()
+                            .map(move |comment| view! { <div class="border border-base0E px-2 py-1" >{comment.text}</div> })
+                            .collect_view();
+
+                if is_top {
+                    InfiniteMerge::Top {
+                        data,
+                        views: comments,
                     }
-                    Err(err) => {
-                        error!("use_post_like: {err}");
-                        InfiniteMerge::None
+                } else {
+                    InfiniteMerge::Btm {
+                        data,
+                        views: comments,
                     }
                 }
             }
-            InfiniteStage::Top => {
-                //
+            Ok(err) => {
+                error!("unexpected server response: {err:?}");
+
                 InfiniteMerge::None
             }
-            InfiniteStage::Btm => {
-                //
+            Err(err) => {
+                error!("use_post_like: {err}");
                 InfiniteMerge::None
             }
         };
@@ -151,8 +231,6 @@ where
         trace!("post_id {post_id}");
 
         infinte.trigger.run();
-
-
     };
 
     // Effect::new(move || {

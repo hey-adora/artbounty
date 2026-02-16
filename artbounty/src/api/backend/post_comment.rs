@@ -52,7 +52,7 @@ pub async fn get_post_comment(
 ) -> Result<ServerRes, ServerErr> {
     type ResErr = Server404Err;
     //
-    let ServerReq::PostId { post_id } = req else {
+    let ServerReq::GetComments { post_id, limit, time_range } = req else {
         return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
             "get_post_comment expected PostId, received: {req:?}"
         ))));
@@ -61,7 +61,7 @@ pub async fn get_post_comment(
 
     let comments: Vec<UserPostComment> = app
         .db
-        .get_post_comments(time, &post_id)
+        .get_post_comments(time, &post_id, limit, time_range)
         .await
         .map_err(|err| match err {
             DB404Err::NotFound => ResErr::NotFound.into(),
@@ -100,7 +100,7 @@ pub async fn delete_post_comment(
 
 #[cfg(test)]
 mod tests {
-    use crate::api::{Api, ServerRes, shared::post_comment::UserPostComment, tests::ApiTestApp};
+    use crate::api::{Api, ServerRes, TimeRange, shared::post_comment::UserPostComment, tests::ApiTestApp};
     use tracing::{debug, error, trace};
     use web_sys::console::assert;
 
@@ -131,11 +131,13 @@ mod tests {
             server_time: u128,
             auth_token: impl AsRef<str>,
             post_id: impl Into<String>,
+            limit: usize,
+            time_range: TimeRange,
         ) -> Option<Vec<UserPostComment>> {
             self.set_time(server_time).await;
             let result = self
                 .api
-                .get_post_comment(post_id)
+                .get_post_comment(post_id, limit, time_range)
                 .send_native_with_token(auth_token)
                 .await;
 
@@ -170,7 +172,7 @@ mod tests {
             .await.unwrap();
 
         let comments = app
-            .get_post_comments(2, &auth_token, post.id.clone())
+            .get_post_comments(2, &auth_token, post.id.clone(), 2, TimeRange::None)
             .await.unwrap();
 
         assert!(comments.len() == 2);

@@ -243,6 +243,7 @@ impl Display for DBSentEmailReason {
     }
 }
 
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DBSession {
     pub id: RecordId,
