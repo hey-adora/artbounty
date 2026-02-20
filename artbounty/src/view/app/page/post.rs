@@ -5,8 +5,8 @@ use crate::view::app::hook::use_infinite_scroll::{InfiniteStage, use_infinite_sc
 use crate::view::app::hook::use_post_comment::use_post_comment;
 use crate::view::app::hook::use_post_like::{self, PostLikeStage, use_post_like};
 use crate::view::toolbox::prelude::*;
-use leptos::{html, prelude::*};
 use leptos::{Params, task::spawn_local};
+use leptos::{html, prelude::*};
 use leptos_router::hooks::{use_location, use_params};
 use leptos_router::params::Params;
 use tracing::{error, trace};
@@ -26,7 +26,7 @@ pub fn Page() -> impl IntoView {
     let param = use_params::<PostParams>();
     let param_username = move || param.read().as_ref().ok().and_then(|v| v.username.clone());
     // let param_post= move || param.read().as_ref().ok().and_then(|v| v.post.clone());
-    let param_post= Memo::new(move |_| param.read().as_ref().ok().and_then(|v| v.post.clone()));
+    let param_post = Memo::new(move |_| param.read().as_ref().ok().and_then(|v| v.post.clone()));
     let imgs_links = RwSignal::new(Vec::<(String, f64)>::new());
     let title = RwSignal::new(String::new());
     let author = RwSignal::new(String::new());
@@ -37,7 +37,13 @@ pub fn Page() -> impl IntoView {
 
     let comment_container_ref = NodeRef::<html::Div>::new();
     let comment_input_ref = NodeRef::<html::Textarea>::new();
-    let post_comments = use_post_comment(10, comment_container_ref,comment_input_ref, param_post);
+    let post_comments = use_post_comment(10, comment_container_ref, comment_input_ref, param_post);
+    let post_comment_views = move || {
+        post_comments.data.get()
+                            .into_iter()
+                            .map(move |comment| view! { <div class="border border-base0E px-2 py-1" >{comment.text}</div> })
+                            .collect_view()
+    };
 
     let post_like = use_post_like(param_post);
     let post_like_btn_style = move || {
@@ -234,8 +240,6 @@ pub fn Page() -> impl IntoView {
     // let comment_ref = NodeRef::new();
     // let infinte = use_infinite_scroll(comment_ref, fff);
 
-
-
     // let infinte = ArcRwSignal::new(None::<AnyView>);
     // let infinte = std::sync::Arc::new(view! {
     //     <div>"www"</div>
@@ -306,7 +310,7 @@ pub fn Page() -> impl IntoView {
                         //     // <input type="submit" value="Post" class="transition-all duration-300 ease-in hover:font-bold"/>
                         // </form>
                         <div node_ref=comment_container_ref class="h-[20rem] flex flex-col gap-2 overflow-y-scroll relative">
-                            { post_comments.comments.to_fn() }
+                            { post_comment_views }
                         </div>
                         // <div class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}", if fn_description_is_empty() {"text-base03"} else {"text-base05"} )>{fn_description}</div>
                     </div>

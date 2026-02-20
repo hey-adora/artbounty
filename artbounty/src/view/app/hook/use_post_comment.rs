@@ -4,7 +4,8 @@ use tracing::{error, trace};
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlElement, SubmitEvent};
 
-use crate::api::{Api, ApiWeb, ServerRes, TimeRange};
+use crate::api::shared::post_comment::UserPostComment;
+use crate::api::{Api, ApiWeb, Order, ServerRes, TimeRange};
 use crate::get_timestamp;
 use crate::view::app::hook::use_infinite_scroll::{
     InfiniteMerge, InfiniteStage, use_infinite_scroll,
@@ -15,7 +16,8 @@ pub trait SizedIntoView: IntoView + Sized {}
 
 #[derive(Clone, Copy)]
 pub struct PostComment {
-    pub comments: StoredValue<Box<dyn Fn() -> AnyView + Sync + Send + 'static>>,
+    // pub comments: StoredValue<Box<dyn Fn() -> AnyView + Sync + Send + 'static>>,
+    pub data: RwSignal<Vec<UserPostComment>, LocalStorage>,
     pub on_comment: StoredValue<Box<dyn Fn(SubmitEvent) + Sync + Send + 'static>>,
 }
 
@@ -31,9 +33,9 @@ where
 {
     let api = ApiWeb::new();
 
-    let infinite_fn = move |stage: InfiniteStage<u128>| async move {
+    let infinite_fn = move |stage: InfiniteStage<UserPostComment>| async move {
         let post_id = match stage {
-            InfiniteStage::Init => post_id.get(),
+            InfiniteStage::Init => post_id.get_untracked(),
             _ => post_id.get_untracked(),
         };
         let Some(post_id) = post_id else {
@@ -54,26 +56,41 @@ where
                 let time = get_timestamp();
                 (
                     true,
-                    api.get_post_comment(post_id, fetch_count, TimeRange::BeforeOrEqual(time))
-                        .send_native()
-                        .await,
+                    api.get_post_comment(
+                        post_id,
+                        fetch_count,
+                        TimeRange::LessOrEqual(time),
+                        Order::ThreeTwoOne,
+                    )
+                    .send_native()
+                    .await,
                 )
             }
             InfiniteStage::Top(data) => (
                 true,
-                api.get_post_comment(post_id, fetch_count, TimeRange::Before(data))
-                    .send_native()
-                    .await,
+                api.get_post_comment(
+                    post_id,
+                    fetch_count,
+                    TimeRange::More(data.created_at),
+                    Order::OneTwoThree,
+                )
+                .send_native()
+                .await,
             ),
             InfiniteStage::Btm(data) => (
                 false,
-                api.get_post_comment(post_id, fetch_count, TimeRange::After(data))
-                    .send_native()
-                    .await,
+                api.get_post_comment(
+                    post_id,
+                    fetch_count,
+                    TimeRange::Less(data.created_at),
+                    Order::ThreeTwoOne,
+                )
+                .send_native()
+                .await,
             ),
         };
 
-        let views = match result {
+        let datas = match result {
             Ok(ServerRes::Comment(comment)) => {
                 let Some(text_input) = text_area_ref.get_untracked() else {
                     return InfiniteMerge::None;
@@ -81,35 +98,26 @@ where
                 text_input.set_value("");
 
                 let comments = vec![comment];
-                let data = comments.iter().map(|v| v.created_at).collect::<Vec<u128>>();
+                // let data = comments.iter().map(|v| v.created_at).collect::<Vec<u128>>();
 
-                let comments = comments
-                            .into_iter()
-                            .map(move |comment| view! { <div class="border border-base0E px-2 py-1" >{comment.text}</div> })
-                            .collect_view();
+                // let comments = comments
+                //             .into_iter()
+                //             .map(move |comment| view! { <div class="border border-base0E px-2 py-1" >{comment.text}</div> })
+                //             .collect_view();
 
                 InfiniteMerge::Top {
-                    data,
-                    views: comments,
+                    data: comments,
+                    // views: comments,
                 }
             }
             Ok(ServerRes::Comments(comments)) => {
-                let data = comments.iter().map(|v| v.created_at).collect::<Vec<u128>>();
-
-                let comments = comments
-                            .into_iter()
-                            .map(move |comment| view! { <div class="border border-base0E px-2 py-1" >{comment.text}</div> })
-                            .collect_view();
-
                 if is_top {
                     InfiniteMerge::Top {
-                        data,
-                        views: comments,
+                        data: comments.into_iter().rev().collect(),
                     }
                 } else {
                     InfiniteMerge::Btm {
-                        data,
-                        views: comments,
+                        data: comments,
                     }
                 }
             }
@@ -124,7 +132,7 @@ where
             }
         };
 
-        views
+        datas
     };
 
     let infinte = use_infinite_scroll(comment_container_ref, infinite_fn);
@@ -144,7 +152,7 @@ where
     };
 
     PostComment {
-        comments: infinte.view,
+        data: infinte.data,
         on_comment: StoredValue::new(Box::new(on_comment)),
     }
 }

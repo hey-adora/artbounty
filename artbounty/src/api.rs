@@ -592,6 +592,7 @@ pub enum ServerReq {
         post_id: String,
         limit: usize,
         time_range: TimeRange,
+        order: Order,
     },
     PostId {
         post_id: String,
@@ -632,10 +633,32 @@ pub enum ServerReq {
 pub enum TimeRange {
     #[default]
     None,
-    Before(u128),
-    BeforeOrEqual(u128),
-    After(u128),
-    AfterOrEqual(u128),
+    Less(u128),
+    LessOrEqual(u128),
+    More(u128),
+    MoreOrEqual(u128),
+}
+
+#[derive(
+    Debug,
+    Default,
+    Clone,
+    PartialEq,
+    PartialOrd,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    strum::EnumString,
+    strum::Display,
+    strum::EnumIter,
+    strum::EnumIs,
+)]
+pub enum Order {
+    #[default]
+    OneTwoThree,
+    ThreeTwoOne,
 }
 
 #[cfg(feature = "ssr")]
@@ -1840,6 +1863,7 @@ pub trait Api {
         post_id: impl Into<String>,
         limit: usize,
         time_range: TimeRange,
+        order: Order,
     ) -> ApiReq {
         self.into_req(
             crate::path::PATH_API_POST_COMMENT_GET,
@@ -1847,6 +1871,7 @@ pub trait Api {
                 post_id: post_id.into(),
                 limit,
                 time_range,
+                order,
             },
         )
     }
