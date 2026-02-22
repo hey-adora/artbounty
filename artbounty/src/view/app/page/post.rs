@@ -41,7 +41,7 @@ pub fn Page() -> impl IntoView {
     let post_comment_views = move || {
         post_comments.data.get()
                             .into_iter()
-                            .map(move |comment| view! { <div class="border border-base0E px-2 py-1" >{comment.text}</div> })
+                            .map(move |comment| view! { <div class="border border-base0E px-2 py-1 break-all" >{comment.text}</div> })
                             .collect_view()
     };
 
@@ -297,7 +297,7 @@ pub fn Page() -> impl IntoView {
                         <h1 class="text-[1.2rem] text-base0F">"Description"</h1>
                         <div class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}", if fn_description_is_empty() {"text-base03"} else {"text-base05"} )>{fn_description}</div>
                     </div>
-                    <div  class="flex flex-col gap-2 md:gap-4 justify-between mt-4">
+                    <div  class="flex flex-col gap-2 md:gap-4 justify-between mt-4 pb-1">
                         <h1 class="text-[1.2rem] text-base0F">"Comments"</h1>
                         <form class="flex flex-col gap-2 " method="POST" action="" on:submit=post_comments.on_comment.to_fn() >
                             <textarea node_ref=comment_input_ref class="border-2 border-base0E resize" id="story" name="story" rows="5" cols="30" ></textarea>
@@ -309,7 +309,7 @@ pub fn Page() -> impl IntoView {
                         //     // <textarea id="story" name="story" rows="5" cols="33"></textarea>
                         //     // <input type="submit" value="Post" class="transition-all duration-300 ease-in hover:font-bold"/>
                         // </form>
-                        <div node_ref=comment_container_ref class="h-[20rem] flex flex-col gap-2 overflow-y-scroll relative">
+                        <div node_ref=comment_container_ref class="h-[20rem]  flex flex-col gap-2 overflow-y-scroll relative">
                             { post_comment_views }
                         </div>
                         // <div class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}", if fn_description_is_empty() {"text-base03"} else {"text-base05"} )>{fn_description}</div>

@@ -22,7 +22,10 @@ use leptos::{
 use send_wrapper::SendWrapper;
 use tracing::{debug, error, trace};
 use wasm_bindgen::{JsCast, JsValue};
-use web_sys::{Element, HtmlElement, IntersectionObserver, MutationObserver, MutationObserverInit};
+use web_sys::{
+    Element, HtmlElement, IntersectionObserver, IntersectionObserverInit, MutationObserver,
+    MutationObserverInit,
+};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, strum::Display, strum::EnumIs)]
 #[strum(serialize_all = "lowercase")]
@@ -67,6 +70,23 @@ pub struct InfiniteScroll<T: Clone + 'static> {
     pub trigger: StoredValue<Box<dyn Fn() + Sync + Send + 'static>>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct DelayedScroll {
+    pub is_top: bool,
+    pub scroll_height_before: f64,
+    pub scroll_top_before: f64,
+    pub elm_last_y: f64,
+    pub elm_last_height: f64,
+    pub elm_first_y: f64,
+    pub elm_first_height: f64,
+    pub saved_height_with_gaps: f64,
+    pub saved_height_without_gaps: f64,
+    pub removed_height_with_gaps: f64,
+    pub removed_height_without_gaps: f64,
+    pub cursor: usize,
+    pub new_elm_count: usize,
+}
+
 pub fn use_infinite_scroll<Elm, Fut, ItemData, FnGetData>(
     infinite_scroll_ref: NodeRef<Elm>,
     callback: FnGetData,
@@ -87,7 +107,7 @@ where
     let observer_intersection_top = RwSignal::new(None::<SendWrapper<IntersectionObserver>>);
     let observer_intersection_bottom = RwSignal::new(None::<SendWrapper<IntersectionObserver>>);
     let observer_mutation = RwSignal::new(None::<SendWrapper<MutationObserver>>);
-    let delayed_scroll = StoredValue::<Option<(bool, f64, f64, usize)>>::new(None);
+    let delayed_scroll = StoredValue::<Option<DelayedScroll>>::new(None);
     let busy = StoredValue::new(false);
 
     let get_items = move |stage: InfiniteStage<ItemData>| {
@@ -122,8 +142,23 @@ where
                 let current_data = item_data.get_untracked();
                 let height = infinite_scroll_elm.client_height() as f64;
                 let scroll_height = infinite_scroll_elm.scroll_height() as f64;
+                let scroll_top = infinite_scroll_elm.scroll_top() as f64;
+                let save_height = if is_top {
+                    scroll_top + height
+                } else {
+                    scroll_height - scroll_top
+                };
+                let save_height = if save_height < (height * 3.0) {
+                    height * 3.0
+                } else {
+                    save_height
+                };
+                trace!("save_height: {save_height}");
                 let elms = infinite_scroll_elm.children();
                 let elms_len = infinite_scroll_elm.child_element_count() as usize;
+                let max_remove = new_data_len;
+                let elm_first = elms.get_with_index(0);
+                let elm_last = elms.get_with_index(elms_len.saturating_sub(1) as u32);
 
                 let Some((cursor, saved_height)) = crop_view(
                     |i| {
@@ -131,24 +166,122 @@ where
                             .map(|v| v.client_height() as f64)
                     },
                     elms_len,
+                    max_remove,
                     is_top,
-                    height,
-                    2.0,
+                    save_height,
+                    1.0,
                     scroll_height,
                 ) else {
                     trace!("no view was cropped");
                     let current_data = merge_data(current_data, new_data, is_top);
                     trace!("settings data: {current_data:#?}");
                     item_data.set(current_data);
-                    delayed_scroll.set_value(Some((is_top, scroll_height, 0.0, new_data_len)));
+
+                    let first_rect = elm_first.map(|v| v.get_bounding_client_rect());
+                    let last_rect = elm_last.map(|v| v.get_bounding_client_rect());
+
+                    delayed_scroll.set_value(Some(DelayedScroll {
+                        is_top,
+                        scroll_height_before: scroll_height,
+                        scroll_top_before: scroll_top,
+                        elm_last_y: last_rect.clone().map(|v| v.y()).unwrap_or_default(),
+                        elm_last_height: last_rect.map(|v| v.height()).unwrap_or_default(),
+                        elm_first_y: first_rect.clone().map(|v| v.y()).unwrap_or_default(),
+                        elm_first_height: first_rect.map(|v| v.height()).unwrap_or_default(),
+                        saved_height_without_gaps: 0.0,
+                        saved_height_with_gaps: 0.0,
+                        removed_height_with_gaps: 0.0,
+                        removed_height_without_gaps: 0.0,
+                        cursor: new_data_len.saturating_sub(1),
+                        new_elm_count: new_data_len,
+                    }));
+                    // delayed_scroll.set_value(Some((is_top, scroll_height, 0.0, new_data_len)));
                     return;
                 };
+
+                trace!("cursor {cursor}");
+
+                let (last_y, last_height, first_y, first_height, saved_height_with_gaps, removed_height_with_gaps) = elms
+                    .get_with_index(cursor as u32)
+                    .and_then(|elm_n| {
+                        elms.get_with_index(elms_len.saturating_sub(1) as u32)
+                            .map(|elm_last| (elm_n, elm_last))
+                    })
+                    .and_then(|(elm_n, elm_last)| {
+                        elms.get_with_index(0)
+                            .map(|elm_first| (elm_first, elm_n, elm_last))
+                    })
+                    .map(|(elm_first, elm_n, elm_last)| {
+                        let rect_first = elm_first.get_bounding_client_rect();
+                        let rect_n = elm_n.get_bounding_client_rect();
+                        let rect_last = elm_last.get_bounding_client_rect();
+
+                        let first_y = rect_first.y();
+                        let first_height = rect_first.height();
+                        let n_y = rect_n.y();
+                        let n_height = rect_n.height();
+                        let last_y = rect_last.y();
+                        let last_height = rect_last.height();
+
+                        let v = elm_last.text_content();
+
+                        trace!("1 first_y({first_y}) first_height({first_height}) n_y({n_y}) n_height({n_height}) last_y({last_y}) last_height({last_height}) {v:?}");
+
+                        if is_top {
+                            let saved_height_with_gaps = n_y - first_y;
+                            let removed_height_with_gaps = (last_y + last_height) - n_y;
+                            // (last_y + last_height) - (n_y + n_height);
+                            (last_y, last_height, first_y, first_height, saved_height_with_gaps, removed_height_with_gaps)
+                        } else {
+                            // let n_y = rect_n.y();
+                            // let n_height = rect_n.height();
+                            // let first_y = rect_first.y();
+                            // let first_height = rect_first.height();
+
+                            let saved_height_with_gaps = (last_y + last_height) - (n_y + n_height);
+                            let removed_height_with_gaps = if first_y < 0.0 {
+                                n_y + n_height + first_y.abs()
+
+                            } else {
+
+                                n_y - first_y
+                            };
+                            // let removed_height_with_gaps = n_y - first_y;
+                            // let removed_height_with_gaps = (n_y + n_height) - first_y;
+                            (last_y, last_height, first_y, first_height, saved_height_with_gaps, removed_height_with_gaps)
+                        }
+                    })
+                    .unwrap_or_default();
+
+                let removed_height_without_gaps = calc_removed(
+                    |i| {
+                        elms.get_with_index(i as u32)
+                            .map(|v| v.client_height() as f64)
+                    },
+                    cursor,
+                    is_top,
+                );
 
                 let current_data = crop_data(current_data, is_top, cursor);
                 let current_data = merge_data(current_data, new_data, is_top);
                 trace!("settings data: {current_data:#?}");
                 item_data.set(current_data);
-                delayed_scroll.set_value(Some((is_top, scroll_height, saved_height, new_data_len)));
+                delayed_scroll.set_value(Some(DelayedScroll {
+                    is_top,
+                    scroll_height_before: scroll_height,
+                    scroll_top_before: scroll_top,
+                    elm_last_y: last_y,
+                    elm_last_height: last_height,
+                    elm_first_y: first_y,
+                    elm_first_height: first_height,
+                    saved_height_without_gaps: saved_height,
+                    saved_height_with_gaps,
+                    removed_height_with_gaps,
+                    removed_height_without_gaps,
+                    cursor,
+                    new_elm_count: new_data_len,
+                }));
+                // delayed_scroll.set_value(Some((is_top, scroll_height, saved_height, new_data_len)));
             };
 
             fut.await;
@@ -232,70 +365,87 @@ where
             return;
         };
 
+        let intersection_observer_options = IntersectionObserverInit::new();
+        intersection_observer_options.set_threshold(&JsValue::from_f64(0.0));
+
         let get_items = get_items.clone();
-        let new_interception_observer_btm = intersection_observer::new_raw({
-            let get_items = get_items.clone();
+        let new_interception_observer_btm = intersection_observer::new_with_options_raw(
+            {
+                let get_items = get_items.clone();
 
-            move |entry, _observer| {
-                let Some(entry) = entry.first() else {
-                    return;
-                };
+                move |entry, _observer| {
+                    if delayed_scroll.with_value(|v| v.is_some()) {
+                        return;
+                    }
 
-                let is_intersecting = entry.is_intersecting();
+                    let Some(entry) = entry.first() else {
+                        return;
+                    };
 
-                if !is_intersecting {
-                    activated_btm.set_value(true);
-                    return;
+                    let is_intersecting = entry.is_intersecting();
+
+                    if !is_intersecting {
+                        activated_btm.set_value(true);
+                        return;
+                    }
+
+                    if !activated_btm.get_value() {
+                        return;
+                    }
+
+                    activated_btm.set_value(false);
+                    trace!("yo wtf is going on");
+
+                    let Some(data) = item_data.with_untracked(|v| v.last().cloned()) else {
+                        error!("missing data for item last");
+                        return;
+                    };
+                    trace!("data picked {data:?}");
+                    get_items(InfiniteStage::Btm(data));
                 }
-
-                if !activated_btm.get_value() {
-                    return;
-                }
-
-                activated_btm.set_value(false);
-                trace!("yo wtf is going on");
-
-                let Some(data) = item_data.with_untracked(|v| v.last().cloned()) else {
-                    error!("missing data for item last");
-                    return;
-                };
-                trace!("data picked {data:?}");
-                get_items(InfiniteStage::Btm(data));
-            }
-        });
+            },
+            &intersection_observer_options,
+        );
         observer_intersection_bottom.set(Some(SendWrapper::new(
             new_interception_observer_btm.clone(),
         )));
 
-        let new_interception_observer_top = intersection_observer::new_raw({
-            let get_items = get_items.clone();
+        let new_interception_observer_top = intersection_observer::new_with_options_raw(
+            {
+                let get_items = get_items.clone();
 
-            move |entry, _observer| {
-                let Some(entry) = entry.first() else {
-                    return;
-                };
+                move |entry, _observer| {
+                    if delayed_scroll.with_value(|v| v.is_some()) {
+                        return;
+                    }
 
-                let is_intersecting = entry.is_intersecting();
+                    let Some(entry) = entry.first() else {
+                        return;
+                    };
 
-                if !is_intersecting {
-                    activated_top.set_value(true);
-                    return;
+                    let is_intersecting = entry.is_intersecting();
+
+                    if !is_intersecting {
+                        activated_top.set_value(true);
+                        return;
+                    }
+
+                    if !activated_top.get_value() {
+                        return;
+                    }
+
+                    activated_top.set_value(false);
+
+                    let Some(data) = item_data.with_untracked(|v| v.first().cloned()) else {
+                        error!("missing data for item 0");
+                        return;
+                    };
+                    trace!("data picked {data:?}");
+                    get_items(InfiniteStage::Top(data));
                 }
-
-                if !activated_top.get_value() {
-                    return;
-                }
-
-                activated_top.set_value(false);
-
-                let Some(data) = item_data.with_untracked(|v| v.first().cloned()) else {
-                    error!("missing data for item 0");
-                    return;
-                };
-                trace!("data picked {data:?}");
-                get_items(InfiniteStage::Top(data));
-            }
-        });
+            },
+            &intersection_observer_options,
+        );
         observer_intersection_top.set(Some(SendWrapper::new(
             new_interception_observer_top.clone(),
         )));
@@ -324,31 +474,31 @@ where
             new_interception_observer_btm.disconnect();
             new_interception_observer_btm.observe(&elm_last);
 
-            let (Some((is_top, scroll_height_before, scroll_height_save, count)),) =
-                (delayed_scroll.get_value(),)
-            else {
+            let (Some(delayed_scroll_dto),) = (delayed_scroll.get_value(),) else {
                 return;
             };
 
-            let elm_n = elms.get_with_index(count as u32);
+            // if delayed_scroll_dto.cursor == 0 {
+            //     return;
+            // }
 
-            let (Some(elm_n),) = (elm_n,) else {
-                return;
-            };
-
-            if count == 0 {
-                return;
-            }
-
-            trace!("mutation running scroll fix");
-
+            //
             let scroll_height_current = infinite_scroll_elm.scroll_height() as f64;
-
             trace!(
-                "scroll_height_current{scroll_height_current} scroll_height_before{scroll_height_before} scroll_height_save{scroll_height_save}"
+                "mutation running scroll fix {delayed_scroll_dto:#?} scroll_height_current({scroll_height_current})"
             );
+            //
+            //
+            // trace!(
+            //     "scroll_height_current{scroll_height_current} scroll_height_before{} scroll_height_save{scroll_height_save}", delayed_scroll_dto.scroll_height_before
+            // );
+            //
+            let scroll = if delayed_scroll_dto.is_top {
+                let elm_n = elms.get_with_index(delayed_scroll_dto.new_elm_count as u32);
+                let (Some(elm_n),) = (elm_n,) else {
+                    return;
+                };
 
-            let scroll = if is_top {
                 let rect_first = elm_first.get_bounding_client_rect();
                 let rect_n = elm_n.get_bounding_client_rect();
 
@@ -359,17 +509,78 @@ where
                 trace!("y_n({y_n}) - y_first({y_first}) = y_diff({})", y_diff);
 
                 y_diff
-            } else {
-                let y_diff = scroll_height_before - scroll_height_current;
-                // let y_diff = scroll_height_current - scroll_height_before;
-                trace!(
-                    // "scroll_height_current({scroll_height_current}) - scroll_height_before({scroll_height_before}) = y_diff({})",
-                    "scroll_height_before({scroll_height_before}) - scroll_height_current({scroll_height_current}) = y_diff({})",
-                    y_diff
+            } else if delayed_scroll_dto.saved_height_without_gaps > 0.0 {
+                // let elm_n = elms.get_with_index(delayed_scroll_dto.new_elm_count as u32);
+                // let (Some(elm_n),) = (elm_n,) else {
+                //     return;
+                // };
+                //
+                // let rect_first = elm_first.get_bounding_client_rect();
+                // let rect_n = elm_n.get_bounding_client_rect();
+                //
+                // let y_first = rect_first.y();
+                // let y_n = rect_n.y();
+                //
+                // let y_diff = y_n - y_first;
+                // -y_diff
+                let elm_n = elms.get_with_index(
+                    elm_len.saturating_sub(delayed_scroll_dto.new_elm_count as u32 + 1) as u32,
                 );
-                y_diff
-            };
+                let (Some(elm_n),) = (elm_n,) else {
+                    return;
+                };
 
+                let rect_first = elm_first.get_bounding_client_rect();
+                let rect_n = elm_n.get_bounding_client_rect();
+                let rect_last = elm_last.get_bounding_client_rect();
+                let n_y = rect_n.y();
+                // let n_top = rect_n.top();
+                let n_height = rect_n.height();
+                let last_y = rect_last.y();
+                let last_height = rect_last.height();
+                let v = elm_n.text_content();
+
+                trace!(
+                    "2 n_y({n_y}) n_height({n_height}) last_y({last_y}) last_height({last_height}) {v:?}"
+                );
+
+                // let diff = (last_y + last_height) - n_y;
+                // -diff
+                // let y_first = rect_first.y();
+                // let y_n = rect_n.y();
+                //
+                // let y_diff = y_first - y_n;
+                // trace!("y_first({y_first}) - y_n({y_n}) = y_diff({})", y_diff);
+                // -(diff - delayed_scroll_dto.removed_height_without_gaps)
+                // -delayed_scroll_dto.removed_height_with_gaps
+
+                let y_diff = n_y - delayed_scroll_dto.elm_last_y;
+                // let y_diff = delayed_scroll_dto.scroll_height_before - scroll_height_current;
+                // trace!(
+                //     "{} {} {}",
+                //     scroll_height_current,
+                //     delayed_scroll_dto.scroll_height_before,
+                //     delayed_scroll_dto.removed_height_with_gaps
+                // );
+                // let y_diff = -(y_diff.abs() - delayed_scroll_dto.removed_height_with_gaps).abs();
+
+                // let y_diff = delayed_scroll_dto.saved_height_with_gaps - delayed_scroll_dto.scroll_height_before;
+                // let y_diff = delayed_scroll_dto.removed_height_with_gaps - delayed_scroll_dto.saved_height_with_gaps;
+                // let y_diff = delayed_scroll_dto.saved_height - delayed_scroll_dto.scroll_top_before;
+                // // let y_diff = scroll_height_current - scroll_height_before;
+                // trace!(
+                //     // "scroll_height_current({scroll_height_current}) - scroll_height_before({scroll_height_before}) = y_diff({})",
+                //     "scroll_height_before({scroll_height_before}) - scroll_height_current({scroll_height_current}) = y_diff({})",
+                //     y_diff
+                // );
+                // infinite_scroll_elm.set_scroll_top((delayed_scroll_dto.scroll_top_before - y_diff) as i32);
+                // delayed_scroll.set_value(None);
+                // return;
+                y_diff
+            } else {
+                0.0
+            };
+            //
             trace!("scrolling by {scroll}");
             infinite_scroll_elm.scroll_by_with_x_and_y(0.0, scroll);
             delayed_scroll.set_value(None);
@@ -414,6 +625,7 @@ where
 fn crop_view(
     get_elm_height: impl Fn(usize) -> Option<f64>,
     elms_len: usize,
+    max_remove: usize,
     is_top: bool,
     height: f64,
     height_mult: f64,
@@ -433,7 +645,10 @@ fn crop_view(
     trace!("init index {index}");
 
     while let Some(height) = get_elm_height(index) {
-        if scroll_height_save >= expected_scroll_height {
+        if scroll_height_save >= expected_scroll_height
+        // || (is_top && index > max_remove)
+        // || (!is_top && elms_len.saturating_sub(index) > max_remove)
+        {
             trace!("exiting saving loop");
             break;
         }
@@ -443,16 +658,48 @@ fn crop_view(
 
         if is_top {
             index += 1;
+        } else if index > 0 {
+            index -= 1;
         } else {
-            index = index.saturating_sub(1);
+            break;
         }
     }
 
-    if (is_top && index < elms_len) || (index > 0) {
+    if is_top && index < elms_len {
+        Some((index, scroll_height_save))
+    } else if index > 0 {
         Some((index, scroll_height_save))
     } else {
         None
     }
+}
+
+fn calc_removed(
+    get_elm_height: impl Fn(usize) -> Option<f64>,
+    mut cursor: usize,
+    is_top: bool,
+) -> f64 {
+    let mut removed_height = 0.0_f64;
+
+    // if is_top {
+    //     cursor += 1;
+    // } else {
+    //     cursor = cursor.saturating_sub(1);
+    // }
+
+    while let Some(height) = get_elm_height(cursor) {
+        removed_height += height;
+
+        if is_top {
+            cursor += 1;
+        } else if cursor > 0 {
+            cursor = cursor - 1;
+        } else {
+            break;
+        }
+    }
+
+    removed_height
 }
 
 fn crop_data<T>(current_data: impl Into<Vec<T>>, is_top: bool, cursor_position: usize) -> Vec<T> {
@@ -503,8 +750,21 @@ fn merge_data<T>(
 mod use_infinite_scroll_tests {
     use crate::{
         init_test_log,
-        view::app::hook::use_infinite_scroll::{crop_data, crop_view, merge_data},
+        view::app::hook::use_infinite_scroll::{calc_removed, crop_data, crop_view, merge_data},
     };
+
+    #[test]
+    fn calc_removed_test() {
+        init_test_log();
+        let heights = [10.0_f64, 20.0, 30.0, 40.0, 50.0];
+        let get_height = |i: usize| heights.get(i).cloned();
+
+        let result = calc_removed(get_height, 2, true);
+        assert_eq!(result, 30.0 + 40.0 + 50.0);
+
+        let result = calc_removed(get_height, 2, false);
+        assert_eq!(result, 10.0 + 20.0 + 30.0);
+    }
 
     #[test]
     fn crop_view_test() {
@@ -514,11 +774,23 @@ mod use_infinite_scroll_tests {
         let scroll_height = heights.iter().fold(0.0, |a, b| a + *b);
         let get_height = |i: usize| heights.get(i).cloned();
 
-        let result = crop_view(get_height, heights_len, true, 10.0, 2.0, scroll_height);
+        let result = crop_view(get_height, heights_len, 2, true, 10.0, 2.0, scroll_height);
         assert_eq!(result, Some((2, 20.0)));
 
-        let result = crop_view(get_height, heights_len, false, 10.0, 2.0, scroll_height);
+        let result = crop_view(get_height, heights_len, 2, false, 10.0, 2.0, scroll_height);
         assert_eq!(result, Some((2, 20.0)));
+
+        // let result = crop_view(get_height, heights_len, 1, true, 10.0, 2.0, scroll_height);
+        // assert_eq!(result, Some((2, 20.0)));
+        //
+        // let result = crop_view(get_height, heights_len, 1, false, 10.0, 2.0, scroll_height);
+        // assert_eq!(result, Some((2, 20.0)));
+
+        // let result = crop_view(get_height, heights_len, 2, true, 10.0, 2.0, scroll_height);
+        // assert_eq!(result, Some((2, 20.0)));
+        //
+        // let result = crop_view(get_height, heights_len, 2, false, 10.0, 2.0, scroll_height);
+        // assert_eq!(result, Some((2, 20.0)));
     }
 
     #[test]

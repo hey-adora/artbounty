@@ -55,7 +55,7 @@ where
             InfiniteStage::Init => {
                 let time = get_timestamp();
                 (
-                    true,
+                    false,
                     api.get_post_comment(
                         post_id,
                         fetch_count,
