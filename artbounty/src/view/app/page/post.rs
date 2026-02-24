@@ -249,7 +249,7 @@ pub fn Page() -> impl IntoView {
     // };
 
     view! {
-        <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen text-base05">
+        <main node_ref=main_ref class="font-hi grid grid-rows-[auto_1fr] h-screen text-base05">
             <Nav/>
 
             <div class=move || format!("place-items-center text-[1.5rem] {}", if not_found.get() {"grid"} else {"hidden"})>
@@ -294,14 +294,17 @@ pub fn Page() -> impl IntoView {
                         </div>
                     </div>
                     <div class="flex flex-col gap-2 md:gap-4 justify-between mt-4">
-                        <h1 class="text-[1.2rem] text-base0F">"Description"</h1>
+                        <h1 class="text-[1.3rem] text-base0F">"Description"</h1>
                         <div class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}", if fn_description_is_empty() {"text-base03"} else {"text-base05"} )>{fn_description}</div>
                     </div>
                     <div  class="flex flex-col gap-2 md:gap-4 justify-between mt-4 pb-1">
-                        <h1 class="text-[1.2rem] text-base0F">"Comments"</h1>
-                        <form class="flex flex-col gap-2 " method="POST" action="" on:submit=post_comments.on_comment.to_fn() >
-                            <textarea node_ref=comment_input_ref class="border-2 border-base0E resize" id="story" name="story" rows="5" cols="30" ></textarea>
-                            <input type="submit" value="Post" class="ml-auto border-2 border-base0E text-[1.3rem] font-bold px-4 py-1 hover:bg-base02 text-base0E"/>
+                        <h1 class="text-[1.3rem] text-base0F ">"Comments"</h1>
+                        <form class="flex  bg-base01 rounded-xl flex-col gap-2 py-2 px-4 " method="POST" action="" on:submit=post_comments.on_comment.to_fn() >
+                            <textarea placeholder="Comment" node_ref=comment_input_ref class="focus:outline-none! appearance-none border-none resize text-[1.1rem]" id="story" name="story" rows="5" cols="30" ></textarea>
+                            <div class="flex justify-between place-items-center">
+                                <p>"0/2000"</p>
+                                <input type="submit" value="Post" class="ml-auto rounded-full font-semibold text-[1.2rem] font-bold px-4 py-1 hover:bg-base05 hover:font-bold bg-base0D text-base01"/>
+                            </div>
                         </form>
 
                         // <form method="POST" action="" on:submit=on_comment >

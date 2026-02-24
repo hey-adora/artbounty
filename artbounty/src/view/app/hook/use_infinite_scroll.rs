@@ -374,9 +374,9 @@ where
                 let get_items = get_items.clone();
 
                 move |entry, _observer| {
-                    if delayed_scroll.with_value(|v| v.is_some()) {
-                        return;
-                    }
+                    // if delayed_scroll.with_value(|v| v.is_some()) {
+                    //     return;
+                    // }
 
                     let Some(entry) = entry.first() else {
                         return;
@@ -415,9 +415,9 @@ where
                 let get_items = get_items.clone();
 
                 move |entry, _observer| {
-                    if delayed_scroll.with_value(|v| v.is_some()) {
-                        return;
-                    }
+                    // if delayed_scroll.with_value(|v| v.is_some()) {
+                    //     return;
+                    // }
 
                     let Some(entry) = entry.first() else {
                         return;
@@ -453,6 +453,7 @@ where
         let new_mutation_observer = mutation_observer::new_raw(move |a, b| {
             trace!("running mutation");
             let (Some(infinite_scroll_elm),) = (infinite_scroll_ref.get_untracked(),) else {
+                trace!("running mutation bounced");
                 return;
             };
 
@@ -463,6 +464,7 @@ where
             let elm_last = elms.get_with_index(elm_len.saturating_sub(1));
 
             let (Some(elm_first), Some(elm_last)) = (elm_first, elm_last) else {
+                trace!("running mutation bounced 2");
                 return;
             };
 

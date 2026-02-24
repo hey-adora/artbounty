@@ -3,6 +3,11 @@
 @source "../artbounty/**/*.rs";
 /* @import "tailwindcss"; */
 
+@font-face {
+  font-family: "Atkinson Hyperlegible Next VF";
+  src: url("/atkinson_hyperlegible_next/atkinson_hyperlegible_next_vf-variable.woff2") format("woff2");
+}
+
 @theme {
     --color-low-purple: #ffffff;
     --color-half-purple: #67398B;
@@ -32,4 +37,7 @@
     --color-base0D: #89B4FA;
     --color-base0E: #CBA6F7;
     --color-base0F: #F2CDCD;
+
+    --font-hi: "Atkinson Hyperlegible Next VF", sans-serif;
 }
+
