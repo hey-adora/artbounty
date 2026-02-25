@@ -1,5 +1,4 @@
 pub mod prelude {
-    pub use super::api::Grounder;
     pub use super::dropzone::{self, AddDropZone};
     pub use super::event_listener::{self, AddEventListener};
     pub use super::file::{self, GetFileStream, GetFiles, GetStreamChunk, PushChunkToVec};
@@ -14,6 +13,8 @@ pub mod prelude {
     pub use super::time::time_now_ms;
 }
 
+// TODO fx bs api, create struct abstraction over web api and let user freely use it anywhere
+
 pub mod time {
     use web_sys::js_sys;
 
@@ -23,25 +24,10 @@ pub mod time {
 }
 
 pub mod leptos_helpers {
-    use std::str::FromStr;
-
-    use leptos::Params;
     use leptos::prelude::*;
     use leptos_router::hooks::query_signal;
     use leptos_router::params::{Params, ParamsError};
-
-    // pub trait ToFnVoid<'a> {
-    //     fn to_fn(&self)
-    //     -> impl Fn()+ Send + Sync + Clone + Copy + 'static + use<'a, Self>;
-    // }
-    //
-    // impl<'a> ToFnVoid<'a> for StoredValue<Box<dyn Fn() + Sync + Send + 'static>> {
-    //     fn to_fn(&self) -> impl Fn() + Send + Sync + Clone + Copy + 'static + use<'a> {
-    //         let f = self.clone();
-    //         move || (f.read_value())()
-    //     }
-    //pub trait FnGet<T: Send + Sync + Clone + 'static> {
-    // }
+    use std::str::FromStr;
 
     #[derive(Clone)]
     pub struct RwQuery<T: FromStr + ToString + Clone + Sync + Send + Default + PartialEq + 'static> {
@@ -262,43 +248,6 @@ pub mod leptos_helpers {
         }
     }
 
-    // pub fn build_query_getter<QueryInput, MapFnOutput, MapFn>(
-    //     query: Memo<Result<QueryInput, ParamsError>>,
-    //     f: MapFn,
-    // ) -> impl Fn() -> MapFnOutput
-    // where
-    //     QueryInput: Params + Sync + Send + Clone + 'static,
-    //     MapFnOutput: Sync + Send + Default + 'static,
-    //     MapFn: Fn(&QueryInput) -> Option<MapFnOutput> + Clone,
-    // {
-    //     let fn_get_token = move || {
-    //         let f = f.clone();
-    //         query.with(|v| v.as_ref().ok().and_then(f).unwrap_or_default())
-    //     };
-    //
-    //     fn_get_token
-    // }
-    // pub trait QueryFnOrDefault<'a, M, T: 'static> {
-    //     fn to_query_fn_default<F: Fn(M) -> T + Send + Sync + Copy + 'static>(
-    //         &self,
-    //         f: F,
-    //     ) -> impl Fn() -> T + Send + Sync + Clone + Copy + 'static + use<'a, Self, M, T, F>
-    //     where
-    //         Self: Sized;
-    // }
-    //
-    // impl<'a, M: 'static + Send + Sync + Clone, T: 'static> QueryFnOrDefault<'a, M, T> for Memo<M> {
-    //     fn to_query_fn_default<F: Fn(M) -> T + Send + Sync + Copy + 'static>(
-    //         &self,
-    //         f: F,
-    //     ) -> impl Fn() -> T + Send + Sync + Clone + Copy + 'static + use<'a, Self, M, T, F>
-    //     where
-    //         Self: Sized,
-    //     {
-    //         //
-    //     }
-    // }
-
     pub trait FnGet<T: Send + Sync + Clone + 'static> {
         fn run(&self) -> T;
     }
@@ -363,281 +312,6 @@ pub mod leptos_helpers {
     }
 }
 
-pub mod api {
-    use std::marker::PhantomData;
-
-    use leptos::{
-        prelude::{ArcRwSignal, Get, Read, RwSignal, Set, Update, With, WithUntracked},
-        task::spawn_local,
-    };
-    use log::trace;
-    use tracing::{debug, warn};
-
-    pub trait Grounder<Func, FuncFuture, DTO, ApiValue, ApiErr>
-    where
-        Func: Fn(DTO) -> FuncFuture + Clone + Sync + Send + 'static,
-        FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
-        ApiValue: Clone + 'static + Sync + Send,
-        ApiErr: Clone + 'static + Sync + Send,
-        DTO: Sync + Send + 'static,
-    {
-        fn ground(self) -> Api<Func, FuncFuture, DTO, ApiValue, ApiErr>;
-    }
-
-    pub trait Caller<T> {
-        fn call(self) -> T;
-    }
-
-    impl<T, F: Fn() -> T> Caller<T> for F {
-        fn call(self) -> T {
-            (self)()
-        }
-    }
-
-    impl<Func, FuncFuture, DTO, ApiValue, ApiErr> Grounder<Func, FuncFuture, DTO, ApiValue, ApiErr>
-        for Func
-    where
-        Func: Fn(DTO) -> FuncFuture + Clone + Sync + Send + 'static,
-        FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
-        ApiValue: Clone + 'static + Sync + Send,
-        ApiErr: Clone + 'static + Sync + Send,
-        DTO: Sync + Send + 'static,
-    {
-        fn ground(self) -> Api<Func, FuncFuture, DTO, ApiValue, ApiErr> {
-            ground(self)
-        }
-    }
-
-    // impl<Func, FuncFuture, DTO> Grounder<Func, FuncFuture, DTO, (), ()>
-    //     for Func
-    // where
-    //     Func: Fn(DTO) -> FuncFuture + Clone + Sync + Send + 'static,
-    //     FuncFuture: Future<Output = ()> + 'static,
-    //     DTO: Sync + Send + 'static,
-    // {
-    //     fn ground(self) -> Api<Func, FuncFuture, DTO, ApiValue, ApiErr> {
-    //         ground(self)
-    //     }
-    // }
-
-    #[derive(Debug)]
-    pub struct Api<Func, FuncFuture, DTO, ApiValue, ApiErr>
-    where
-        Func: Fn(DTO) -> FuncFuture + Clone,
-        FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
-        ApiValue: Clone + 'static,
-        ApiErr: Clone + 'static,
-    {
-        pub inner: RwSignal<ApiInner<Func, FuncFuture, DTO, ApiValue, ApiErr>>,
-        // is_pending: RwSignal<bool>,
-    }
-
-    #[derive(Debug)]
-    pub struct ApiInner<Func, FuncFuture, DTO, ApiValue, ApiErr>
-    where
-        Func: Fn(DTO) -> FuncFuture + Clone,
-        FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
-        ApiValue: Clone + 'static,
-        ApiErr: Clone + 'static,
-    {
-        pub fut: Func,
-        pub value: Option<Result<ApiValue, ApiErr>>,
-        pub pending: bool,
-        pub _phantom: PhantomData<DTO>,
-    }
-
-    impl<Func, FuncFuture, DTO, ApiValue, ApiErr> Copy for Api<Func, FuncFuture, DTO, ApiValue, ApiErr>
-    where
-        Func: Fn(DTO) -> FuncFuture + Clone,
-        FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
-        ApiValue: Clone + 'static,
-        ApiErr: Clone + 'static,
-    {
-    }
-
-    impl<Func, FuncFuture, DTO, ApiValue, ApiErr> Clone for Api<Func, FuncFuture, DTO, ApiValue, ApiErr>
-    where
-        Func: Fn(DTO) -> FuncFuture + Clone,
-        FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
-        ApiValue: Clone + 'static,
-        ApiErr: Clone + 'static,
-    {
-        fn clone(&self) -> Self {
-            Self {
-                inner: self.inner.clone(),
-                // is_pending: self.is_pending.clone(),
-            }
-        }
-    }
-
-    impl<Func, FuncFuture, DTO, ApiValue, ApiErr> Clone
-        for ApiInner<Func, FuncFuture, DTO, ApiValue, ApiErr>
-    where
-        Func: Fn(DTO) -> FuncFuture + Clone,
-        FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
-        ApiValue: Clone + 'static,
-        ApiErr: Clone + 'static,
-    {
-        fn clone(&self) -> Self {
-            Self {
-                fut: self.fut.clone(),
-                value: self.value.clone(),
-                pending: false,
-                _phantom: PhantomData,
-            }
-        }
-    }
-
-    impl<Func, FuncFuture, DTO, ApiValue, ApiErr> Api<Func, FuncFuture, DTO, ApiValue, ApiErr>
-    where
-        Func: Fn(DTO) -> FuncFuture + Clone + Sync + Send + 'static,
-        FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
-        ApiValue: Clone + 'static + Sync + Send,
-        ApiErr: Clone + 'static + Sync + Send,
-        DTO: Sync + Send + 'static,
-    {
-        pub fn dispatch_and_run<RUN_FN, RUN_FN_FUT>(&self, dto: DTO, run_fn: RUN_FN)
-        where
-            RUN_FN: FnOnce(&Result<ApiValue, ApiErr>) -> RUN_FN_FUT + Clone + 'static,
-            RUN_FN_FUT: Future<Output = ()> + 'static,
-        {
-            self.inner.update(|v| {
-                v.value = None;
-                v.pending = true;
-            });
-            let fut = (self.inner.with_untracked(|v| v.fut.clone()))(dto);
-            let inner = self.inner.clone();
-            spawn_local(async move {
-                trace!("fut starting");
-                let result = fut.await;
-                trace!("fut finished");
-                run_fn(&result).await;
-                // if let Err(err) = run_fn(&result).await {
-                //     debug!("fut return: {err}");
-                // }
-                let r = inner.try_update(|v| {
-                    v.value = Some(result);
-                    v.pending = false;
-                    trace!("value set");
-                });
-
-                if r.is_none() {
-                    warn!("trying to set disposed value");
-                    return;
-                }
-            });
-        }
-        pub fn dispatch(&self, dto: DTO) {
-            self.inner.update(|v| {
-                v.value = None;
-                v.pending = true;
-            });
-            let fut = (self.inner.with_untracked(|v| v.fut.clone()))(dto);
-            let inner = self.inner.clone();
-            spawn_local(async move {
-                trace!("fut starting");
-                let result = fut.await;
-                trace!("fut finished");
-                let r = inner.try_update(|v| {
-                    v.value = Some(result);
-                    v.pending = false;
-                    trace!("value set");
-                });
-
-                if r.is_none() {
-                    warn!("trying to set disposed value");
-                    return;
-                }
-            });
-        }
-
-        pub fn value_tracked(&self) -> Option<Result<ApiValue, ApiErr>> {
-            self.inner.with(|v| v.value.clone())
-        }
-
-        pub fn is_complete_tracked(&self) -> bool {
-            // self.inner.with(|v| v.value.as_ref().map(|v| v.is_ok()).unwrap_or_default() )
-            self.inner.with(|v| v.value.as_ref().is_some())
-        }
-
-        pub fn is_pending_tracked(&self) -> bool {
-            // self.inner.with(|v| v.value.as_ref().map(|v| v.is_ok()).unwrap_or_default() )
-            self.inner.with(|v| v.pending)
-        }
-        pub fn is_pending_untracked(&self) -> bool {
-            // self.inner.with(|v| v.value.as_ref().map(|v| v.is_ok()).unwrap_or_default() )
-            self.inner.with_untracked(|v| v.pending)
-        }
-
-        pub fn is_succ_tracked(&self) -> bool {
-            self.inner
-                .with(|v| v.value.as_ref().map(|v| v.is_ok()).unwrap_or_default())
-        }
-
-        pub fn is_err_tracked(&self) -> bool {
-            self.inner
-                .with(|v| v.value.as_ref().map(|v| v.is_err()).unwrap_or_default())
-        }
-    }
-
-    pub fn ground<Func, FuncFuture, DTO, ApiValue, ApiErr>(
-        fut: Func,
-    ) -> Api<Func, FuncFuture, DTO, ApiValue, ApiErr>
-    where
-        Func: Fn(DTO) -> FuncFuture + Clone + Sync + Send + 'static,
-        FuncFuture: Future<Output = Result<ApiValue, ApiErr>> + 'static,
-        ApiValue: Clone + 'static + Sync + Send,
-        ApiErr: Clone + 'static + Sync + Send,
-        DTO: Sync + Send + 'static,
-    {
-        Api {
-            inner: RwSignal::new(ApiInner::<Func, FuncFuture, DTO, ApiValue, ApiErr> {
-                fut,
-                value: None,
-                pending: false,
-                _phantom: PhantomData,
-            }),
-            // is_pending: RwSignal::new(false)
-        }
-    }
-}
-
-// pub mod url {
-//     use leptos::prelude::*;
-//     use tracing::{error, trace};
-//
-//     pub fn set_query(key: impl AsRef<str>, value: impl AsRef<str>) {
-//         let location = window().location();
-//         let Some(mut url) = location
-//             .href()
-//             .inspect_err(|err| error!("getting location err"))
-//             .ok()
-//             .and_then(|v| {
-//                 url::Url::parse(&v)
-//                     .inspect_err(|err| error!("parsing location err"))
-//                     .ok()
-//             })
-//             .inspect(|v| trace!("parsed url: {v}"))
-//         else {
-//             return;
-//         };
-//         {
-//             let mut query = url.query_pairs_mut();
-//             query.append_pair(key.as_ref(), value.as_ref());
-//         }
-//         let Some(query) = url.query() else {
-//             return;
-//         };
-//         trace!("href: {query:?}");
-//         let _ = location
-//             .set_search(query)
-//             .inspect_err(|_| error!("failed to set location err"));
-//         // let _ = location
-//         //     .set_href(&href)
-//         //     .inspect_err(|_| error!("failed to set location err"));
-//     }
-// }
-
 pub mod random {
     use web_sys::js_sys::Math::random;
 
@@ -655,62 +329,6 @@ pub mod random {
 
     pub fn random_u32_ranged(min: u32, max: u32) -> u32 {
         (random_u32() + min) % max
-    }
-}
-
-pub mod uuid {
-    use std::str::FromStr;
-
-    use leptos::prelude::window;
-    use tracing::error;
-    // use uuid::Uuid;
-
-    use web_sys::Element;
-    const UUID_FIELD_NAME: &str = "data-leptos_toolbox_uuid";
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn gen_uuid() -> String {
-        window()
-            .crypto()
-            .map(|v| v.random_uuid())
-            .inspect_err(|_| {
-                error!("failed to generated crypto uuid for some magical f#($)#* reason")
-            })
-            .unwrap_or("error".to_string())
-    }
-
-    #[cfg(target_os = "linux")]
-    // #[cfg(target_arch = "other")]
-    pub fn gen_uuid() -> String {
-        "only works on wasm".to_string()
-    }
-
-    pub fn get_uuid(target: &Element) -> Option<String> {
-        get_id(target, UUID_FIELD_NAME)
-    }
-
-    pub fn set_uuid(target: &Element, id: String) {
-        // let id = Uuid::new_v4();
-        target
-            .set_attribute(UUID_FIELD_NAME, &id.to_string())
-            .unwrap();
-    }
-
-    pub fn get_id(target: &Element, field_name: &str) -> Option<String> {
-        let output = target.get_attribute(field_name);
-        if output.is_none() {
-            error!(
-                "{} was not set {:?}",
-                field_name,
-                target.to_string().as_string()
-            );
-        };
-
-        output
-    }
-
-    pub fn set_id(target: &Element, field_name: &str, id: String) {
-        target.set_attribute(field_name, &id.to_string()).unwrap();
     }
 }
 
@@ -834,48 +452,15 @@ pub mod interval {
 }
 
 pub mod intersection_observer {
-    use std::cell::RefCell;
-    use std::collections::HashMap;
-    use std::hash::{DefaultHasher, Hash, Hasher};
-
-    use std::sync::LazyLock;
-
     use leptos::html::ElementType;
     use leptos::prelude::*;
-    // use ordered_float::OrderedFloat;
-    use send_wrapper::SendWrapper;
     use tracing::{error, trace, trace_span, warn};
-    // use uuid::Uuid;
     use wasm_bindgen::prelude::Closure;
     use wasm_bindgen::{JsCast, JsValue};
     use web_sys::{
         HtmlElement, IntersectionObserver, IntersectionObserverEntry, IntersectionObserverInit,
         js_sys::Array,
     };
-
-    use crate::view::toolbox::uuid::gen_uuid;
-
-    use super::uuid::{get_id, set_id};
-
-    const ID_FIELD_NAME: &str = "data-leptos_toolbox_intersection_observer_id";
-    const ID_FIELD_ROOT_NAME: &str = "data-leptos_toolbox_intersection_observer_root_id";
-    thread_local! {
-        static OBSERVERS: LazyLock<RefCell<HashMap<u64, SendWrapper<IntersectionObserver>>>> =
-            LazyLock::new(|| RefCell::new(HashMap::new()));
-        static CALLBACKS: LazyLock<
-            RefCell<
-                HashMap<
-                    String,
-                    Box<
-                        dyn FnMut(IntersectionObserverEntry, IntersectionObserver)
-                            + Send
-                            + Sync
-                            + 'static,
-                    >,
-                >,
-            >,
-        > = LazyLock::new(|| RefCell::new(HashMap::new()));
-    }
 
     pub trait AddIntersectionObserver {
         fn add_intersection_observer_with_options<F, R>(
@@ -885,7 +470,7 @@ pub mod intersection_observer {
         ) where
             R: ElementType,
             R::Output: JsCast + Clone + 'static + Into<HtmlElement>,
-            F: FnMut(IntersectionObserverEntry, IntersectionObserver)
+            F: FnMut(Vec<IntersectionObserverEntry>, IntersectionObserver)
                 + Send
                 + Sync
                 + Clone
@@ -904,7 +489,7 @@ pub mod intersection_observer {
         ) where
             R: ElementType,
             R::Output: JsCast + Clone + 'static + Into<HtmlElement>,
-            F: FnMut(IntersectionObserverEntry, IntersectionObserver)
+            F: FnMut(Vec<IntersectionObserverEntry>, IntersectionObserver)
                 + Send
                 + Sync
                 + Clone
@@ -914,23 +499,6 @@ pub mod intersection_observer {
         }
     }
 
-    // #[derive(Default, Clone)]
-    // pub struct GlobalState {
-    //     pub observer: StoredValue<HashMap<u64, SendWrapper<IntersectionObserver>>>,
-    //     pub callbacks: StoredValue<
-    //         HashMap<
-    //             Uuid,
-    //             Box<
-    //                 dyn FnMut(IntersectionObserverEntry, IntersectionObserver)
-    //                     + Send
-    //                     + Sync
-    //                     + 'static,
-    //             >,
-    //         >,
-    //     >,
-    // }
-
-    #[derive(Clone)]
     pub struct IntersectionOptions<E = leptos::html::Div>
     where
         E: ElementType,
@@ -939,6 +507,20 @@ pub mod intersection_observer {
         root: Option<NodeRef<E>>,
         root_margin: Option<String>,
         threshold: Option<u64>,
+    }
+
+    impl<E> Clone for IntersectionOptions<E>
+    where
+        E: ElementType,
+        E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
+    {
+        fn clone(&self) -> Self {
+            Self {
+                root: self.root.clone(),
+                root_margin: self.root_margin.clone(),
+                threshold: self.threshold.clone(),
+            }
+        }
     }
 
     impl<E> Default for IntersectionOptions<E>
@@ -952,6 +534,37 @@ pub mod intersection_observer {
                 root_margin: None,
                 threshold: None,
             }
+        }
+    }
+
+    impl<E> TryFrom<IntersectionOptions<E>> for IntersectionObserverInit
+    where
+        E: ElementType,
+        E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
+    {
+        type Error = &'static str;
+
+        fn try_from(value: IntersectionOptions<E>) -> Result<Self, Self::Error> {
+            let observer_settings = IntersectionObserverInit::new();
+            if let Some(root) = value.root {
+                let Some(root) = root.get().map(|v| v.into()) as Option<HtmlElement> else {
+                    return Err("root elm not ready");
+                };
+                trace!("root option set"); // 
+                observer_settings.set_root(Some(&root));
+            }
+
+            if let Some(margin) = value.root_margin {
+                trace!("margin option set");
+                observer_settings.set_root_margin(&margin);
+            }
+
+            if let Some(threshold) = value.threshold {
+                trace!("threshold option set");
+                observer_settings.set_threshold(&JsValue::from_f64(f64::from_bits(threshold)));
+            }
+
+            Ok(observer_settings)
         }
     }
 
@@ -976,163 +589,37 @@ pub mod intersection_observer {
         }
     }
 
-    impl<E> Hash for IntersectionOptions<E>
-    where
-        E: ElementType,
-        E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
-    {
-        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-            self.root
-                .as_ref()
-                .and_then(|v| {
-                    let root: HtmlElement = v.get().unwrap().into();
-                    root.get_attribute(ID_FIELD_ROOT_NAME)
-                })
-                .hash(state);
-            self.root_margin.hash(state);
-            self.threshold.hash(state);
-        }
-    }
-
     pub fn new<E, R, F>(target: NodeRef<E>, callback: F, options: IntersectionOptions<R>)
     where
         E: ElementType,
         E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
         R: ElementType,
         R::Output: JsCast + Clone + 'static + Into<HtmlElement>,
-        F: FnMut(IntersectionObserverEntry, IntersectionObserver) + Clone + Send + Sync + 'static,
+        F: FnMut(Vec<IntersectionObserverEntry>, IntersectionObserver)
+            + Clone
+            + Send
+            + Sync
+            + 'static,
     {
-        // let ctx = match use_context::<GlobalState>() {
-        //     Some(v) => v,
-        //     None => {
-        //         provide_context(GlobalState::default());
-        //         expect_context::<GlobalState>()
-        //     }
-        // };
-        // let id = Uuid::new_v4();
-        // let id = web_sys::Crypto::random_uuid();
-        let id = gen_uuid();
-
-        let options_hash = StoredValue::new(None::<u64>);
+        let observer = StoredValue::new_local(None);
 
         Effect::new(move || {
-            let span = trace_span!("intersection observer", "{}", &id).entered();
+            let span = trace_span!("intersection observer").entered();
 
-            let Some(target) = target.get() else {
+            let (Some(target), Ok(options)) = (
+                target.get().map(|v| v.into()) as Option<HtmlElement>,
+                options.clone().try_into() as Result<IntersectionObserverInit, &'static str>,
+            ) else {
                 return;
             };
 
-            let root: Option<HtmlElement> = match &options.root {
-                Some(v) => match v.get() {
-                    Some(v) => {
-                        let root: HtmlElement = v.into();
+            let inner_observer = observer.get_value().unwrap_or_else(|| {
+                let inner_observer = new_with_options_raw(callback.clone(), &options);
+                observer.set_value(Some(inner_observer.clone()));
+                inner_observer
+            });
 
-                        Some(root)
-                    }
-                    None => {
-                        trace!("root is not ready");
-                        return;
-                    }
-                },
-                None => None,
-            };
-
-            trace!("root options parsed");
-
-            let mut hasher = DefaultHasher::new();
-            options.hash(&mut hasher);
-            let hash = hasher.finish();
-            options_hash.set_value(Some(hash));
-            trace!("hash of options: {}", hash);
-
-            let target: HtmlElement = target.into();
-
-            set_id(&target, ID_FIELD_NAME, id.clone());
-            trace!("id set");
-
-            {
-                // HASHMAP.get(k);
-                CALLBACKS.with({
-                    let id = id.clone();
-                    |callbacks| {
-                        let mut callbacks = callbacks.borrow_mut();
-                        callbacks.insert(id, Box::new(callback.clone()));
-                        trace!("created callback");
-                    }
-                });
-            }
-            // LazyLock::force(&CALLBACKS).borrow_mut()(|v| {
-            //     v.insert(id, Box::new(callback.clone()));
-            //     trace!("created callback");
-            // });
-            trace!("callback set");
-
-            {
-                // let mut observers = LazyLock::force(&OBSERVERS).borrow_mut();
-                OBSERVERS.with(|observers| {
-                    let mut observers = observers.borrow_mut();
-                    trace!("getting observer...");
-                    match observers.get_mut(&hash) {
-                        Some(observer) => {
-                            observer.observe(&target);
-                            trace!("observer already exists");
-                        }
-                        None => {
-                            trace!("no observer found");
-
-                            let observer_settings = IntersectionObserverInit::new();
-
-                            if let Some(root) = root {
-                                trace!("root option set");
-                                observer_settings.set_root(Some(&root));
-                            }
-
-                            if let Some(margin) = &options.root_margin {
-                                trace!("margin option set");
-                                observer_settings.set_root_margin(margin);
-                            }
-
-                            if let Some(threshold) = options.threshold {
-                                trace!("threshold option set");
-                                observer_settings
-                                    .set_threshold(&JsValue::from_f64(f64::from_bits(threshold)));
-                            }
-
-                            trace!("creating raw observer");
-                            let observer = new_with_options_raw(
-                                move |entries, observer| {
-                                    CALLBACKS.with(|v| {
-                                        let mut callbacks = v.borrow_mut();
-
-                                        for entry in entries {
-                                            let target = entry.target();
-                                            let Some(id) = get_id(&target, ID_FIELD_NAME) else {
-                                                continue;
-                                            };
-
-                                            let Some(callback) = callbacks.get_mut(&id) else {
-                                                continue;
-                                            };
-                                            callback(entry, observer.clone());
-                                        }
-                                    });
-                                    // ctx.callbacks.update_value(|callbacks| {
-                                    // });
-                                },
-                                &observer_settings,
-                            );
-
-                            trace!("inserting raw observer...");
-                            let observer =
-                                observers.entry(hash).or_insert(SendWrapper::new(observer));
-                            observer.observe(&target);
-                            trace!("observer created");
-                        }
-                    };
-                });
-            }
-            // ctx.observer.update_value(|observers| {
-            // });
+            inner_observer.observe(&target);
 
             span.exit();
         });
@@ -1140,54 +627,10 @@ pub mod intersection_observer {
         on_cleanup(move || {
             let span = trace_span!("intersection observer").entered();
 
-            let Some(target) = target.get_untracked() else {
+            let Some(observer) = observer.get_value() else {
                 return;
             };
-
-            let Some(options_hash) = options_hash.get_value() else {
-                return;
-            };
-
-            let target: HtmlElement = target.into();
-
-            let Some(id) = get_id(&target, ID_FIELD_NAME) else {
-                return;
-            };
-
-            {
-                OBSERVERS.with(|observers| {
-                    let observers = observers.borrow_mut();
-                    match observers.get(&options_hash) {
-                        Some(observer) => {
-                            observer.unobserve(&target);
-                        }
-                        None => {
-                            warn!("observer not found with hash {} for {}", options_hash, id);
-                        }
-                    }
-                });
-            }
-            // ctx.observer
-            //     .with_value(|observers| match observers.get(&options_hash) {
-            //         Some(observer) => {
-            //             observer.unobserve(&target);
-            //         }
-            //         None => {
-            //             warn!("observer not found with hash {} for {}", options_hash, id);
-            //         }
-            //     });
-
-            {
-                CALLBACKS.with(|callbacks| {
-                    let mut callbacks = callbacks.borrow_mut();
-                    callbacks.remove(&id);
-                    trace!("removed {}", &id);
-                });
-            }
-            // ctx.callbacks.update_value(|callbacks| {
-            //     callbacks.remove(&id);
-            //     trace!("removed {}", &id);
-            // });
+            observer.disconnect();
 
             span.exit();
         });
@@ -1347,47 +790,6 @@ pub mod mutation_observer {
         }
     }
 
-    // #[derive(Clone, Debug, Default)]
-    // pub struct MutationOberver {
-    //     pub observer: RwSignal<Option<web_sys::MutationObserver>, LocalStorage>,
-    // }
-    //
-    // impl MutationOberver {
-    //     pub fn new<F>(callback: F) -> Self
-    //     where
-    //         F: FnMut(Vec<MutationRecord>, web_sys::MutationObserver)
-    //             + Clone
-    //             + Send
-    //             + Sync
-    //             + 'static,
-    //     {
-    //         let observer = Self::default();
-    //
-    //         Effect::new(move || {
-    //             observer.observer.set(Some(new_raw(callback.clone())));
-    //         });
-    //
-    //         observer
-    //     }
-    //
-    //     pub fn observe<E>(target: NodeRef<E>)
-    //     where
-    //         E: ElementType,
-    //         E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
-    //     {
-    //         let Some(target) = target.get() else {
-    //             return;
-    //         };
-    //
-    //         let target: HtmlElement = target.into();
-    //
-    //         let _ = raw_observer
-    //             .observe(&target)
-    //             .inspect_err(|_| error!("failed to observer mutation"));
-    //         observer.set(Some(raw_observer));
-    //     }
-    // }
-
     pub fn new<E, F, O>(target: NodeRef<E>, callback: F, options: O)
     where
         E: ElementType,
@@ -1395,42 +797,33 @@ pub mod mutation_observer {
         F: FnMut(Vec<MutationRecord>, web_sys::MutationObserver) + Clone + Send + Sync + 'static,
         O: Into<web_sys::MutationObserverInit> + Clone + 'static,
     {
-        let observer = RwSignal::new_local(None::<web_sys::MutationObserver>);
+        let observer = StoredValue::new_local(None::<web_sys::MutationObserver>);
 
         Effect::new(move || {
             let span = trace_span!("mutation observer").entered();
-            let raw_observer = new_raw(callback.clone());
 
-            let Some(target) = target.get() else {
+            let Some(target): Option<HtmlElement> = target.get().map(|v| v.into()) else {
                 return;
             };
 
-            let target: HtmlElement = target.into();
-            let options = options.clone().into();
+            let raw_observer = observer.get_value().unwrap_or_else(|| {
+                let inner_observer = new_raw(callback.clone());
+                observer.set_value(Some(inner_observer.clone()));
+                inner_observer
+            });
 
-            let _ = raw_observer
-                .observe_with_options(&target, &options)
-                .inspect_err(|err| {
-                    error!(
-                        "failed to observer mutation {:?}",
-                        js_sys::Error::from(err.clone())
-                    )
-                });
-            observer.set(Some(raw_observer));
+            let options = options.clone().into();
+            raw_observer.observe_with_options(&target, &options);
 
             span.exit();
         });
 
         on_cleanup(move || {
-            let span = trace_span!("resize observer").entered();
-
-            let Some(raw_observer) = observer.get_untracked() else {
+            let Some(raw_observer) = observer.get_value() else {
                 return;
             };
 
             raw_observer.disconnect();
-
-            span.exit();
         });
     }
 
@@ -1471,16 +864,10 @@ pub mod resize_observer {
         self, HtmlElement, ResizeObserver, ResizeObserverEntry, ResizeObserverSize, js_sys::Array,
     };
 
-    use crate::view::toolbox::uuid::gen_uuid;
-
-    use super::uuid::{get_id, set_id};
-
-    const ID_FIELD_NAME: &str = "data-leptos_toolbox_resize_observer_id";
-
     pub trait AddResizeObserver {
         fn add_resize_observer<F>(&self, callback: F)
         where
-            F: FnMut(ResizeObserverEntry, ResizeObserver) + Send + Sync + Clone + 'static;
+            F: FnMut(Vec<ResizeObserverEntry>, ResizeObserver) + Send + Sync + Clone + 'static;
     }
 
     pub trait GetContentBoxSize {
@@ -1504,7 +891,7 @@ pub mod resize_observer {
     {
         fn add_resize_observer<F>(&self, callback: F)
         where
-            F: FnMut(ResizeObserverEntry, ResizeObserver) + Send + Sync + Clone + 'static,
+            F: FnMut(Vec<ResizeObserverEntry>, ResizeObserver) + Send + Sync + Clone + 'static,
         {
             new(*self, callback);
         }
@@ -1525,87 +912,34 @@ pub mod resize_observer {
     where
         E: ElementType,
         E::Output: JsCast + Clone + 'static + Into<HtmlElement>,
-        F: FnMut(ResizeObserverEntry, web_sys::ResizeObserver) + Clone + Send + Sync + 'static,
+        F: FnMut(Vec<ResizeObserverEntry>, web_sys::ResizeObserver) + Clone + Send + Sync + 'static,
     {
-        let ctx = match use_context::<GlobalState>() {
-            Some(v) => v,
-            None => {
-                provide_context(GlobalState::default());
-                expect_context::<GlobalState>()
-            }
-        };
-        // let ctx = expect_context::<GlobalState>();
-        let id = gen_uuid();
+        let observer = StoredValue::new_local(None);
 
         Effect::new(move || {
             let span = trace_span!("resize observer").entered();
 
-            let observer = match ctx.observer.get_value() {
-                Some(observer) => observer,
-                None => {
-                    let observer = new_raw(move |entries, observer| {
-                        ctx.callbacks.update_value(|callbacks| {
-                            for entry in entries {
-                                let target = entry.target();
-                                let Some(id) = get_id(&target, ID_FIELD_NAME) else {
-                                    continue;
-                                };
-
-                                let Some(callback) = callbacks.get_mut(&id) else {
-                                    continue;
-                                };
-                                callback(entry, observer.clone());
-                            }
-                        });
-                    });
-                    ctx.observer.set_value(Some(SendWrapper::new(observer)));
-                    ctx.observer.get_value().unwrap()
-                }
-            };
-
-            let Some(target) = target.get() else {
+            let Some(target): Option<HtmlElement> = target.get().map(|v| v.into()) else {
                 return;
             };
 
-            let target: HtmlElement = target.into();
-
-            set_id(&target, ID_FIELD_NAME, id.clone());
-
-            ctx.callbacks.update_value({
-                let id = id.clone();
-                |v| {
-                    trace!("creating {}", &id);
-                    v.insert(id, Box::new(callback.clone()));
-                }
+            let inner_observer = observer.get_value().unwrap_or_else(|| {
+                let inner_observer = new_raw(callback.clone());
+                observer.set_value(Some(inner_observer.clone()));
+                inner_observer
             });
 
-            observer.observe(&target);
+            inner_observer.observe(&target);
 
             span.exit();
         });
 
         on_cleanup(move || {
-            let span = trace_span!("resize observer").entered();
-
-            let (Some(target), Some(observer)) = (target.get_untracked(), ctx.observer.get_value())
-            else {
+            let Some(observer) = observer.get_value() else {
                 return;
             };
 
-            let target: HtmlElement = target.into();
-
-            let Some(id) = get_id(&target, ID_FIELD_NAME) else {
-                return;
-            };
-
-            observer.unobserve(&target);
-
-            ctx.callbacks.update_value(|callbacks| {
-                callbacks.remove(&id);
-                trace!("removed {}", &id);
-            });
-
-            span.exit();
+            observer.disconnect();
         });
     }
 
