@@ -10,7 +10,7 @@ pub mod prelude {
     pub use super::mutation_observer::{self, AddMutationObserver, MutationObserverOptions};
     pub use super::random::{random_u8, random_u32, random_u32_ranged, random_u64};
     pub use super::resize_observer::{self, AddResizeObserver, GetContentBoxSize};
-    pub use super::time::{time_now_ms, time_now_ns, ns_to_str};
+    pub use super::time::{ns_to_str, time_now_ms, time_now_ns};
 }
 
 // TODO fx bs api, create struct abstraction over web api and let user freely use it anywhere
@@ -65,7 +65,9 @@ pub mod time {
         for (size, label) in table {
             let prev_size = total_size;
             total_size *= size;
-            trace!("ns({ns}) size({size}) label({label:?}) prev_size({prev_size}) total_size({total_size})");
+            trace!(
+                "ns({ns}) size({size}) label({label:?}) prev_size({prev_size}) total_size({total_size})"
+            );
             if ns < total_size {
                 let new_size = ns / prev_size;
                 output.push_str(&new_size.to_string());
@@ -78,7 +80,6 @@ pub mod time {
         output.push('∞');
 
         output
-
     }
 
     #[cfg(test)]
@@ -122,14 +123,14 @@ pub mod time {
 
             let result = ns_to_str(Duration::from_hours(24 * 7).as_nanos());
             assert_eq!(result, "1 week");
-
         }
     }
 }
 
 pub mod leptos_helpers {
     use leptos::prelude::*;
-    use leptos_router::hooks::query_signal;
+    use leptos_router::NavigateOptions;
+    use leptos_router::hooks::{query_signal, query_signal_with_options};
     use leptos_router::params::{Params, ParamsError};
     use std::str::FromStr;
 
@@ -146,7 +147,13 @@ pub mod leptos_helpers {
 
     impl<T: FromStr + ToString + Clone + Sync + Send + Default + PartialEq + 'static> RwQuery<T> {
         pub fn new(key: impl Into<Oco<'static, str>>) -> RwQuery<T> {
-            let (get, set) = query_signal::<T>(key);
+            let (get, set) = query_signal_with_options::<T>(
+                key,
+                NavigateOptions {
+                    scroll: false,
+                    ..Default::default()
+                },
+            );
 
             Self {
                 fn_get: get,

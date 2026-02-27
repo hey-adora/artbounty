@@ -16,8 +16,24 @@ pub trait SizedIntoView: IntoView + Sized {}
 #[derive(Clone, Copy)]
 pub struct PostComment {
     // pub comments: StoredValue<Box<dyn Fn() -> AnyView + Sync + Send + 'static>>,
+    pub err_post: RwQuery<String>,
     pub data: RwSignal<Vec<UserPostComment>, LocalStorage>,
     pub on_comment: StoredValue<Box<dyn Fn(SubmitEvent) + Sync + Send + 'static>>,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    PartialOrd,
+    strum::EnumString,
+    strum::Display,
+    strum::EnumIter,
+    strum::EnumIs,
+)]
+#[strum(serialize_all = "lowercase")]
+pub enum PostCommentFields {
+    ErrPost,
 }
 
 pub fn use_post_comment<ContainerElm>(
@@ -32,7 +48,12 @@ where
 {
     let api = ApiWeb::new();
 
+    let err_post = RwQuery::<String>::new(PostCommentFields::ErrPost.to_string());
+    // let general_err = RwSignal::new_local(String::new());
+
     let infinite_fn = move |stage: InfiniteStage<UserPostComment>| async move {
+        // err_post.set(String::new());
+
         let post_id = match stage {
             InfiniteStage::Init => post_id.get_untracked(),
             _ => post_id.get_untracked(),
@@ -115,18 +136,20 @@ where
                         data: comments.into_iter().rev().collect(),
                     }
                 } else {
-                    InfiniteMerge::Btm {
-                        data: comments,
-                    }
+                    InfiniteMerge::Btm { data: comments }
                 }
             }
             Ok(err) => {
-                error!("unexpected server response: {err:?}");
+                let err = format!("unexpected server response: {err:?}");
+                error!(err);
+                err_post.set(err);
 
                 InfiniteMerge::None
             }
             Err(err) => {
-                error!("use_post_like: {err}");
+                let err = format!("use_post_like: {err}");
+                error!(err);
+                err_post.set(err);
                 InfiniteMerge::None
             }
         };
@@ -151,6 +174,7 @@ where
     };
 
     PostComment {
+        err_post,
         data: infinte.data,
         on_comment: StoredValue::new(Box::new(on_comment)),
     }
