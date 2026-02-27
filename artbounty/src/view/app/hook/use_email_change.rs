@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::get_timestamp;
 use crate::view::app::GlobalState;
 use crate::view::toolbox::prelude::*;
 // use gloo::history::query;
@@ -313,7 +312,7 @@ pub fn use_change_email<API: Api + Sync + Send + Clone + Copy + 'static>(
     let navigate = leptos_router::hooks::use_navigate();
     let _ = interval::new(
         move || {
-            let time = get_timestamp();
+            let time = time_now_ns();
             let Some(expires) = get_query_untracked().expires else {
                 let is_empty = time_until_expires.with_untracked(|v| v.is_empty());
                 if !is_empty {

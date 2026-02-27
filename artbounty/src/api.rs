@@ -37,14 +37,17 @@ pub mod app_state {
             ServerTokenErr, clock::Clock, encode_token, settings::Settings,
         },
         db::{self, DB404Err, DBSentEmailReason, DBUser, DbEngine},
-        get_timestamp,
         path::{
             link_login_form_password_confirm, link_settings_form_email_current_confirm,
             link_settings_form_email_new_confirm, link_settings_form_password,
             link_settings_form_password_confirm,
         },
-        view::app::hook::{
-            use_email_change::EmailChangeFormStage, use_password_change::ChangePasswordFormStage,
+        view::{
+            app::hook::{
+                use_email_change::EmailChangeFormStage,
+                use_password_change::ChangePasswordFormStage,
+            },
+            toolbox::prelude::*,
         },
     };
 
@@ -59,7 +62,7 @@ pub mod app_state {
         pub async fn new(time: u128) -> Self {
             let settings = Settings::new_from_file();
             let db = db::new_local(time, &settings.db.path).await;
-            let f = move || async move { get_timestamp() };
+            let f = move || async move { time_now_ns() };
             let clock = Clock::new(f);
 
             Self {

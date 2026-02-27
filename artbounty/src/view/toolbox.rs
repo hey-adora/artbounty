@@ -10,16 +10,120 @@ pub mod prelude {
     pub use super::mutation_observer::{self, AddMutationObserver, MutationObserverOptions};
     pub use super::random::{random_u8, random_u32, random_u32_ranged, random_u64};
     pub use super::resize_observer::{self, AddResizeObserver, GetContentBoxSize};
-    pub use super::time::time_now_ms;
+    pub use super::time::{time_now_ms, time_now_ns, ns_to_str};
 }
 
 // TODO fx bs api, create struct abstraction over web api and let user freely use it anywhere
 
 pub mod time {
+    use tracing::trace;
     use web_sys::js_sys;
 
     pub fn time_now_ms() -> f64 {
         js_sys::Date::now()
+    }
+
+    pub fn time_now_ns() -> u128 {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "ssr")] {
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+                time.as_nanos()
+            } else {
+                use wasm_bindgen::JsValue;
+                use web_sys::js_sys::Date;
+                // let time = Date::new(&JsValue::null());
+                let time = Date::new_0();
+                let time = time.get_time() as u64;
+                let time = time as u128 * 1000000;
+                time
+            }
+        }
+    }
+
+    pub fn ns_to_str(ns: u128) -> String {
+        let mut output = String::new();
+
+        let table = [
+            (1000_u128, ("ns", "ns")),
+            (1000, ("μs", "μs")),
+            (1000, ("ms", "ms")),
+            (60, ("second", "seconds")),
+            (60, ("minute", "minutes")),
+            (24, ("hour", "hours")),
+            (7, ("day", "days")),
+            (4, ("week", "weeks")),
+            (12, ("month", "months")),
+            (10, ("year", "years")),
+            (10, ("decade", "decades")),
+            (10, ("century", "centuries")),
+            (1000, ("millennium", "millenniums")),
+            (1000, ("aeon", "aeons")),
+        ];
+
+        let mut total_size = 1;
+        for (size, label) in table {
+            let prev_size = total_size;
+            total_size *= size;
+            trace!("ns({ns}) size({size}) label({label:?}) prev_size({prev_size}) total_size({total_size})");
+            if ns < total_size {
+                let new_size = ns / prev_size;
+                output.push_str(&new_size.to_string());
+                output.push(' ');
+                output.push_str(if new_size > 1 { label.1 } else { label.0 });
+                return output;
+            }
+        }
+
+        output.push('∞');
+
+        output
+
+    }
+
+    #[cfg(test)]
+    mod time_tests {
+        use std::time::Duration;
+
+        use crate::{init_test_log, view::toolbox::time::ns_to_str};
+
+        #[test]
+        fn time_to_str_test() {
+            init_test_log();
+
+            // assert_eq!(Duration::from_hours(24).as_nanos(), );
+
+            let result = ns_to_str(Duration::from_nanos(1).as_nanos());
+            assert_eq!(result, "1 ns");
+
+            let result = ns_to_str(Duration::from_micros(1).as_nanos());
+            assert_eq!(result, "1 μs");
+
+            let result = ns_to_str(Duration::from_millis(1).as_nanos());
+            assert_eq!(result, "1 ms");
+
+            let result = ns_to_str(Duration::from_secs(1).as_nanos());
+            assert_eq!(result, "1 second");
+
+            let result = ns_to_str(Duration::from_secs(59).as_nanos());
+            assert_eq!(result, "59 seconds");
+
+            let result = ns_to_str(Duration::from_secs(60).as_nanos());
+            assert_eq!(result, "1 minute");
+
+            let result = ns_to_str(Duration::from_mins(1).as_nanos());
+            assert_eq!(result, "1 minute");
+
+            let result = ns_to_str(Duration::from_hours(1).as_nanos());
+            assert_eq!(result, "1 hour");
+
+            let result = ns_to_str(Duration::from_hours(24).as_nanos());
+            assert_eq!(result, "1 day");
+
+            let result = ns_to_str(Duration::from_hours(24 * 7).as_nanos());
+            assert_eq!(result, "1 week");
+
+        }
     }
 }
 

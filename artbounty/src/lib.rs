@@ -24,24 +24,6 @@ pub fn init_test_log() {
         .try_init();
 }
 
-pub fn get_timestamp() -> u128 {
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "ssr")] {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-            time.as_nanos()
-        } else {
-            use wasm_bindgen::JsValue;
-            use web_sys::js_sys::Date;
-            // let time = Date::new(&JsValue::null());
-            let time = Date::new_0();
-            let time = time.get_time() as u64;
-            let time = time as u128 * 1000000;
-            time
-        }
-    }
-}
-
 pub mod valid {
     use tracing::trace;
 

@@ -39,9 +39,26 @@ pub fn Page() -> impl IntoView {
     let comment_input_ref = NodeRef::<html::Textarea>::new();
     let post_comments = use_post_comment(10, comment_container_ref, comment_input_ref, param_post);
     let post_comment_views = move || {
+        let time_now = time_now_ns();
+
         post_comments.data.get()
                             .into_iter()
-                            .map(move |comment| view! { <div class="border border-base0E px-2 py-1 break-all" >{comment.text}</div> })
+                            .map(move |comment| view! { 
+                                <div class="flex gap-4 px-2 py-1 " >
+                                    <p class="text-[1rem] rounded-full h-[3rem] w-[3rem] shrink-0 bg-base05"></p>
+                                    <div class="flex flex-col  ">
+                                        <div class="flex gap-2 place-items-center ">
+                                            <div class="text-[1.2rem]"> {comment.user.username} </div>
+                                            <div class="text-[1rem] text-base03"> {ns_to_str(time_now.saturating_sub(comment.created_at))}" ago"</div>
+                                        </div>
+                                        
+                                        <div class=" mb-2 text-[1.1rem] break-all"> {comment.text} </div>
+                                        <div>
+                                            <button type="submit" class="ml-auto rounded-full font-semibold text-[1rem] font-medium px-[0.8rem] py-[0.2rem] hover:bg-base05 bg-base0D text-base01">"Reply"</button>
+                                        </div>
+                                    </div>
+                                </div> 
+                            })
                             .collect_view()
     };
 
@@ -303,7 +320,7 @@ pub fn Page() -> impl IntoView {
                             <textarea placeholder="Comment" node_ref=comment_input_ref class="focus:outline-none! appearance-none border-none resize text-[1.1rem]" id="story" name="story" rows="5" cols="30" ></textarea>
                             <div class="flex justify-between place-items-center">
                                 <p>"0/2000"</p>
-                                <input type="submit" value="Post" class="ml-auto rounded-full font-semibold text-[1.2rem] font-bold px-4 py-1 hover:bg-base05 hover:font-bold bg-base0D text-base01"/>
+                                <input type="submit" value="Post" class="ml-auto rounded-full font-medium text-[1.2rem] font-bold px-[0.9rem] py-[0.3rem] hover:bg-base05 bg-base0D text-base01"/>
                             </div>
                         </form>
 

@@ -6,10 +6,16 @@
     rust-overlay.url = "github:oxalica/rust-overlay";
   };
 
-  outputs = { self, nixpkgs, utils,
-    # naersk,
-    rust-overlay, }:
-    utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      utils,
+      # naersk,
+      rust-overlay,
+    }:
+    utils.lib.eachDefaultSystem (
+      system:
       let
         overlays = [
           (import rust-overlay)
@@ -53,13 +59,17 @@
           config.allowUnfree = true;
         };
         # naersk-lib = pkgs.callPackage naersk { };
-        rust_toolchain =
-          pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
-      in {
+        rust_toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+      in
+      {
         # defaultPackage = naersk-lib.buildPackage ./.;
-        devShell = with pkgs;
+        devShell =
+          with pkgs;
           mkShell {
             packages = [
+              perf
+              samply
+              # cargo-flamegraph
               surrealdb
               inotify-tools
               rust_toolchain
@@ -121,5 +131,6 @@
             PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
             PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = true;
           };
-      });
+      }
+    );
 }

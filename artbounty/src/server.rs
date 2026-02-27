@@ -26,8 +26,7 @@ pub async fn server() {
 
     use crate::{
         api::app_state::{self, AppState},
-        get_timestamp,
-        view::{app::App, shell},
+        view::{app::App, shell, toolbox::prelude::*},
     };
 
     tracing_subscriber::fmt()
@@ -47,7 +46,7 @@ pub async fn server() {
     let addr = leptos_options.site_addr;
     let routes = generate_route_list(App);
 
-    let time = get_timestamp();
+    let time = time_now_ns();
 
     let comppression_layer = CompressionLayer::new()
         .br(true)

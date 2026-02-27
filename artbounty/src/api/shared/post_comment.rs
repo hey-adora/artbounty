@@ -1,3 +1,5 @@
+use crate::api::User;
+
 
 #[derive(
     Debug,
@@ -11,7 +13,7 @@
 )]
 pub struct UserPostComment {
     pub key: String,
-    pub user_key: String,
+    pub user: User,
     pub post_key: String,
     pub comment_reply_key: Option<String>,
     pub text: String,
@@ -43,7 +45,7 @@ impl From<crate::db::post_comment::DBPostComment> for UserPostComment {
     fn from(value: crate::db::post_comment::DBPostComment) -> Self {
         Self {
             key: value.id.key().to_string(),
-            user_key: value.user.key().to_string(),
+            user: value.user.into(),
             post_key: value.post.key().to_string(),
             comment_reply_key: value.comment.map(|v| v.key().to_string()),
             text: value.text,

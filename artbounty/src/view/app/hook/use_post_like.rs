@@ -3,7 +3,6 @@ use tracing::error;
 use web_sys::MouseEvent;
 
 use crate::api::{Api, ApiWeb, ServerRes};
-use crate::get_timestamp;
 use crate::view::app::GlobalState;
 use crate::view::toolbox::prelude::*;
 

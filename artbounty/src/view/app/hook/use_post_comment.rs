@@ -6,7 +6,6 @@ use web_sys::{HtmlElement, SubmitEvent};
 
 use crate::api::shared::post_comment::UserPostComment;
 use crate::api::{Api, ApiWeb, Order, ServerRes, TimeRange};
-use crate::get_timestamp;
 use crate::view::app::hook::use_infinite_scroll::{
     InfiniteMerge, InfiniteStage, use_infinite_scroll,
 };
@@ -53,7 +52,7 @@ where
                 )
             }
             InfiniteStage::Init => {
-                let time = get_timestamp();
+                let time = time_now_ns();
                 (
                     false,
                     api.get_post_comment(
