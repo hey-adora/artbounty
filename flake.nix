@@ -73,8 +73,10 @@
               surrealdb
               inotify-tools
               rust_toolchain
-              mold
+              wild
+              # mold
               clang
+              taplo
               # llvmPackages.bintools
               # dioxus-cli-0_7
               cargo-leptos

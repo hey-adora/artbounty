@@ -1,6 +1,21 @@
 [target.x86_64-unknown-linux-gnu]
 linker = "clang"
-rustflags = ["-C", "link-arg=-fuse-ld=mold", "-C", "link-arg=-Wl,--no-rosegment", "-C", "target-feature=+aes,+sse2", "-Z", "share-generics=y", "-Z", "threads=4", "-C", "prefer-dynamic"]
+rustflags = [
+    "-C",
+    "link-arg=-fuse-ld=wild",
+    # "-C",
+    # "link-arg=-Wl,--no-rosegment",
+    "-C",
+    "target-feature=+aes,+sse2",
+    "-Z",
+    "share-generics=y",
+    "-Z",
+    "threads=4",
+    "-C",
+    "prefer-dynamic",
+    "--cfg",
+    "erase_components",
+]
 # rustflags = ["-C", "link-arg=-fuse-ld=mold", "-C", "target-feature=+aes,+sse2", "-Z", "share-generics=y", "--cfg", "erase_components"]
 
 [target.wasm32-unknown-unknown]
@@ -16,7 +31,7 @@ codegen-backend = true
 inherits = "dev"
 incremental = true
 opt-level = 0
-lto = "off" 
+lto = "off"
 codegen-backend = "llvm"
 codegen-units = 256
 panic = "abort"
