@@ -3,17 +3,34 @@ name = "artbounty"
 version = "0.1.0"
 edition = "2024"
 
+# [lib]
+# crate-type = ["cdylib"]
+
+# [lib]
+# crate-type = ["rlib", "dylib"]
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 # [[bin]]
 # name = "seed"
+# [features]
+# hydrate = ["shipyard/hydrate"]
+# ssr = [
+#     "shipyard/ssr",
+# ]
+# csr = ["shipyard/csr"]
 
 [features]
-hydrate = ["leptos/hydrate"]
+hydrate = ["leptos/hydrate", 
+
+# "shipyard/hydrate"
+
+]
 ssr = [
     "leptos/ssr",
     "leptos_router/ssr",
+    # "shipyard/ssr",
     "dep:axum",
     # "dep:axum-extra",
     "dep:tower",
@@ -23,7 +40,7 @@ ssr = [
     "dep:tokio",
     # "dep:biscotti",
     "dep:argon2",
-    "dep:jsonwebtoken",
+    # "dep:jsonwebtoken",
     # "dep:resend-rs",
     "dep:image",
     # "dep:imageproc",
@@ -35,11 +52,20 @@ ssr = [
     "dep:config",
     "dep:rand",
 ]
-csr = ["leptos/csr"]
+csr = ["leptos/csr", 
+
+# "shipyard/csr"
+]
 
 [dependencies]
 # artbounty-shared = { workspace = true }
 # artbounty-api = { workspace = true }
+# artbounty = { workspace = true }
+shipyard = { workspace = true }
+
+# aws-lc-rs = { workspace = true }
+# aws-lc-fips-sys = { workspace = true }
+# aws-lc-sys = { workspace = true }
 cfg-if = { workspace = true }
 # regex = { workspace = true }
 # url = { workspace = true }
@@ -94,7 +120,7 @@ tower-http = { workspace = true, optional = true }
 # tower_governor = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 # biscotti = { workspace = true, optional = true }
-jsonwebtoken = { workspace = true, optional = true }
+# jsonwebtoken = { workspace = true, optional = true }
 # resend-rs = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 # imageproc = { workspace = true, optional = true }

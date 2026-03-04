@@ -1,3 +1,5 @@
+// use shipyard::*;
+
 use leptos::{logging, prelude::*};
 use tracing::trace;
 
@@ -11,13 +13,14 @@ use crate::path::{
 pub async fn server() {
     use axum::{
         Router,
-        extract::{Multipart, Query, Request, State},
+        extract::{Query, Request, State},
         http::Method,
         middleware::{self, Next},
         response::IntoResponse,
         routing::post,
     };
     use leptos_axum::{LeptosRoutes, generate_route_list};
+    use std::sync::Arc;
     use tower_http::{
         compression::{CompressionLayer, DefaultPredicate, predicate},
         cors::{self, CorsLayer},
@@ -39,14 +42,34 @@ pub async fn server() {
         .try_init()
         .unwrap();
 
-    trace!("started!");
+    let pwd = std::env::current_dir().unwrap();
+    trace!("started! pwd: {pwd:?}");
 
-    let conf = get_configuration(Some("Cargo.toml")).unwrap();
+    let time = time_now_ns();
+    let app_state = AppState::new(time).await;
+    // let settings = app_state.settings;
+
+    // let leptos_output_name = format!("{}_1", app_state.settings.site.name);
+    // let a = Arc::new(leptos_output_name.as_str());
+
+    let conf = get_configuration(Some("leptos.toml")).unwrap();
+    // let leptos_options = LeptosOptions {
+    //     output_name: Arc::from(format!("{}_1", app_state.settings.site.name)),
+    //     site_root: "target/site".to_string(),
+    //     site_pkg_dir: "pkg".to_string(),
+    //     env: Env::DEV,
+    //     site_addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 3000)),
+    //     reload_port: 3001,
+    //     reload_external_port: None,
+    //     reload_ws_protocol: leptos::leptos_config::ReloadWSProtocol::WS,
+    //     not_found_path: "/404".to_string(),
+    //     hash_file: String::from("hash.txt"),
+    //     hash_files: true,
+    //     ..Default::default(),
+    // };
     let leptos_options = conf.leptos_options;
     let addr = leptos_options.site_addr;
     let routes = generate_route_list(App);
-
-    let time = time_now_ns();
 
     let comppression_layer = CompressionLayer::new()
         .br(true)
@@ -54,7 +77,6 @@ pub async fn server() {
         .gzip(true)
         .deflate(true)
         .compress_when(predicate::SizeAbove::new(0));
-    let app_state = AppState::new(time).await;
     let file_path = app_state.get_file_path().await;
 
     let cors = CorsLayer::new()
@@ -93,7 +115,7 @@ pub fn create_api_router(
 ) -> axum::Router<crate::api::app_state::AppState> {
     use axum::{
         Router,
-        extract::{Multipart, Query, Request, State},
+        extract::{Query, Request, State},
         http::Method,
         middleware::{self, Next},
         routing::post,

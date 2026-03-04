@@ -1,4 +1,8 @@
+use shipyard::*;
+
 pub mod path {
+    use shipyard::*;
+
     use leptos::prelude::*;
     use leptos_router::{OptionalParamSegment, ParamSegment, StaticSegment, WildcardSegment, path};
 
@@ -114,6 +118,8 @@ pub async fn server() {
 }
 
 pub mod router {
+    use shipyard::*;
+
 
     // pub fn link_reg<Token: AsRef<str>>(token: Token) -> String {
     //     format!("{}?kind={}&token={}", PATH, RegKind::Reg, token.as_ref())
@@ -174,6 +180,8 @@ pub mod router {
 }
 
 pub mod fe_router {
+    use shipyard::*;
+
     use leptos::prelude::*;
     use leptos_meta::MetaTags;
 

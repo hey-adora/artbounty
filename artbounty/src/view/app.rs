@@ -1,3 +1,5 @@
+use shipyard::*;
+
 use leptos::prelude::*;
 use leptos_router::components::*;
 use leptos_router::path;
@@ -14,6 +16,7 @@ use crate::api::ServerErr;
 use crate::api::ServerRes;
 use crate::path::link_user;
 use crate::view::toolbox::prelude::*;
+
 
 pub mod components;
 pub mod hook;
@@ -70,13 +73,13 @@ impl GlobalState {
     pub fn update_auth(&self) {
         let this = self.clone();
         ApiWebTmp::new()
-            .profile()
+            .get_my_acc()
             .send_web(move |result| async move {
                 this.set_auth_from_res(result);
             });
     }
     pub async fn update_auth_now(&self) -> Result<ServerRes, ServerErr> {
-        let result = ApiWebTmp::new().profile().send_native().await;
+        let result = ApiWebTmp::new().get_my_acc().send_native().await;
         self.set_auth_from_res(result.clone());
         result
     }

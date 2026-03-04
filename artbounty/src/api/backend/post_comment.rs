@@ -1,11 +1,13 @@
+use shipyard::*;
+
 use crate::api::app_state::AppState;
 use crate::api::shared::post_comment::{PostCommentErrResolver, UserPostComment};
 use crate::api::{
     AuthToken, ChangeUsernameErr, EmailChangeErr, EmailChangeNewErr, EmailChangeStage,
-    EmailChangeTokenErr, EmailToken, Server404Err, ServerAddPostErr, ServerAuthErr,
+    EmailChangeTokenErr, Server404Err, ServerAddPostErr, ServerAuthErr,
     ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerLoginErr,
     ServerRegistrationErr, ServerReq, ServerRes, ServerTokenErr, User, UserPost, UserPostFile,
-    auth_token_get, decode_token, encode_token, hash_password, verify_password,
+    auth_token_get,  hash_password, verify_password,
 };
 use crate::db::DB404Err;
 use crate::db::{AddUserErr, DBPostCommentErr, DBUser};
@@ -33,7 +35,7 @@ pub async fn add_post_comment(
 
     let comment = app
         .db
-        .add_post_comment(time, db_user.id.clone(), &post_id, None, text)
+        .add_post_comment(time, db_user.id.clone(), post_id.clone(), None, text)
         .await
         .map_err(|err| match err {
             DBPostCommentErr::PostNotFound(_) => ResErr::NotFound.into(),
@@ -61,7 +63,7 @@ pub async fn get_post_comment(
 
     let comments: Vec<UserPostComment> = app
         .db
-        .get_post_comments(time, &post_id, limit, time_range, order)
+        .get_post_comments(time, post_id.clone(), limit, time_range, order)
         .await
         .map_err(|err| match err {
             DB404Err::NotFound => ResErr::NotFound.into(),
@@ -91,7 +93,7 @@ pub async fn delete_post_comment(
     let time = app.time().await;
 
     app.db
-        .delete_post_comment(db_user.id.clone(), &post_id)
+        .delete_post_comment(db_user.id.clone(), post_id.clone())
         .await
         .map_err(|err| ServerErr::DbErr)?;
 
@@ -100,6 +102,8 @@ pub async fn delete_post_comment(
 
 #[cfg(test)]
 mod tests {
+    use shipyard::*;
+
     use crate::api::{Api, Order, ServerRes, TimeRange, shared::post_comment::UserPostComment, tests::ApiTestApp};
     use tracing::{debug, error, trace};
     use web_sys::console::assert;

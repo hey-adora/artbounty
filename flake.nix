@@ -19,38 +19,41 @@
       let
         overlays = [
           (import rust-overlay)
-          # (final: prev: {
-          #   dioxus-cli-0_7 = final.rustPlatform.buildRustPackage {
-          #     pname = "dioxus-cli";
-          #     version = "0.7.0-alpha.1";
-          #     nativeCheckInputs = [ final.rustfmt ];
-          #     OPENSSL_NO_VENDOR = 1;
-          #     useFetchCargoVendor = true;
-          #     cargoHash = "sha256-r42Z6paBVC2YTlUr4590dSA5RJJEjt5gfKWUl91N/ac=";
-          #     buildFeatures = [
-          #       "no-downloads"
-          #       "optimizations"
-          #     ];
-          #
-          #     nativeBuildInputs = [
-          #       final.pkg-config
-          #       final.cacert
-          #     ];
-          #
-          #     buildInputs = [ final.openssl ];
-          #     src = final.fetchCrate {
-          #       pname = "dioxus-cli";
-          #       version = "0.7.0-alpha.1";
-          #       hash = "sha256-3b82XlxffgbtYbEYultQMzJRRwY/I36E1wgzrKoS8BU=";
-          #     };
-          #
-          #     checkFlags = [
-          #       # requires network access
-          #       "--skip=serve::proxy::test"
-          #       "--skip=wasm_bindgen::test"
-          #     ];
-          #   };
-          # })
+          (final: prev: {
+            wasm-bindgen-cli_0_2_114 = final.rustPlatform.buildRustPackage {
+              pname = "wasm-bindgen-cli";
+              version = "0.2.114";
+              # nativeCheckInputs = [ final.rustfmt ];
+              OPENSSL_NO_VENDOR = 1;
+              useFetchCargoVendor = true;
+              cargoHash = "sha256-Z8+dUXPQq7S+Q7DWNr2Y9d8GMuEdSnq00quUR0wDNPM=";
+              doCheck = false;
+              # buildFeatures = [
+              #   "no-downloads"
+              #   "optimizations"
+              # ];
+
+              nativeCheckInputs = [ final.nodejs_latest ];
+
+              # nativeBuildInputs = [
+              #   final.pkg-config
+              #   final.cacert
+              # ];
+
+              buildInputs = [ final.openssl ];
+              src = final.fetchCrate {
+                pname = "wasm-bindgen-cli";
+                version = "0.2.114";
+                hash = "sha256-xrCym+rFY6EUQFWyWl6OPA+LtftpUAE5pIaElAIVqW0=";
+              };
+
+              # checkFlags = [
+              #   # requires network access
+              #   "--skip=serve::proxy::test"
+              #   "--skip=wasm_bindgen::test"
+              # ];
+            };
+          })
 
         ];
 
@@ -67,6 +70,7 @@
           with pkgs;
           mkShell {
             packages = [
+              # aws-lc
               perf
               samply
               # cargo-flamegraph
@@ -81,7 +85,8 @@
               # dioxus-cli-0_7
               cargo-leptos
               wasm-pack
-              wasm-bindgen-cli_0_2_100
+              wasm-bindgen-cli_0_2_114
+              # wasm-bindgen-cli_0_2_100
               tailwindcss_4
               watchman
               yarn
@@ -123,6 +128,7 @@
             # RUSTFLAGS = "-C linker=clang -C link-arg=-fuse-ld=${pkgs.mold}/bin/mold -Z share-generics=y";
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
               pkgs.openssl
+              # pkgs.aws-lc
               # pkgs.openssl.dev
               # pkgs.wayland
               # pkgs.libxkbcommon

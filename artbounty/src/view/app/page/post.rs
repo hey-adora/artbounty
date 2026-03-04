@@ -1,3 +1,5 @@
+use shipyard::*;
+
 use crate::api::{Api, ApiWeb, Server404Err, ServerErr};
 use crate::path::{link_home, link_img, link_user};
 use crate::view::app::components::nav::Nav;

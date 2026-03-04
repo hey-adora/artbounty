@@ -1,4 +1,7 @@
 #![recursion_limit = "512"]
+
+// use shipyard::*;
+
 // #[macro_use]
 // extern crate macro_rules_attribute;
 
@@ -25,9 +28,13 @@ pub fn init_test_log() {
 }
 
 pub mod valid {
+    use shipyard::*;
+
     use tracing::trace;
 
     pub mod auth {
+        use shipyard::*;
+
         use super::Validator;
         use tracing::trace;
 
@@ -163,6 +170,8 @@ pub mod valid {
 
         #[cfg(test)]
         mod auth_tests {
+            use shipyard::*;
+
             use super::{proccess_email, proccess_password, proccess_username};
             // use test_log::test;
 
@@ -307,6 +316,8 @@ pub mod valid {
 
     #[cfg(test)]
     mod valid_tests {
+        use shipyard::*;
+
         use super::Validator;
         // use test_log::test;
 
@@ -340,6 +351,8 @@ pub mod valid {
 }
 
 pub mod path {
+    use shipyard::*;
+
     use leptos::prelude::*;
     use leptos_router::{OptionalParamSegment, ParamSegment, StaticSegment, WildcardSegment, path};
 

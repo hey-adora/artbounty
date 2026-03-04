@@ -11,8 +11,8 @@ rustflags = [
     "share-generics=y",
     "-Z",
     "threads=4",
-    "-C",
-    "prefer-dynamic",
+    # "-C",
+    # "prefer-dynamic",
     "--cfg",
     "erase_components",
 ]

@@ -1,11 +1,12 @@
+use shipyard::*;
 
 use crate::api::app_state::AppState;
 use crate::api::{
     AuthToken, ChangeUsernameErr, EmailChangeErr, EmailChangeNewErr, EmailChangeStage,
-    EmailChangeTokenErr, EmailToken, Server404Err, ServerAddPostErr, ServerAuthErr,
+    EmailChangeTokenErr,  Server404Err, ServerAddPostErr, ServerAuthErr,
     ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerLoginErr,
     ServerRegistrationErr, ServerReq, ServerRes, ServerTokenErr, User, UserPost, UserPostFile,
-    auth_token_get, decode_token, encode_token, hash_password, verify_password,
+    auth_token_get, hash_password, verify_password,
 };
 use crate::db::email_change::create_email_change_id;
 use crate::db::{AddUserErr, email_change::DBChangeEmailErr};
@@ -28,7 +29,7 @@ use image::{ImageFormat, ImageReader};
 use little_exif::{filetype::FileExtension, metadata::Metadata};
 use std::time::Duration;
 use std::{io::Cursor, path::Path, str::FromStr};
-use surrealdb::RecordId;
+use surrealdb::types::RecordId;
 use tokio::fs;
 use tracing::{debug, error, info, trace};
 
@@ -338,6 +339,7 @@ pub async fn get_posts_older(
 pub async fn add_post(
     State(app): State<AppState>,
     auth_token: axum::Extension<AuthToken>,
+    db_user: Extension<DBUser>,
     req: ServerReq,
 ) -> Result<ServerRes, ServerErr> {
     let ServerReq::AddPost {
@@ -489,7 +491,7 @@ pub async fn add_post(
         .db
         .add_post(
             time,
-            &auth_token.username,
+            &db_user.username,
             &title,
             &description,
             0,
@@ -731,19 +733,19 @@ where
         _ => ServerErr::DbErr,
     })?;
 
-    let token = match decode_token::<AuthToken>(&secret, &token, false) {
-        Ok(v) => v,
-        Err(err) => {
-            error!("invalid token was stored {err}");
-            app.db
-                .delete_session(token)
-                .await
-                .map_err(|err| ServerErr::DbErr)?;
-            return Err(ServerErr::from(
-                ServerAuthErr::ServerUnauthorizedInvalidCookie,
-            ));
-        }
-    };
+    // let token = match decode_token::<AuthToken>(&secret, &token, false) {
+    //     Ok(v) => v,
+    //     Err(err) => {
+    //         error!("invalid token was stored {err}");
+    //         app.db
+    //             .delete_session(token)
+    //             .await
+    //             .map_err(|err| ServerErr::DbErr)?;
+    //         return Err(ServerErr::from(
+    //             ServerAuthErr::ServerUnauthorizedInvalidCookie,
+    //         ));
+    //     }
+    // };
 
-    Ok((token.claims, session.user))
+    Ok((AuthToken(token), session.user))
 }

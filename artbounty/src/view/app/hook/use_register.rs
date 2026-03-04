@@ -1,3 +1,5 @@
+use shipyard::*;
+
 use leptos::Params;
 use leptos::tachys::reactive_graph::bind::GetValue;
 use leptos::{html, prelude::*};
@@ -114,7 +116,7 @@ pub fn use_register(
         let result = api.decode_invite(token).send_native().await;
 
         match result {
-            Ok(ServerRes::InviteToken(token)) => token.email,
+            Ok(ServerRes::InviteToken { email, created_at, exp }) => email,
             Ok(res) => {
                 format!("error, expected InviteToken, received: {res:?}")
             }

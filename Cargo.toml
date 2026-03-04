@@ -6,26 +6,34 @@ members = [
     # "artbounty-backend",
     # "artbounty-frontend",
     # "artbounty-shared",
-    "artbounty", "artbounty-seed",
+    "artbounty",
+    "artbounty-seed", "shipyard",
 ]
 
 [workspace.dependencies]
+shipyard = { path = "shipyard" }
 strum = { version = "0.27.1", features = ["strum_macros", "derive"] }
 artbounty = { path = "artbounty" }
 little_exif = "0.6.14"
+# aws-lc-rs = { path = "/home/hey/github/aws-lc-rs/aws-lc-rs" }
+# aws-lc-fips-sys = { path = "/home/hey/github/aws-lc-rs/aws-lc-fips-sys" }
+# aws-lc-sys = { path = "/home/hey/github/aws-lc-rs/aws-lc-sys" }
 image = "0.25.6"
 webp = "0.3.0"
 config = "0.15.14"
 cfg-if = "1"
-gxhash = {version = "3.5.0", features = ["deterministic"]}
+gxhash = { version = "3.5.0", features = ["deterministic"] }
 argon2 = "0.5.3"
-jsonwebtoken = "9.3.1"
-reqwest = { version = "0.12.22", features = ["zstd", "multipart"] }
+# jsonwebtoken = { path = "/home/hey/github/jsonwebtoken" }
+reqwest = { version = "0.13.2", features = ["zstd", "multipart"] }
+# reqwest = { path = "/home/hey/github/reqwest", features = ["zstd", "multipart"] }
 rand = "0.9.1"
 serde = { version = "1.0.219", features = ["serde_derive"] }
-axum = { version = "0.8.4", features = ["http2"] }
-axum-test = { version = "17.3.0", features = ["reqwest"] }
-leptos_axum = { version = "0.8.2" }
+# axum = { path = "/home/hey/github/axum/axum", features = ["http2", "multipart"]} # dyn
+axum = { version = "0.8.8", features = ["http2"] }
+axum-test = { version = "19.0.0", features = ["reqwest"] }
+# axum-test = { version = "19.0.0", features = ["reqwest"] }
+# axum-test = { path = "/home/hey/github/axum-test", features = ["reqwest"] }
 tokio = { version = "1.46.1", features = ["full"] }
 tower = { version = "0.5.2", features = ["timeout"] }
 http = "1.3.1"
@@ -34,16 +42,29 @@ tower-http = { version = "0.6.4", features = [
     "timeout",
     "cors",
 ] }
-surrealdb = { version = "2.3.3", features = ["kv-surrealkv", "kv-mem"] }
-console_error_panic_hook = "0.1.7"
-leptos = { version = "0.8.2", features = [] }
-leptos_router = { version = "0.8.2" }
-leptos_meta = "0.8.2"
-rkyv = { version = "0.8.10", features = [ "unaligned" ] }
+surrealdb = { git = "https://github.com/hey-adora/surrealdb", features = ["kv-surrealkv", "kv-mem"] }
+# surrealdb = { version = "2.3.3", features = ["kv-surrealkv", "kv-mem"] }
+console_error_panic_hook = "0.1.7" # dyn
+# leptos = { path = "/home/hey/github/leptos/leptos" } # dyn
+# leptos_router = { path = "/home/hey/github/leptos/router" } # dyn
+# leptos_meta = { path = "/home/hey/github/leptos/meta" } # dyn
+# leptos_axum = { path = "/home/hey/github/leptos/integrations/axum" }
+
+# leptos = { git = "https://github.com/hey-adora/leptos" } # dyn
+# leptos_router = { git = "https://github.com/hey-adora/leptos" } # dyn
+# leptos_meta = { git = "https://github.com/hey-adora/leptos" } # dyn
+# leptos_axum = { git = "https://github.com/hey-adora/leptos" } # dyn
+
+# leptos_axum = { path = "/home/hey/github/leptos/integrations/axum" } # dyn
+leptos = { version = "0.8.17", features = [] }
+leptos_router = { version = "0.8.12" }
+leptos_axum = { version = "0.8.8" }
+leptos_meta = "0.8.6"
+rkyv = { version = "0.8.10", features = ["unaligned"] }
 server_fn = { version = "0.8.2", features = [] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
-wasm-bindgen = { version = "0.2.100" }
+wasm-bindgen = { version = "0.2.114" }
 wasm-bindgen-futures = { version = "0.4.50" }
 wasm-bindgen-test = "0.3.50"
 send_wrapper = { version = "0.6.0" }
@@ -51,7 +72,7 @@ futures = { version = "0.3.31" }
 thiserror = { version = "2.0.12" }
 anyhow = { version = "1.0.98" }
 log = "0.4.27"
-web-sys = { version = "0.3.77", features = [
+web-sys = { version = "0.3.91", features = [
     "Window",
     "HtmlDivElement",
     "EventTarget",

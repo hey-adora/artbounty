@@ -1,3 +1,5 @@
+use shipyard::*;
+
 use crate::{
     api::{Api, ApiWeb},
     path::{PATH_LOGIN, PATH_UPLOAD, link_settings, link_user},
@@ -750,6 +752,8 @@ fn merge_data<T>(
 
 #[cfg(test)]
 mod use_infinite_scroll_tests {
+    use shipyard::*;
+
     use crate::{
         init_test_log,
         view::app::hook::use_infinite_scroll::{calc_removed, crop_data, crop_view, merge_data},

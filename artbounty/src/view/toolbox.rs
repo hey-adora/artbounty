@@ -1,3 +1,5 @@
+use shipyard::*;
+
 pub mod prelude {
     pub use super::dropzone::{self, AddDropZone};
     pub use super::event_listener::{self, AddEventListener};
@@ -16,6 +18,8 @@ pub mod prelude {
 // TODO fx bs api, create struct abstraction over web api and let user freely use it anywhere
 
 pub mod time {
+    use shipyard::*;
+
     use tracing::trace;
     use web_sys::js_sys;
 
@@ -84,6 +88,8 @@ pub mod time {
 
     #[cfg(test)]
     mod time_tests {
+        use shipyard::*;
+
         use std::time::Duration;
 
         use crate::{init_test_log, view::toolbox::time::ns_to_str};
@@ -128,6 +134,8 @@ pub mod time {
 }
 
 pub mod leptos_helpers {
+    use shipyard::*;
+
     use leptos::prelude::*;
     use leptos_router::NavigateOptions;
     use leptos_router::hooks::{query_signal, query_signal_with_options};
@@ -424,6 +432,8 @@ pub mod leptos_helpers {
 }
 
 pub mod random {
+    use shipyard::*;
+
     use web_sys::js_sys::Math::random;
 
     pub fn random_u8() -> u8 {
@@ -444,6 +454,8 @@ pub mod random {
 }
 
 pub mod interval {
+    use shipyard::*;
+
     use std::time::Duration;
 
     use leptos::prelude::{Effect, GetValue, SetValue, StoredValue, on_cleanup};
@@ -563,6 +575,8 @@ pub mod interval {
 }
 
 pub mod intersection_observer {
+    use shipyard::*;
+
     use leptos::html::ElementType;
     use leptos::prelude::*;
     use tracing::{error, trace, trace_span, warn};
@@ -786,6 +800,8 @@ pub mod intersection_observer {
 }
 
 pub mod mutation_observer {
+    use shipyard::*;
+
     use leptos::{html::ElementType, prelude::*};
     use tracing::{error, trace_span};
     use wasm_bindgen::prelude::*;
@@ -958,6 +974,8 @@ pub mod mutation_observer {
 }
 
 pub mod resize_observer {
+    use shipyard::*;
+
     use std::collections::HashMap;
 
     use leptos::{
@@ -1074,6 +1092,8 @@ pub mod resize_observer {
 }
 
 pub mod event_listener {
+    use shipyard::*;
+
     use std::fmt::Debug;
 
     use leptos::{ev::EventDescriptor, html::ElementType, prelude::*};
@@ -1129,6 +1149,8 @@ pub mod event_listener {
 }
 
 pub mod file {
+    use shipyard::*;
+
     use thiserror::Error;
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
@@ -1287,6 +1309,8 @@ pub mod file {
 }
 
 pub mod dropzone {
+    use shipyard::*;
+
 
     use std::{cell::RefCell, fmt::Display, future::Future, rc::Rc};
 

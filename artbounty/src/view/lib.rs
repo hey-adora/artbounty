@@ -1,3 +1,5 @@
+use shipyard::*;
+
 use leptos::prelude::*;
 use leptos_meta::MetaTags;
 

@@ -1,3 +1,5 @@
+use shipyard::*;
+
 use crate::api::User;
 
 
@@ -43,11 +45,13 @@ pub enum PostCommentErr {
 #[cfg(feature = "ssr")]
 impl From<crate::db::post_comment::DBPostComment> for UserPostComment {
     fn from(value: crate::db::post_comment::DBPostComment) -> Self {
+        use surrealdb::types::ToSql;
+
         Self {
-            key: value.id.key().to_string(),
+            key: value.id.key.to_sql(),
             user: value.user.into(),
-            post_key: value.post.key().to_string(),
-            comment_reply_key: value.comment.map(|v| v.key().to_string()),
+            post_key: value.post.key.to_sql(),
+            comment_reply_key: value.comment.map(|v| v.key.to_sql()),
             text: value.text,
             modified_at: value.modified_at,
             created_at: value.created_at,

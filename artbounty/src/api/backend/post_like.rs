@@ -1,3 +1,5 @@
+use shipyard::*;
+
 
         use std::f64::consts::SQRT_2;
 
@@ -29,7 +31,7 @@
             let time = app.time().await;
 
             app.db
-                .add_post_like(time, db_user.id.clone(), &post_id)
+                .add_post_like(time, db_user.id.clone(), post_id.clone())
                 .await
                 .map_err(|err| match err {
                     DBPostLikeErr::PostNotFound(_) => ResErr::PostNotFound(post_id.clone()).into(),

@@ -1,5 +1,7 @@
 [site]
+name = "artbounty"
 address = "http://localhost:3000"
+address_host = "0.0.0.0:3000"
 files_path = "./files"
 
 [auth]
@@ -8,3 +10,17 @@ invite_exp_ns = 1800000000000
 
 [db]
 path = "db"
+site_root = "target/site"
+site_pkg_dir = "pkg"
+tailwind_input_file = "style/tailwind.css"
+assets_dir = "assets"
+
+# bin_package = "artbounty-backend"
+# lib_package = "artbounty-frontend"
+# output-name = "artbounty_1"
+# reload_port = 3001
+# lib-profile-release = "wasm-release"
+# bin-features = []
+# lib-features = ["hydrate"]
+# bin-default-features = false
+# lib-default-features = false

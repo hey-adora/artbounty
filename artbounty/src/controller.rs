@@ -1,3 +1,5 @@
+use shipyard::*;
+
 pub mod auth;
 pub mod post;
 
@@ -10,9 +12,13 @@ pub mod post;
 // }
 
 pub mod valid {
+    use shipyard::*;
+
     use tracing::trace;
 
     pub mod auth {
+        use shipyard::*;
+
         use super::Validator;
         use tracing::trace;
 
@@ -145,6 +151,8 @@ pub mod valid {
 
         #[cfg(test)]
         mod auth_tests {
+            use shipyard::*;
+
             use super::{proccess_email, proccess_password, proccess_username};
             use test_log::test;
 
@@ -286,6 +294,8 @@ pub mod valid {
 
     #[cfg(test)]
     mod valid_tests {
+        use shipyard::*;
+
         use super::Validator;
         use test_log::test;
 
@@ -317,6 +327,8 @@ pub mod valid {
     }
 }
 pub mod encode {
+    use shipyard::*;
+
     use std::any::TypeId;
 
     use bytecheck::CheckBytes;
@@ -876,6 +888,8 @@ pub mod encode {
 
 #[cfg(feature = "ssr")]
 pub mod app_state {
+    use shipyard::*;
+
     use std::{sync::Arc, time::Duration};
 
     use tokio::sync::Mutex;
@@ -932,6 +946,8 @@ pub mod app_state {
 
 #[cfg(feature = "ssr")]
 pub mod settings {
+    use shipyard::*;
+
     use config::{Config, File};
 
     #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -986,6 +1002,8 @@ pub mod settings {
 
 #[cfg(feature = "ssr")]
 pub mod clock {
+    use shipyard::*;
+
     use std::{pin::Pin, sync::Arc, time::Duration};
 
     #[derive(Clone)]

@@ -1,5 +1,7 @@
 pub mod post;
 pub mod settings {
+    use shipyard::*;
+
     use std::rc::Rc;
 
     use crate::api::{
@@ -323,6 +325,8 @@ pub mod settings {
     }
 }
 pub mod upload {
+    use shipyard::*;
+
     use std::rc::Rc;
 
     use crate::api::{Api, ApiWeb, ServerAddPostErr, ServerErr, ServerReqImg};
@@ -513,6 +517,8 @@ pub mod upload {
     }
 }
 pub mod profile {
+    use shipyard::*;
+
     use crate::api::Api;
     use crate::api::ApiWeb;
     use crate::api::Server404Err;
@@ -580,6 +586,8 @@ pub mod profile {
     }
 }
 pub mod home {
+    use shipyard::*;
+
     use std::rc::Rc;
 
     use crate::view::{
@@ -657,6 +665,8 @@ pub mod home {
 }
 
 pub mod register {
+    use shipyard::*;
+
 
     use crate::view::app::hook::use_register::{self, RegStage as RegKind, use_register};
     use leptos::Params;
@@ -782,6 +792,8 @@ pub mod register {
 
     #[cfg(test)]
     mod fe {
+        use shipyard::*;
+
         use log::trace;
         // use pretty_assertions::assert_eq;
         use std::str::FromStr;
@@ -803,6 +815,8 @@ pub mod register {
 }
 
 pub mod login {
+    use shipyard::*;
+
     use leptos::html;
     use leptos::{html::Input, prelude::*};
 

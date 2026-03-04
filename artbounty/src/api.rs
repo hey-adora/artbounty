@@ -1,3 +1,5 @@
+use shipyard::*;
+
 use http::HeaderMap;
 use http::header::{AUTHORIZATION, SET_COOKIE};
 use leptos::prelude::*;
@@ -24,17 +26,19 @@ pub mod shared;
 
 #[cfg(feature = "ssr")]
 pub mod app_state {
+    use shipyard::*;
+
     use std::{sync::Arc, time::Duration};
 
     use rand::distr::{Alphanumeric, SampleString};
-    use surrealdb::RecordId;
+    use surrealdb::types::{RecordId, ToSql};
     use tokio::sync::{Mutex, RwLock};
     use tracing::trace;
 
     use crate::{
         api::{
-            EmailChangeNewErr, EmailChangeStage, EmailToken, PasswordChangeStage, ServerErr,
-            ServerTokenErr, clock::Clock, encode_token, settings::Settings,
+            EmailChangeNewErr, EmailChangeStage, PasswordChangeStage, ServerErr, ServerTokenErr,
+            clock::Clock, settings::Settings,
         },
         db::{self, DB404Err, DBSentEmailReason, DBUser, DbEngine},
         path::{
@@ -54,7 +58,7 @@ pub mod app_state {
     #[derive(Clone)]
     pub struct AppState {
         pub db: DbEngine,
-        pub settings: Arc<RwLock<Settings>>,
+        pub settings: Settings,
         pub clock: Clock,
     }
 
@@ -67,7 +71,7 @@ pub mod app_state {
 
             Self {
                 db,
-                settings: Arc::new(RwLock::new(settings)),
+                settings,
                 clock,
             }
         }
@@ -86,29 +90,29 @@ pub mod app_state {
 
             Self {
                 db,
-                settings: Arc::new(RwLock::new(settings)),
+                settings,
                 clock,
             }
         }
 
         pub async fn get_address(&self) -> String {
-            self.settings.read().await.site.address.clone()
+            self.settings.site.address.clone()
         }
 
         pub async fn get_invite_exp_ns(&self) -> u128 {
-            self.settings.read().await.auth.invite_exp_ns.into()
+            self.settings.auth.invite_exp_ns.into()
         }
 
-        pub async fn set_invite_exp_ns(&self, duration_ns: u128) {
-            self.settings.write().await.auth.invite_exp_ns = duration_ns as u64;
-        }
+        // pub async fn set_invite_exp_ns(&self, duration_ns: u128) {
+        //     self.settings.write().await.auth.invite_exp_ns = duration_ns as u64;
+        // }
 
         pub async fn get_secret(&self) -> String {
-            self.settings.read().await.auth.secret.clone()
+            self.settings.auth.secret.clone()
         }
 
         pub async fn get_file_path(&self) -> String {
-            self.settings.read().await.site.files_path.clone()
+            self.settings.site.files_path.clone()
         }
 
         pub async fn time(&self) -> u128 {
@@ -122,11 +126,11 @@ pub mod app_state {
             let time = self.time().await;
             let exp = time + self.get_invite_exp_ns().await;
             let key = self.gen_key().await;
-            let confirm_token = EmailToken::new(key, email.into(), time);
-            let confirm_token = encode_token(self.get_secret().await, confirm_token)
-                .map_err(|_| ServerErr::from(ServerTokenErr::ServerJWT))?;
+            // let confirm_token = EmailToken::new(key, email.into(), time);
+            // let confirm_token = encode_token(self.get_secret().await, confirm_token)
+            //     .map_err(|_| ServerErr::from(ServerTokenErr::ServerJWT))?;
 
-            Ok((confirm_token, exp))
+            Ok((key, exp))
         }
 
         pub async fn new_exp(&self) -> u128 {
@@ -305,7 +309,7 @@ pub mod app_state {
             old_email: impl Into<String>,
             expires: impl Into<u128>,
         ) -> Result<(), ServerErr> {
-            let id = id.key().to_string();
+            let id = id.key.to_sql();
             let link = link_settings_form_email_current_confirm(
                 id,
                 expires.into(),
@@ -387,7 +391,7 @@ pub mod app_state {
             expires: impl Into<u128>,
         ) -> Result<(), ServerErr> {
             let to_email = to_email.into();
-            let id = id.key().to_string();
+            let id = id.key.to_sql();
             let link = link_settings_form_email_new_confirm(
                 id,
                 expires.into(),
@@ -416,6 +420,8 @@ pub mod app_state {
 
 #[cfg(feature = "ssr")]
 pub mod settings {
+    use shipyard::*;
+
     use config::{Config, File};
 
     #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -434,18 +440,24 @@ pub mod settings {
     #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
     pub struct Db {
         pub path: String,
+        pub site_root: String,
+        pub site_pkg_dir: String,
+        pub tailwind_input_file: String,
+        pub assets_dir: String,
     }
 
     #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
     pub struct Site {
+        pub name: String,
         pub address: String,
+        pub address_host: String,
         pub files_path: String,
     }
 
     impl Settings {
         pub fn new_from_file() -> Self {
             Config::builder()
-                .add_source(File::with_name("artbounty"))
+                .add_source(File::with_name("artbounty.toml"))
                 .build()
                 .unwrap()
                 .try_deserialize()
@@ -455,7 +467,9 @@ pub mod settings {
         pub fn new_testing(invite_exp_ns: u128) -> Self {
             Self {
                 site: Site {
+                    name: "artbounty".to_string(),
                     address: "http://localhost:3000".to_string(),
+                    address_host: "0.0.0.0:3000".to_string(),
                     files_path: "../target/tmp/files".to_string(),
                 },
                 auth: Auth {
@@ -464,6 +478,10 @@ pub mod settings {
                 },
                 db: Db {
                     path: "memory".to_string(),
+                    site_root: "target/site".to_string(),
+                    site_pkg_dir: "pkg".to_string(),
+                    tailwind_input_file: "style/tailwind.css".to_string(),
+                    assets_dir: "assets".to_string(),
                 },
             }
         }
@@ -472,6 +490,8 @@ pub mod settings {
 
 #[cfg(feature = "ssr")]
 pub mod clock {
+    use shipyard::*;
+
     use std::{pin::Pin, sync::Arc, time::Duration};
 
     #[derive(Clone)]
@@ -707,12 +727,23 @@ pub struct ServerReqImg {
     rkyv::Deserialize,
 )]
 pub enum ServerRes {
-    SetAuthCookie { token: String },
+    SetAuthCookie {
+        token: String,
+    },
     DeleteAuthCookie,
     Condition(bool),
-    User { username: String },
-    Acc { username: String, email: String },
-    InviteToken(EmailToken),
+    User {
+        username: String,
+    },
+    Acc {
+        username: String,
+        email: String,
+    },
+    InviteToken {
+        email: String,
+        created_at: u128,
+        exp: u128,
+    },
     Comments(Vec<UserPostComment>),
     Comment(UserPostComment),
     Posts(Vec<UserPost>),
@@ -958,6 +989,12 @@ pub enum ServerAddPostErr {
 pub enum ServerDecodeInviteErr {
     #[error("invite not found")]
     InviteNotFound,
+
+    #[error("jwt expired error")]
+    InviteExpired,
+
+    #[error("jwt expired error")]
+    InviteUsed,
 
     #[error("jwt err {0}")]
     JWT(String),
@@ -1368,18 +1405,19 @@ impl EmailChangeStage {
 #[cfg(feature = "ssr")]
 impl From<&crate::db::email_change::DBEmailChange> for EmailChangeStage {
     fn from(value: &crate::db::email_change::DBEmailChange) -> Self {
+        use surrealdb::types::ToSql;
         let output = if value.completed
             // && value.current.token_used
             && !value.new.as_ref().map(|v| v.token_used).unwrap_or_default()
         {
             EmailChangeStage::Cancelled {
-                id: value.id.key().to_string(),
+                id: value.id.key.to_sql(),
                 old_email: value.current.email.clone(),
                 expires: value.expires,
             }
         } else if value.completed {
             EmailChangeStage::Complete {
-                id: value.id.key().to_string(),
+                id: value.id.key.to_sql(),
                 old_email: value.current.email.clone(),
                 new_email: value.new.as_ref().unwrap().email.clone(),
                 expires: value.expires,
@@ -1388,27 +1426,27 @@ impl From<&crate::db::email_change::DBEmailChange> for EmailChangeStage {
             && new.token_used
         {
             EmailChangeStage::ReadyToComplete {
-                id: value.id.key().to_string(),
+                id: value.id.key.to_sql(),
                 old_email: value.current.email.clone(),
                 new_email: new.email.clone(),
                 expires: value.expires,
             }
         } else if let Some(new) = &value.new {
             EmailChangeStage::ConfirmNewEmail {
-                id: value.id.key().to_string(),
+                id: value.id.key.to_sql(),
                 old_email: value.current.email.clone(),
                 new_email: new.email.clone(),
                 expires: value.expires,
             }
         } else if value.current.token_used {
             EmailChangeStage::EnterNewEmail {
-                id: value.id.key().to_string(),
+                id: value.id.key.to_sql(),
                 old_email: value.current.email.clone(),
                 expires: value.expires,
             }
         } else {
             EmailChangeStage::ConfirmEmail {
-                id: value.id.key().to_string(),
+                id: value.id.key.to_sql(),
                 old_email: value.current.email.clone(),
                 expires: value.expires,
             }
@@ -1422,8 +1460,10 @@ impl From<&crate::db::email_change::DBEmailChange> for EmailChangeStage {
 #[cfg(feature = "ssr")]
 impl From<crate::db::DBUserPost> for UserPost {
     fn from(value: crate::db::DBUserPost) -> Self {
+        use surrealdb::types::ToSql;
+
         Self {
-            id: value.id.key().to_string(),
+            id: value.id.key.to_sql(),
             user: value.user.into(),
             file: value.file.into_iter().map(UserPostFile::from).collect(),
             title: value.title,
@@ -1518,50 +1558,46 @@ pub enum ServerErrImg {
     rkyv::Serialize,
     rkyv::Deserialize,
 )]
-pub struct AuthToken {
-    pub username: String,
-    pub created_at: u128,
-    pub exp: u64,
-}
+pub struct AuthToken(String);
 
-impl AuthToken {
-    pub fn new<S: Into<String>>(username: S, time: u128) -> Self {
-        let username: String = username.into();
-        AuthToken {
-            username,
-            created_at: time,
-            exp: 0,
-        }
-    }
-}
+// impl AuthToken {
+//     pub fn new<S: Into<String>>(username: S, time: u128) -> Self {
+//         let username: String = username.into();
+//         AuthToken {
+//             username,
+//             created_at: time,
+//             exp: 0,
+//         }
+//     }
+// }
 
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-pub struct EmailToken {
-    pub key: String,
-    pub email: String,
-    pub created_at: u128,
-    pub exp: u64,
-}
+// #[derive(
+//     Debug,
+//     Clone,
+//     PartialEq,
+//     serde::Serialize,
+//     serde::Deserialize,
+//     rkyv::Archive,
+//     rkyv::Serialize,
+//     rkyv::Deserialize,
+// )]
+// pub struct EmailToken {
+//     pub key: String,
+//     pub email: String,
+//     pub created_at: u128,
+//     pub exp: u64,
+// }
 
-impl EmailToken {
-    pub fn new(key: impl Into<String>, email: impl Into<String>, created_at: u128) -> Self {
-        Self {
-            key: key.into(),
-            email: email.into(),
-            created_at,
-            exp: 0,
-        }
-    }
-}
+// impl EmailToken {
+//     pub fn new(key: impl Into<String>, email: impl Into<String>, created_at: u128) -> Self {
+//         Self {
+//             key: key.into(),
+//             email: email.into(),
+//             created_at,
+//             exp: 0,
+//         }
+//     }
+// }
 
 // #[cfg(feature = "ssr")]
 // pub fn create_cookie<Key: AsRef<[u8]>, S: Into<String>>(
@@ -1623,13 +1659,48 @@ pub fn auth_token_get(
         .inspect(|v| trace!("extract auth value raw {v:?}"))
         // .and_then(|v| Some(v.to_str()))
         // .and_then(|v| rex.find(v.to_str().unwrap()))
-        .and_then(|v| v.to_str().ok().and_then(|v| extract_auth_token(v)))
+        .and_then(|v| v.to_str().ok().and_then(|v| extract_auth_token_plain(v)))
         // .map(|v| v.as_str().to_string())
         // .map(|v| cut_cookie(v.to_str().unwrap(), COOKIE_PREFIX_FULL, COOKIE_POSTFIX).to_string())
         .inspect(|v| trace!("extract auth value cut {v:?}"))
 }
 
-fn extract_auth_token(input: impl AsRef<str>) -> Option<String> {
+fn extract_auth_token_plain(input: impl AsRef<str>) -> Option<String> {
+    let input = input.as_ref();
+    let input_len = input.len();
+
+    let mut start = 0;
+    let mut end = 0_usize;
+    let mut stage = 0_usize;
+    for (i, c) in input.chars().map(|v| v).enumerate() {
+        if (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') {
+            if stage == 0 {
+                stage = 1;
+                start = i;
+            }
+            end = i;
+            trace!("0 {c} cursor {start} end {end}");
+            continue;
+        }
+
+        if stage == 1 && end.saturating_sub(start) == 19 && end < input_len {
+            return Some(input[start..=end].to_string());
+        }
+
+        // start = i;
+        stage = 0;
+
+        trace!("3 {c} cursor {start} end {end}");
+    }
+
+    if end.saturating_sub(start) == 19 && end < input_len {
+        Some(input[start..=end].to_string())
+    } else {
+        None
+    }
+}
+
+fn extract_auth_token_jwt(input: impl AsRef<str>) -> Option<String> {
     let input = input.as_ref();
     let input_len = input.len();
 
@@ -1665,9 +1736,9 @@ fn extract_auth_token(input: impl AsRef<str>) -> Option<String> {
             break;
         }
 
-        if stage > 0 {
-            stage = 0;
-        }
+        // if stage > 0 {
+        // }
+        stage = 0;
 
         start = i;
 
@@ -1687,17 +1758,17 @@ fn extract_auth_token_test() {
     crate::init_test_log();
 
     // let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJ1c2VybmFtZSI6InByaW1lMSIsImNyZWF0ZWRfYXQiOjE3Njg3MzA1NjYwOTYzNTYxMTYsImV4cCI6MH0.naD94yClraAw9nEj-k6_zfXzad1EJ815C07IMCmTJX7yWIg78jFe2Up2EZcYt6q_Vug8AD0dwQzZ8w7pqAee-w";
-    let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJ1c2VybmFtZSI6InByaW1lIiwiY3JlYXRlZF9hdCI6MTc3MDEzNjY3NTMxMTY3Njc4OCwiZXhwIjowfQ.L8rQBPtF7kYpSPGKSV8pVG9tsWuE9agDz7sKquCPMXEy5Qy2q3PsiON3Tt3Z1-q8y1We6nnsRKbK79vZtPKSBA";
+    let token = "j1sxsacwiy1v46d1z7r1";
     let input = format!("authorization=Bearer {token}");
-    let output = extract_auth_token(&input);
+    let output = extract_auth_token_plain(&input);
     assert_eq!(Some(token.to_string()), output);
 
     let input = format!("authorization=Bearer {token};gj04j3t");
-    let output = extract_auth_token(&input);
+    let output = extract_auth_token_plain(&input);
     assert_eq!(Some(token.to_string()), output);
 
     let input = format!("{token}");
-    let output = extract_auth_token(&input);
+    let output = extract_auth_token_plain(&input);
     assert_eq!(Some(token.to_string()), output);
 }
 
@@ -1783,35 +1854,35 @@ pub fn hash_password<S: Into<String>>(password: S) -> Result<String, argon2::pas
     Ok(password_hash)
 }
 
-#[cfg(feature = "ssr")]
-pub fn encode_token<Key: AsRef<[u8]>, Claims: serde::Serialize>(
-    key: Key,
-    claims: Claims,
-) -> Result<String, jsonwebtoken::errors::Error> {
-    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
-
-    let header = Header::new(Algorithm::HS512);
-    let key = EncodingKey::from_secret(key.as_ref());
-
-    encode(&header, &claims, &key)
-}
-
-#[cfg(feature = "ssr")]
-pub fn decode_token<Claims: serde::de::DeserializeOwned>(
-    secret: impl AsRef<[u8]>,
-    token: impl AsRef<str>,
-    validate_exp: bool,
-) -> Result<jsonwebtoken::TokenData<Claims>, jsonwebtoken::errors::Error> {
-    use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
-
-    let token = token.as_ref();
-    let secret = DecodingKey::from_secret(secret.as_ref());
-    let mut validation = Validation::new(Algorithm::HS512);
-    validation.validate_exp = validate_exp;
-    validation.leeway = 0;
-
-    decode::<Claims>(token, &secret, &validation)
-}
+// #[cfg(feature = "ssr")]
+// pub fn encode_token<Key: AsRef<[u8]>, Claims: serde::Serialize>(
+//     key: Key,
+//     claims: Claims,
+// ) -> Result<String, jsonwebtoken::errors::Error> {
+//     use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+//
+//     let header = Header::new(Algorithm::HS512);
+//     let key = EncodingKey::from_secret(key.as_ref());
+//
+//     encode(&header, &claims, &key)
+// }
+//
+// #[cfg(feature = "ssr")]
+// pub fn decode_token<Claims: serde::de::DeserializeOwned>(
+//     secret: impl AsRef<[u8]>,
+//     token: impl AsRef<str>,
+//     validate_exp: bool,
+// ) -> Result<jsonwebtoken::TokenData<Claims>, jsonwebtoken::errors::Error> {
+//     use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
+//
+//     let token = token.as_ref();
+//     let secret = DecodingKey::from_secret(secret.as_ref());
+//     let mut validation = Validation::new(Algorithm::HS512);
+//     validation.validate_exp = validate_exp;
+//     validation.leeway = 0;
+//
+//     decode::<Claims>(token, &secret, &validation)
+// }
 
 pub trait Api {
     fn provide_builder(&self, path: impl AsRef<str>) -> RequestBuilder;
@@ -1962,7 +2033,7 @@ pub trait Api {
         }
     }
 
-    fn profile(&self) -> ApiReq {
+    fn get_my_acc(&self) -> ApiReq {
         let builder = self.provide_builder(crate::path::PATH_API_ACC);
         let server_req = ServerReq::None;
         let result_signal = self.provide_signal_result();
@@ -2327,11 +2398,7 @@ impl ApiReq {
     pub async fn send_native_and_extract_auth(
         self,
         secret: impl Into<String>,
-    ) -> (
-        Option<String>,
-        Option<jsonwebtoken::TokenData<AuthToken>>,
-        Result<ServerRes, ServerErr>,
-    ) {
+    ) -> (Option<String>, Option<String>, Result<ServerRes, ServerErr>) {
         // use axum_extra::extract::{CookieJar, cookie::Cookie};
         use http::header::SET_COOKIE;
 
@@ -2341,9 +2408,8 @@ impl ApiReq {
         let (mut headers, result) = send(builder, req, None::<&str>).await;
         // let jar = CookieJar::from_headers(&headers);
         let token = auth_token_get(&mut headers, SET_COOKIE);
-        let decoded_token = token
-            .clone()
-            .and_then(|cookie| decode_token::<AuthToken>(secret, cookie, false).ok());
+        let decoded_token = token.clone();
+        // .and_then(|cookie| decode_token::<AuthToken>(secret, cookie, false).ok());
         (token, decoded_token, result)
     }
 }
@@ -2642,9 +2708,9 @@ pub async fn send(
     })
     .map_err(|err| ServerErr::from(ClientErr::ClientDesErr(err.to_string())))
     .flatten();
-
     debug!(
-        "CLIENT RECV:\nstatus: {status}\nclient received headers: {headers:#?}\n{body:?} - {bytes:X}"
+        "CLIENT RECV:\nstatus: {status}\nclient received headers: {headers:#?}\n{body:?} - {bytes:X} - {}",
+        String::from_utf8_lossy(&bytes)
     );
 
     (headers, body)
@@ -2652,11 +2718,13 @@ pub async fn send(
 
 #[cfg(test)]
 pub mod tests {
+    use shipyard::*;
+
     use axum::Router;
     use std::path::Path;
     use std::sync::Arc;
     use std::time::Duration;
-    use surrealdb::RecordId;
+    use surrealdb::types::{RecordId, ToSql};
     use tokio::fs::{self, create_dir_all};
 
     use axum_test::TestServer;
@@ -2670,8 +2738,8 @@ pub mod tests {
     use crate::api::shared::post_comment::UserPostComment;
     use crate::api::{
         Api, ApiTest, EmailChangeErr, EmailChangeNewErr, EmailChangeStage, EmailChangeTokenErr,
-        EmailToken, PostLikeErr, Server404Err, ServerAuthErr, ServerErr, ServerLoginErr,
-        ServerRegistrationErr, ServerReqImg, ServerRes, UserPost, encode_token,
+        PostLikeErr, Server404Err, ServerAuthErr, ServerErr, ServerLoginErr, ServerRegistrationErr,
+        ServerReqImg, ServerRes, UserPost,
     };
     use crate::db::email_change::create_email_change_id;
     use crate::db::post_comment::DBPostComment;
@@ -2711,10 +2779,8 @@ pub mod tests {
             let time_mut = Arc::new(Mutex::new(0));
             let app_state = AppState::new_testng(time_mut.clone(), invite_exp_ns).await;
             let my_app = create_api_router(app_state.clone()).with_state(app_state.clone());
-            let server = TestServer::builder()
-                .http_transport()
-                .build(my_app)
-                .unwrap();
+            let server = TestServer::builder().http_transport().build(my_app);
+            // .unwrap();
             let api = ApiTest::new(server);
             Self {
                 state: app_state,
@@ -3173,7 +3239,7 @@ pub mod tests {
         ) -> Option<()> {
             self.set_time(server_time).await;
 
-            let result = self.api.profile().send_native_with_token(&auth_token).await;
+            let result = self.api.get_my_acc().send_native_with_token(&auth_token).await;
             let matched = match result {
                 Ok(ServerRes::Acc { username, email }) => true,
                 _ => false,
@@ -3189,7 +3255,7 @@ pub mod tests {
         ) -> Option<()> {
             self.set_time(server_time).await;
 
-            let result = self.api.profile().send_native_with_token(&auth_token).await;
+            let result = self.api.get_my_acc().send_native_with_token(&auth_token).await;
             let matched = result
                 == Err(ServerErr::AuthErr(
                     ServerAuthErr::ServerUnauthorizedInvalidCookie,
@@ -3205,7 +3271,7 @@ pub mod tests {
 
             let matched = result == Ok(ServerRes::Ok);
 
-            let result = self.api.profile().send_native_with_token(&auth_token).await;
+            let result = self.api.get_my_acc().send_native_with_token(&auth_token).await;
             let matched_profile = result == Err(ServerErr::DbErr);
 
             if matched { Some(()) } else { None }
@@ -3758,7 +3824,7 @@ pub mod tests {
 
         let result = app
             .api
-            .confirm_change_password("pas$word123456789A", confirm_token.id.key().to_string())
+            .confirm_change_password("pas$word123456789A", confirm_token.id.key.to_sql())
             .send_native()
             .await;
 

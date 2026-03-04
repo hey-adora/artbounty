@@ -1,3 +1,5 @@
+use shipyard::*;
+
 use crate::{
     api::{Api, ApiWeb, ChangeUsernameErr, ServerErr},
     valid::auth::proccess_username,

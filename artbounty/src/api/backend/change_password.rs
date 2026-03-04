@@ -1,7 +1,10 @@
+use shipyard::*;
+
 
         use std::f64::consts::SQRT_2;
 
         use axum::{Extension, extract::State};
+        use surrealdb::types::ToSql;
         use thiserror::Error;
         use tracing::{debug, trace};
 
@@ -48,7 +51,7 @@
                 .await
                 .map_err(|err| ServerErr::DbErr)?;
 
-            let confirm_key = result.id.key().to_string();
+            let confirm_key = result.id.key.to_sql();
 
             if db_user
                 .as_ref()
@@ -89,7 +92,7 @@
 
             let confirm_email = app
                 .db
-                .get_confirm_email_by_key(time, &confirm_key)
+                .get_confirm_email_by_key(time, confirm_key.clone())
                 .await
                 .map_err(|err| match err {
                     DB404Err::NotFound => ServerErr::from(ResErr::NotFound),

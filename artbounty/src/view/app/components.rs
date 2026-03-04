@@ -1,4 +1,8 @@
+use shipyard::*;
+
 pub mod nav {
+    use shipyard::*;
+
     use crate::{
         api::{Api, ApiWeb},
         path::{PATH_LOGIN, PATH_UPLOAD, link_settings, link_user},
@@ -58,6 +62,9 @@ pub mod nav {
     }
 }
 pub mod gallery {
+    use shipyard::*;
+
+
     use crate::api::{Api, ApiWeb, UserPost, UserPostFile};
     use crate::path::{link_img, link_post, link_post_with_history};
     use crate::view::toolbox::prelude::*;
@@ -1288,6 +1295,8 @@ pub mod gallery {
 
     #[cfg(test)]
     mod resize_tests {
+        use shipyard::*;
+
         use crate::view::app::components::gallery::{get_total_height, vec_img_to_string};
 
         use super::{
