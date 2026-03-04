@@ -13,8 +13,8 @@ cargo build --package=artbounty --lib --target=wasm32-unknown-unknown --features
 rm -rf ./target/site/* &&\
 mkdir -p ./target/site/pkg &&\
 cp -r ./assets/* ./target/site &&\
-cp leptos.toml ./target/debug/leptos.toml
-cp artbounty.toml ./target/debug/artbounty.toml
+# cp leptos.toml ./target/debug/leptos.toml
+# cp artbounty.toml ./target/debug/artbounty.toml
 tailwindcss -i style/tailwind.css -o target/site/pkg/artbounty_1.css &&\
 wasm-bindgen ./target/wasm32-unknown-unknown/wasm-debug/artbounty.wasm --no-typescript --target web --out-dir ./target/site/pkg --out-name artbounty_1 &&\
 # cd ./target/debug

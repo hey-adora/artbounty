@@ -1,6 +1,7 @@
 
 use crate::api::{Api, ApiWeb, Server404Err, ServerErr};
-use crate::path::{link_home, link_img, link_user};
+use crate::path::{PATH_LOGIN, link_home, link_img, link_user};
+use crate::view::app::GlobalState;
 use crate::view::app::components::nav::Nav;
 use crate::view::app::hook::use_infinite_scroll::{InfiniteStage, use_infinite_scroll};
 use crate::view::app::hook::use_post_comment::use_post_comment;
@@ -23,6 +24,7 @@ pub struct PostParams {
 pub fn Page() -> impl IntoView {
     let main_ref = NodeRef::new();
     let api = ApiWeb::new();
+    let global_state = expect_context::<GlobalState>();
 
     let param = use_params::<PostParams>();
     let param_username = move || param.read().as_ref().ok().and_then(|v| v.username.clone());
@@ -255,7 +257,18 @@ pub fn Page() -> impl IntoView {
                     </div>
                     <div  class="flex flex-col gap-2 md:gap-4 justify-between mt-4 pb-1">
                         <h1 class="text-[1.3rem] text-base0F ">"Comments"</h1>
-                        <form class="flex  bg-base01 rounded-xl flex-col gap-2 py-2 px-4 " on:submit=post_comments.on_comment.to_fn() >
+                        <div class=move || format!( "bg-base01 rounded-xl grid place-items-center py-5 px-2 {}", if  global_state.acc_pending() { "" } else { "hidden" })>
+                            <div class="flex flex-col gap-2">
+                                <div class="text-base03">"loading..."</div>
+                            </div>
+                        </div>
+                        <div class=move || format!( "bg-base01 rounded-xl grid place-items-center py-5 px-2 {}", if global_state.is_logged_in().unwrap_or_default() || global_state.acc_pending() { "hidden" } else { "" })>
+                            <div class="flex flex-col gap-2">
+                                <div class="text-base03">"You must login to comment"</div>
+                                <a class="mx-auto rounded-full font-semibold text-[1rem] font-medium px-[0.8rem] py-[0.2rem] hover:bg-base05 bg-base0D text-base01" href=PATH_LOGIN >"Login"</a>
+                            </div>
+                        </div>
+                        <form class=move || format!("flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 {}", if global_state.is_logged_in().unwrap_or_default() || global_state.acc_pending() { "" } else { "hidden" }) on:submit=post_comments.on_comment.to_fn() >
                             <textarea placeholder="Comment" node_ref=comment_input_ref class="focus:outline-none! appearance-none border-none resize text-[1.1rem]" id="story" name="story" rows="5" cols="30" ></textarea>
                             <ul class="text-base08 list-disc ml-[1rem]">
                                 {move || post_comments.err_post.get().map(|v| v.trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view()) }
