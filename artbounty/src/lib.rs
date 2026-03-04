@@ -1,18 +1,10 @@
 #![recursion_limit = "512"]
 
-// use shipyard::*;
-
-// #[macro_use]
-// extern crate macro_rules_attribute;
-
 pub mod server;
-// pub mod controller;
 pub mod api;
 #[cfg(feature = "ssr")]
 pub mod db;
 pub mod view;
-
-// pub struct OrdFloat(u64);
 
 #[cfg(feature = "ssr")]
 pub fn init_test_log() {
@@ -23,17 +15,14 @@ pub fn init_test_log() {
                 .with_line_number(true),
         )
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        // .with_writer(file)
         .try_init();
 }
 
 pub mod valid {
-    use shipyard::*;
 
     use tracing::trace;
 
     pub mod auth {
-        use shipyard::*;
 
         use super::Validator;
         use tracing::trace;
@@ -69,12 +58,6 @@ pub mod valid {
         pub fn proccess_post_title<S: AsRef<str>>(title: S) -> Result<String, String> {
             let mut errors = String::new();
             let input = title.as_ref().trim().to_string();
-            // if !username.is_first_char_alphabetic() {
-            //     errors += "title must start with alphabetic character\n";
-            // }
-            // if !username.is_alphanumerc() {
-            //     errors += "title must be alphanumeric\n";
-            // }
             if input.is_smaller_than(1) {
                 errors += "title must be at least 1 characters length\n";
             }
@@ -94,15 +77,6 @@ pub mod valid {
         pub fn proccess_post_description<S: AsRef<str>>(description: S) -> Result<String, String> {
             let mut errors = String::new();
             let input = description.as_ref().trim().to_string();
-            // if !username.is_first_char_alphabetic() {
-            //     errors += "description must start with alphabetic character\n";
-            // }
-            // if !username.is_alphanumerc() {
-            //     errors += "description must be alphanumeric\n";
-            // }
-            // if username.is_smaller_than(1) {
-            //     errors += "description must be at least 1 characters length\n";
-            // }
             if input.is_bigger_than(10240) {
                 errors += "description must be shorter than 10241 characters length\n";
             }
@@ -170,7 +144,6 @@ pub mod valid {
 
         #[cfg(test)]
         mod auth_tests {
-            use shipyard::*;
 
             use super::{proccess_email, proccess_password, proccess_username};
             // use test_log::test;
@@ -235,77 +208,6 @@ pub mod valid {
                 .map(|c| c.is_alphabetic())
                 .unwrap_or_default()
         }
-        // fn is_email(&self) -> bool {
-        //     let email = self.as_ref();
-        //     let mut email_chars = email.chars().enumerate();
-        //     if email_chars
-        //         .next()
-        //         .map(|(_i, char)| !(char == '-' || char == '.' || char.is_alphanumeric()))
-        //         .unwrap_or(true)
-        //     {
-        //         trace!("invalid 1");
-        //         return false;
-        //     }
-        //
-        //     let mut symbol_a: usize = 0;
-        //     for (i, char) in email_chars.by_ref() {
-        //         if char == '@' {
-        //             symbol_a = i;
-        //             break;
-        //         } else if char == '-' || char == '.' || char.is_alphanumeric() {
-        //             continue;
-        //         } else {
-        //             trace!("invalid 2");
-        //             return false;
-        //         }
-        //     }
-        //     if symbol_a == 0 {
-        //         trace!("invalid 2.5");
-        //         return false;
-        //     }
-        //     if email_chars
-        //         .next()
-        //         .map(|(_i, char)| !(char == '-' || char == '.' || char.is_alphanumeric()))
-        //         .unwrap_or(true)
-        //     {
-        //         trace!("invalid 3");
-        //         return false;
-        //     }
-        //
-        //     let mut last_dot: usize = 0;
-        //     for (i, char) in email_chars {
-        //         if char == '.' {
-        //             last_dot = i;
-        //         } else if char == '-' || char == '.' || char.is_alphanumeric() {
-        //             continue;
-        //         } else {
-        //             trace!("invalid 4");
-        //             return false;
-        //         }
-        //     }
-        //
-        //     if last_dot == 0 {
-        //         trace!("invalid 4.5");
-        //         return false;
-        //     }
-        //
-        //     let email_chars = email.chars().skip(last_dot + 1);
-        //     let mut count = 0;
-        //     for char in email_chars {
-        //         count += 1;
-        //         if !char.is_alphanumeric() {
-        //             trace!("invalid 5");
-        //             return false;
-        //         }
-        //     }
-        //
-        //     if !(2..=4).contains(&count) {
-        //         trace!("invalid 6: {count}");
-        //         return false;
-        //     }
-        //
-        //     true
-        // }
         fn is_bigger_than(&self, size: usize) -> bool {
             self.as_ref().len() > size
         }
@@ -316,10 +218,8 @@ pub mod valid {
 
     #[cfg(test)]
     mod valid_tests {
-        use shipyard::*;
 
         use super::Validator;
-        // use test_log::test;
 
         #[test]
         fn test_validator() {
@@ -330,16 +230,6 @@ pub mod valid {
             assert!("input".is_smaller_than(6));
             assert!(!"input".is_bigger_than(5));
             assert!("input".is_bigger_than(4));
-            // assert!("hey@hey.com".is_email());
-            // assert!("hey@hey..com".is_email());
-            // assert!(!"@hey.com".is_email());
-            // assert!(!"heyhey.com".is_email());
-            // assert!(!"h@.com".is_email());
-            // assert!(!"hhey.com".is_email());
-            // assert!(!"hhey@".is_email());
-            // assert!(!"h@h.".is_email());
-            // assert!(!"h@h.h".is_email());
-            // assert!("h@h.hh".is_email());
             assert!("hey@hey..com".is_first_char_alphabetic());
             assert!(!"0ey@hey..com".is_first_char_alphabetic());
             assert!("abcd#e".is_containing_symbol());
@@ -351,7 +241,6 @@ pub mod valid {
 }
 
 pub mod path {
-    use shipyard::*;
 
     use leptos::prelude::*;
     use leptos_router::{OptionalParamSegment, ParamSegment, StaticSegment, WildcardSegment, path};
@@ -638,13 +527,6 @@ pub mod path {
         )
     }
 
-    // pub struct LinkSettingsFormEmailBuilder {
-    //     pub stage: EmailChangeFormStage,
-    //     pub new_email: Option<String>,
-    //     pub confirm_token: Option<String>,
-    //     pub stage_error: Option<String>,
-    // }
-
     pub fn link_settings_form_email(
         stage: EmailChangeFormStage,
         email_change_id: Option<String>,
@@ -700,9 +582,6 @@ pub mod path {
         stage: ChangePasswordFormStage,
         email: Option<impl Into<String>>,
         confirm_key: Option<impl Into<String>>,
-        // old_username: Option<impl Into<String>>,
-        // new_username: Option<impl Into<String>>,
-        // current_email: impl AsRef<str>,
     ) -> String {
         format!(
             "{}{}",
@@ -728,10 +607,6 @@ pub mod path {
                 Some(v) => format!("&{}={}", ChangePasswordQueryFields::Token, v.into()),
                 None => "".to_string(),
             },
-            // match new_username {
-            //     Some(v) => format!("&new_username={}", v.into()),
-            //     None => "".to_string(),
-            // },
         )
     }
 
@@ -758,7 +633,6 @@ pub mod path {
         stage: ChangeUsernameFormStage,
         old_username: Option<impl Into<String>>,
         new_username: Option<impl Into<String>>,
-        // current_email: impl AsRef<str>,
     ) -> String {
         format!(
             "{}{}",
@@ -771,7 +645,6 @@ pub mod path {
         stage: ChangeUsernameFormStage,
         old_username: Option<impl Into<String>>,
         new_username: Option<impl Into<String>>,
-        // current_email: impl AsRef<str>,
     ) -> String {
         format!(
             "?form_stage={}{}{}",
@@ -817,83 +690,3 @@ pub mod path {
         )
     }
 }
-// #[cfg(test)]
-// mod tests {
-//     use test_log::test;
-//     use tracing::trace;
-//
-//     #[derive(
-//         Clone,
-//         Debug,
-//         PartialEq,
-//         PartialOrd,
-//         Default,
-//         serde::Serialize,
-//         serde::Deserialize,
-//         strum::EnumString,
-//         strum::EnumIter,
-//         strum::Display,
-//     )]
-//     #[strum(serialize_all = "lowercase")]
-//     pub enum Foo {
-//         #[default]
-//         CurrentSendConfirm,
-//         CurrentClickConfirm {
-//             data: String,
-//         },
-//         CurrentConfirm,
-//         NewEnterEmail,
-//         NewClickConfirm,
-//         NewConfirmEmail,
-//         FinalConfirm,
-//         Completed,
-//     }
-//
-//     #[derive(
-//         Clone, Debug, PartialEq, PartialOrd, Default, serde::Serialize, serde::Deserialize,
-//     )]
-//     struct Bar {
-//         one: usize,
-//         two: usize,
-//     }
-//
-//     #[test]
-//     fn url_test() {
-//         // let a = serde_urlencoded::to_string(Foo::CurrentClickConfirm {
-//         //     data: "wowza".to_string(),
-//         // });
-//         let foo = Foo::CurrentClickConfirm {
-//             data: "wowza".to_string(),
-//         };
-//         let fff = serde_json::to_string(&foo).unwrap();
-//         trace!("{fff}");
-//         // let fff = [(
-//         //     "wtf",
-//         //     r#"
-//         //         {
-//         //           "firstName": "John",
-//         //           "lastName": "Doe",
-//         //           "isStudent": false,
-//         //           "age": 30
-//         //         }
-//         //     "#,
-//         // )];
-//         // let meal = &[
-//         //     ("bread", "baguette"),
-//         //     ("cheese", "comté"),
-//         //     ("meat", "ham"),
-//         //     ("fat", "butter"),
-//         // ];
-//         // let a = serde_urlencoded::to_string(Foo::CurrentSendConfirm);
-//         // let b = serde_urlencoded::to_string(Bar { one: 1, two: 2 });
-//         let c = serde_urlencoded::to_string([("wtf", fff)]);
-//         let d = serde_urlencoded::to_string([("huh", foo.clone())]);
-//         let g = serde_qs::to_string(&[("huh", foo)]);
-//
-//         // trace!("{a:?}");
-//         trace!("{c:?}");
-//         // trace!("{c:?}");
-//         trace!("{d:?}");
-//         trace!("{g:?}");
-//     }
-// }

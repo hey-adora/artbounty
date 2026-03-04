@@ -1,4 +1,3 @@
-use shipyard::*;
 use surrealdb::types::ToSql;
 
 
@@ -14,7 +13,6 @@ use crate::db::AddUserErr;
 use crate::db::DB404Err;
 use crate::valid::auth::{proccess_password, proccess_username};
 use axum::extract::State;
-// use axum_extra::extract::CookieJar;
 use http::header::COOKIE;
 use tracing::{debug, error, info, trace};
 
@@ -34,12 +32,10 @@ pub async fn register(
         .into());
     };
     let time_ns = app_state.clock.now().await;
-    // let secret = app_state.get_secret().await;
 
     let invite_token_decoded = app_state
         .db
         .get_invite_any_by_token(
-            // DBEmailTokenKind::RequestConfirmRegistrationEmail,
             &invite_token,
         )
         .await
@@ -55,8 +51,6 @@ pub async fn register(
                 return Err(ServerRegistrationErr::TokenUsed.into());
             }
             Ok(invite)
-            // decode_token::<EmailToken>(&secret, &invite_token, false)
-            //     .map_err(|err| ServerRegistrationErr::ServerJWT(err.to_string()).into())
         })
         .inspect_err(|err| error!("failed to run use_invite {err}"))?;
 
@@ -104,15 +98,6 @@ pub async fn register(
         .inspect_err(|err| error!("failed to run use_invite {err}"))
         .map_err(|err| ServerErr::DbErr)?;
 
-    // let token = app_state.gen_key().await;
-
-    // let token = encode_token(&secret, AuthToken::new(username, time_ns))
-    //     .inspect_err(|err| error!("jwt exploded {err}"))
-    //     .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
-
-    // let (token, cookie) = create_cookie(&app_state.settings.auth.secret, &user.username, time)
-    //     .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
-
     let session = app_state
         .db
         .add_session(time_ns, &user.username)
@@ -132,7 +117,6 @@ pub async fn login(State(app): State<AppState>, req: ServerReq) -> Result<Server
     };
     let time = app.clock.now().await;
     let time_ns = time;
-    // let secret = app.get_secret().await;
 
     let user = app
         .db
@@ -144,16 +128,6 @@ pub async fn login(State(app): State<AppState>, req: ServerReq) -> Result<Server
     verify_password(password, user.password)
         .inspect_err(|err| trace!("passwords verification failed {err}"))
         .map_err(|_| ServerErr::LoginErr(ServerLoginErr::WrongCredentials))?;
-
-    // let token = app.gen_key().await;
-    // let token = encode_token(&secret, AuthToken::new(&user.username, time))
-    //     .inspect_err(|err| error!("jwt exploded {err}"))
-    //     .map_err(|_| ServerRegistrationErr::ServerCreateCookieErr)?;
-
-    // let (token, cookie) = create_cookie(&app_state.settings.auth.secret, &user.username, time)
-    //     .map_err(|err| {
-    //         ServerErr::ServerLoginErr(ServerLoginErr::ServerCreateCookieErr(err.to_string()))
-    //     })?;
 
     let session = app
         .db
@@ -169,7 +143,6 @@ pub async fn login(State(app): State<AppState>, req: ServerReq) -> Result<Server
 pub async fn logout(
     State(app_state): State<AppState>,
     mut parts: http::request::Parts,
-    // jar: CookieJar,
     req: ServerReq,
 ) -> Result<ServerRes, ServerErr> {
     let ServerReq::None = req else {
@@ -181,21 +154,6 @@ pub async fn logout(
     let token = auth_token_get(&mut parts.headers, COOKIE).ok_or(ServerErr::AuthErr(
         ServerAuthErr::ServerUnauthorizedNoCookie,
     ))?;
-    // {
-    //     let r = parts.headers;
-    //     let r2 = jar.get(AUTHORIZATION.as_str());
-    //     trace!("headers comparison {r:?}");
-    // }
-    // trace!("headers comparison 1111 {jar:?} 222222 {headers:?}");
-    // let token = auth_token_get(&mut parts.headers);
-    // let token = jar
-    //     .get(AUTHORIZATION.as_str())
-    //     // .map(|v| v.value().to_string())
-    //     .inspect(|v| trace!("logout token raw {v:?}"))
-    //     .ok_or(ServerErr::ServerAuthErr(
-    //         ServerAuthErr::ServerUnauthorizedNoCookie,
-    //     ))
-    //     .map(|v| cut_cookie(v.value(), COOKIE_PREFIX, "").to_string())?;
 
     trace!("logout token {token}");
 
@@ -229,7 +187,6 @@ pub async fn decode_email_token(
     let invite_token = app
         .db
         .get_invite_any_by_token(
-            // DBEmailTokenKind::RequestConfirmRegistrationEmail,
             &token,
         )
         .await
@@ -245,14 +202,8 @@ pub async fn decode_email_token(
                 return Err(ResErr::InviteUsed.into());
             }
             Ok(invite)
-            // decode_token::<EmailToken>(&secret, &invite_token, false)
-            //     .map_err(|err| ServerRegistrationErr::ServerJWT(err.to_string()).into())
         })
         .inspect_err(|err| error!("failed to run use_invite {err}"))?;
-    // let secret = app.get_secret().await;
-
-    // let token = decode_token::<EmailToken>(&secret, token, false)
-    //     .map_err(|err| ServerDecodeInviteErr::JWT(err.to_string()))?;
 
     Ok(ServerRes::InviteToken {
         email: invite_token.email,

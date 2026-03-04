@@ -1,5 +1,3 @@
-use shipyard::*;
-
 use crate::api::app_state::AppState;
 use crate::api::shared::post_comment::{PostCommentErrResolver, UserPostComment};
 use crate::api::{
@@ -102,8 +100,6 @@ pub async fn delete_post_comment(
 
 #[cfg(test)]
 mod tests {
-    use shipyard::*;
-
     use crate::api::{Api, Order, ServerRes, TimeRange, shared::post_comment::UserPostComment, tests::ApiTestApp};
     use tracing::{debug, error, trace};
     use web_sys::console::assert;

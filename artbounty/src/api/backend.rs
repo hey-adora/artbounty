@@ -1,4 +1,3 @@
-use shipyard::*;
 
 use crate::api::app_state::AppState;
 use crate::api::{
@@ -540,111 +539,6 @@ pub async fn send_email_invite(
     Ok(ServerRes::Ok)
 }
 
-// pub async fn send_email_new(
-//     State(app_state): State<AppState>,
-//     auth_token: Extension<AuthToken>,
-//     db_user: Extension<DBUser>,
-//     req: ServerReq,
-// ) -> Result<ServerRes, ServerErr> {
-//     let ServerReq::EmailAddress { email } = req else {
-//         return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-//             "expected AddPost, received: {req:?}"
-//         ))));
-//     };
-//
-//     let time = app_state.time().await;
-//
-//     // let result = app_state
-//     //     .db
-//     //     .get_email_confirm(time, DBEmailTokenKind::RequestChangeEmail, &new_email, 1)
-//     //     .await
-//     //     .map_err(|err| match err {
-//     //         DB404Err::NotFound => ServerErr::from(RequestEmailChangeErr),
-//     //     });
-//
-//     // let email_confirm = app_state
-//     //     .db
-//     //     .get_invite_valid(
-//     //         time,
-//     //         // DBEmailTokenKind::RequestChangeEmail,
-//     //         &db_user.email,
-//     //         // 1,
-//     //     )
-//     //     // .get_email_confirm_by_token(DBEmailTokenKind::RequestChangeEmail, confirm_token)
-//     //     .await
-//     //     .map_err(move |err| match err {
-//     //         DB404Err::NotFound => ServerErr::from(RequestEmailChangeErr::ConfirmTokenNotFound),
-//     //         DB404Err::DB(_err) => ServerErr::DbErr,
-//     //     })
-//     //     .and_then(|v| {
-//     //         // rewrite this nonsense
-//     //         if v.used {
-//     //             Ok(v)
-//     //         } else {
-//     //             Err(ServerErr::from(RequestEmailChangeErr::ConfirmTokenNotUsed))
-//     //         }
-//     //     })?;
-//     //
-//     // let (confirm_token, exp) = app_state.new_confirm_token(&new_email).await?;
-//     //
-//     // let result = app_state
-//     //     .db
-//     //     .add_invite(
-//     //         time,
-//     //         DBEmailTokenKind::RequestConfirmNewEmail,
-//     //         confirm_token,
-//     //         &new_email,
-//     //         exp,
-//     //     )
-//     //     .await
-//     //     .map_err(|err| match err {
-//     //         AddInviteErr::EmailIsTaken(email) => {
-//     //             ServerErr::RequestEmailChange(RequestEmailChangeErr::EmailIsTaken(email))
-//     //         }
-//     //         _ => ServerErr::DbErr,
-//     //     });
-//     //
-//     // let result = app_state
-//     //     .db
-//     //     .update_invite_used(time, email_confirm.token_raw, 2)
-//     //     .await
-//     //     .map_err(|_| ServerErr::DbErr)?;
-//
-//     // let (confirm_token, exp) = app_state.new_confirm_token(&new_email).await?;
-//     // trace!("email token created: {confirm_token}");
-//     //
-//     // let result = app_state
-//     //     .db
-//     //     .add_email_confirm(
-//     //         time,
-//     //         DBEmailTokenKind::RequestConfirmNewEmail,
-//     //         confirm_token,
-//     //         new_email,
-//     //         exp,
-//     //     )
-//     //     .await;
-//
-//     // let email_token = app_state
-//     //     .db
-//     //     .add_email_invite_token(time, confirm_token, email, exp)
-//     //     .await;
-//     // let confirm_token = match email_token {
-//     //     Err(AddEmailInviteTokenErr::EmailIsTaken(_)) => {
-//     //         return Ok(ServerRes::Ok);
-//     //     }
-//     //     invite => invite.map_err(|_| ServerErr::ServerDbErr),
-//     // }?;
-//     // trace!("result {confirm_token:?}");
-//     //
-//     // let link = format!(
-//     //     "{}{}",
-//     //     &app_state.settings.site.address,
-//     //     crate::path::link_reg(&confirm_token.token_raw),
-//     // );
-//     // trace!("{link}");
-//
-//     Ok(ServerRes::Ok)
-// }
 pub async fn auth_optional_middleware(
     State(app_state): State<AppState>,
     mut req: axum::extract::Request,
@@ -692,18 +586,6 @@ pub async fn auth_middleware(
             return response;
         }
         Err(err) => {
-            // let response = next.run(req).await;
-            //     let status = response.status();
-            // if status == StatusCode::OK
-            // {
-            //
-            //     // TODO just make new middleware for optional auth
-            // let body = response.body();
-            //     body.dat;
-            // // let bytes = axum::body::to_bytes(body, 255).await;
-            //
-            // }
-            // return response;
             return err.into_response();
         }
     }
@@ -721,31 +603,12 @@ where
     let token = auth_token_get(headers, COOKIE).ok_or(ServerErr::AuthErr(
         ServerAuthErr::ServerUnauthorizedNoCookie,
     ))?;
-    // let token = jar
-    //     .get(AUTHORIZATION.as_str())
-    //     .ok_or(ServerAuthErr::ServerUnauthorizedNoCookie)
-    //     .inspect(|v| trace!("CHECK_AUTH COOKIE: {v:?}"))
-    //     .map(|v| cut_cookie(v.value(), COOKIE_PREFIX, "").to_string())?;
 
     trace!("CHECKING AUTH SESSION");
     let session = app.db.get_session(&token).await.map_err(|err| match err {
         DB404Err::NotFound => ServerErr::from(ServerAuthErr::ServerUnauthorizedInvalidCookie),
         _ => ServerErr::DbErr,
     })?;
-
-    // let token = match decode_token::<AuthToken>(&secret, &token, false) {
-    //     Ok(v) => v,
-    //     Err(err) => {
-    //         error!("invalid token was stored {err}");
-    //         app.db
-    //             .delete_session(token)
-    //             .await
-    //             .map_err(|err| ServerErr::DbErr)?;
-    //         return Err(ServerErr::from(
-    //             ServerAuthErr::ServerUnauthorizedInvalidCookie,
-    //         ));
-    //     }
-    // };
 
     Ok((AuthToken(token), session.user))
 }

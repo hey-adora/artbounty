@@ -1,5 +1,3 @@
-use shipyard::*;
-
 use crate::{
     api::{Api, ApiWeb, ChangeUsernameErr, ServerErr},
     valid::auth::proccess_username,
@@ -133,16 +131,6 @@ pub fn use_change_username(
                                 q_stage.set(ChangeUsernameFormStage::Finish);
                                 q_old_username.set(old_username);
                                 q_new_username.set(new_username);
-
-                                // navigate(
-                                //     &link_settings_form_username(
-                                //         UsernameChangeStage::Finish,
-                                //         Some(old_username),
-                                //         Some(new_username),
-                                //     ),
-                                //     NavigateOptions::default(),
-                                // );
-                                // selected_form.try_set(SelectedForm::None);
                             }
                             Ok(err) => {
                                 error!("expected Post, received {err:?}");

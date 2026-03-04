@@ -1,7 +1,5 @@
-use shipyard::*;
 
 pub mod path {
-    use shipyard::*;
 
     use leptos::prelude::*;
     use leptos_router::{OptionalParamSegment, ParamSegment, StaticSegment, WildcardSegment, path};
@@ -19,7 +17,6 @@ pub mod path {
     pub enum RegKind {
         Reg,
         CheckEmail,
-        // Loading,
     }
 
     pub fn link_check_email<Email: AsRef<str>>(email: Email) -> String {
@@ -87,9 +84,7 @@ pub async fn server() {
     let app_state = AppState::new().await;
 
     let cors = CorsLayer::new()
-        // allow `GET` and `POST` when accessing the resource
         .allow_methods([Method::GET, Method::POST])
-        // allow requests from any origin
         .allow_origin(cors::Any);
 
     let leptos_router = Router::new()
@@ -118,25 +113,9 @@ pub async fn server() {
 }
 
 pub mod router {
-    use shipyard::*;
-
-
-    // pub fn link_reg<Token: AsRef<str>>(token: Token) -> String {
-    //     format!("{}?kind={}&token={}", PATH, RegKind::Reg, token.as_ref())
-    // }
 
     #[cfg(feature = "ssr")]
     pub fn new() -> axum::Router<crate::app_state::AppState> {
-        // tracing_subscriber::fmt()
-        //     .event_format(
-        //         tracing_subscriber::fmt::format()
-        //             .with_file(true)
-        //             .with_line_number(true),
-        //     )
-        //     .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        //     .try_init()
-        //     .unwrap();
-
         use axum::{Router, routing::post};
         let routes = Router::new()
             .route(
@@ -180,7 +159,6 @@ pub mod router {
 }
 
 pub mod fe_router {
-    use shipyard::*;
 
     use leptos::prelude::*;
     use leptos_meta::MetaTags;
@@ -236,7 +214,6 @@ pub mod fe_router {
         pub enum RegKind {
             Reg,
             CheckEmail,
-            // Loading,
         }
 
         pub fn link_check_email<Email: AsRef<str>>(email: Email) -> String {

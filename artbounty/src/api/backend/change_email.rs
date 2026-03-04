@@ -1,6 +1,3 @@
-use shipyard::*;
-
-
 use crate::api::app_state::AppState;
 use crate::api::{
     AuthToken, EmailChangeErr, EmailChangeNewErr, EmailChangeStage, EmailChangeTokenErr,
@@ -14,7 +11,6 @@ use crate::db::{DB404Err, EmailIsTakenErr};
 use crate::valid::auth::{proccess_password, proccess_username};
 use axum::Extension;
 use axum::extract::State;
-// use axum_extra::extract::CookieJar;
 use http::header::COOKIE;
 use tracing::{debug, error, info, trace};
 
@@ -55,7 +51,6 @@ pub async fn send_email_change(
             )));
         }
     }
-    // stage.is_stage(EmailChangeStage::ConfirmEmail, EmailChangeErr::InvalidStage)?;
 
     app.send_email_change(
         time,
@@ -102,30 +97,6 @@ pub async fn confirm_email_change(
         }
     }
 
-    // if result.current.token_raw == token
-
-    // let (id, expires) = match stage {
-    //     EmailChangeStage::ConfirmEmail { id, expires } => (id, expires),
-    //     _ => {
-    //         return Err(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
-    //             "email change is already initialized".to_string(),
-    //         )));
-    //     }
-    // };
-
-    // let stage = app_state.get_email_change_status(time, &db_user).await?;
-    // let (email_change, stage) =
-    //     .get_email_change_status_compare(
-    //         time,
-    //         &db_user,
-    //         EmailChangeStage::ConfirmEmail,
-    //         EmailChangeTokenErr::InvalidStage,
-    //     )
-    //     .await?;
-
-    // if email_change.current.token_raw != token {
-    //     return Err(EmailChangeTokenErr::TokenInvalid.into());
-    // }
 
     let result = app_state
         .db
@@ -178,14 +149,6 @@ pub async fn send_email_new(
             ))));
         }
     };
-    // let (email_change, stage) = app
-    //     .get_email_change_status_compare(
-    //         time,
-    //         &db_user,
-    //         EmailChangeStage::EnterNewEmail,
-    //         EmailChangeNewErr::InvalidStage,
-    //     )
-    //     .await?;
 
     let (confirm_token, exp) = app.new_token(&db_user.email).await?;
 
@@ -199,13 +162,6 @@ pub async fn send_email_new(
             }
             EmailIsTakenErr::DB(_) => ServerErr::DbErr,
         })?;
-
-    // let stage = EmailChangeStage::from(&result);
-
-    // let token = result
-    //     .new
-    //     .as_ref()
-    //     .ok_or_else(|| EmailChangeNewErr::InvalidStage(format!("expected NewConfirm")))?;
 
     let stage = EmailChangeStage::from(&result);
     match &stage {
@@ -264,26 +220,6 @@ pub async fn confirm_email_new(
             ))));
         }
     }
-
-    // let (email_change, stage) = app
-    //     .get_email_change_status_compare(
-    //         time,
-    //         &db_user,
-    //         EmailChangeStage::ConfirmNewEmail,
-    //         EmailChangeTokenErr::InvalidStage,
-    //     )
-    //     .await?;
-
-    // trace!("stage {}", stage);
-    //
-    // if email_change
-    //     .new
-    //     .as_ref()
-    //     .map(|v| v.token_raw != token)
-    //     .unwrap_or_default()
-    // {
-    //     return Err(EmailChangeTokenErr::TokenInvalid.into());
-    // }
 
     let result = app
         .db
@@ -346,15 +282,6 @@ pub async fn change_email(
 
     trace!("3");
 
-    // let (email_change, stage) = app
-    //     .get_email_change_status_compare(
-    //         time,
-    //         &db_user,
-    //         EmailChangeStage::ReadyToComplete,
-    //         EmailChangeNewErr::InvalidStage,
-    //     )
-    //     .await?;
-
     let new = email_change
         .new
         .as_ref()
@@ -396,23 +323,6 @@ pub async fn change_email(
     Ok(ServerRes::EmailChangeStage(stage))
 }
 
-// pub async fn confirm_action(
-//     State(app_state): State<AppState>,
-//     auth_token: Extension<AuthToken>,
-//     db_user: Extension<DBUser>,
-//     req: ServerReq,
-// ) -> Result<ServerRes, ServerErr> {
-//     let ServerReq::ConfirmToken { token } = req else {
-//         return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-//             "expected ConfirmKind, received: {req:?}"
-//         ))));
-//     };
-//     let time = app_state.clock.now().await.as_nanos();
-//
-//
-//     Ok(ServerRes::Ok)
-// }
-
 pub async fn resend_email_change(
     State(app): State<AppState>,
     auth_token: Extension<AuthToken>,
@@ -450,17 +360,6 @@ pub async fn resend_email_change(
         }
     }
 
-    // let (email_change, stage) =
-    //     app.get_email_change_status(time, &db_user)
-    //         .await?
-    //         .ok_or(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
-    //             "email change not started".to_string(),
-    //         )))?;
-
-    // stage.is_stage(
-    //     EmailChangeStage::ConfirmEmail,
-    //     EmailChangeNewErr::InvalidStage,
-    // )?;
 
     app.send_email_change(
         time,
@@ -516,18 +415,6 @@ pub async fn resend_email_new(
         .as_ref()
         .ok_or_else(|| ResErr::InvalidStage(format!("expected ReadyToConfirm")))?;
 
-    // let (email_change, stage) =
-    //     app.get_email_change_status(time, &db_user)
-    //         .await?
-    //         .ok_or(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
-    //             "email change not started".to_string(),
-    //         )))?;
-    //
-    // stage.is_stage(
-    //     EmailChangeStage::ConfirmNewEmail,
-    //     EmailChangeNewErr::InvalidStage,
-    // )?;
-    // let new_email = email_change.new.unwrap().email;
 
     app.send_email_new(
         time,
@@ -557,12 +444,6 @@ pub async fn cancel_email_change(
     };
 
     let time = app.time().await;
-    // let stage =
-    //     app.get_email_change_status(time, &db_user)
-    //         .await?
-    //         .ok_or(ServerErr::EmailChange(EmailChangeErr::InvalidStage(
-    //             "email change not started".to_string(),
-    //         )))?;
     let result = app
         .db
         .get_email_change(time, create_email_change_id(&id))
@@ -573,16 +454,6 @@ pub async fn cancel_email_change(
             )))),
             DB404Err::DB(_) => ServerErr::DbErr,
         })?;
-
-    // let stage = EmailChangeStage::from(&result);
-    // match stage {
-    //     EmailChangeStage::ConfirmNewEmail { .. } => (),
-    //     stage => {
-    //         return Err(ServerErr::from(ResErr::InvalidStage(format!(
-    //             "wrong stage, expected ReadyToConfirm, got {stage}"
-    //         ))));
-    //     }
-    // }
 
     let result = app
         .db

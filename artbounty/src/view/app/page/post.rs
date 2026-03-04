@@ -1,4 +1,3 @@
-use shipyard::*;
 
 use crate::api::{Api, ApiWeb, Server404Err, ServerErr};
 use crate::path::{link_home, link_img, link_user};
@@ -27,7 +26,6 @@ pub fn Page() -> impl IntoView {
 
     let param = use_params::<PostParams>();
     let param_username = move || param.read().as_ref().ok().and_then(|v| v.username.clone());
-    // let param_post= move || param.read().as_ref().ok().and_then(|v| v.post.clone());
     let param_post = Memo::new(move |_| param.read().as_ref().ok().and_then(|v| v.post.clone()));
     let imgs_links = RwSignal::new(Vec::<(String, f64)>::new());
     let title = RwSignal::new(String::new());
@@ -36,8 +34,6 @@ pub fn Page() -> impl IntoView {
     let favorites = RwSignal::new(0_u64);
     let not_found = RwSignal::new(false);
     let location = use_location();
-
-    // let lll = RwQuery::<String>::new("wow");
 
     let comment_container_ref = NodeRef::<html::Div>::new();
     let comment_input_ref = NodeRef::<html::Textarea>::new();
@@ -83,8 +79,6 @@ pub fn Page() -> impl IntoView {
         PostLikeStage::Unliked => "Favorite",
         PostLikeStage::Loading => "Loading",
     };
-
-    // let post_like = create_post_like_id("");
 
     let fn_link = move || {
         let author = author.get();
@@ -146,11 +140,6 @@ pub fn Page() -> impl IntoView {
                             .collect(),
                     );
 
-                    // let mut links = Vec::new():
-                    // for post_file in post.file {
-                    //     trace!("rec: {post:#?}");
-                    //
-                    // }
                 }
                 Ok(res) => {
                     error!("wrong res, expected Post, got {:?}", res);
@@ -182,8 +171,6 @@ pub fn Page() -> impl IntoView {
             });
 
         view! {
-            // <div style:aspect-ratio=selected_ratio.to_string() class="w-full grid place-items-center bg-base02">
-            // </div>
             <img id=move || format!("id{selected_n}") class="max-h-full" src=selected_url />
         }
     };
@@ -209,7 +196,6 @@ pub fn Page() -> impl IntoView {
                 .map(|(i, (url, ratio))| {
                     let id = format!("#id{i}");
                     let id2 = id.clone();
-                    // let location = location.clone();
 
                     view! { <a
                         href=id2
@@ -222,52 +208,6 @@ pub fn Page() -> impl IntoView {
                 })
                 .collect_view()
     };
-
-    // let index = StoredValue::new(0_usize);
-    // let fff = move |stage: InfiniteStage| async move {
-    //     // vec![ view! { <div class="" >"wtf"</div> } ]
-    //     let index_val = index.get_value();
-    //     let views = match stage {
-    //   border-base05      InfiniteStage::Init => {
-    //             //
-    //             (index_val..index_val + 100)
-    //                 .into_iter()
-    //                 .map(move |i| view! { <div class="" >"wtf "{i}</div> })
-    //                 .collect_view()
-    //         }
-    //         InfiniteStage::Top => {
-    //             //
-    //             (index_val..index_val + 10)
-    //                 .into_iter()
-    //                 .map(move |i| view! { <div class="" >"top "{i}</div> })
-    //                 .collect_view()
-    //         }
-    //         InfiniteStage::Btm => {
-    //             //
-    //             (index_val..index_val + 10)
-    //                 .into_iter()
-    //                 .map(move |i| view! { <div class="" >"btm "{i}</div> })
-    //                 .collect_view()
-    //         }
-    //     };
-    //     let views_len = views.len();
-    //     index.update_value(|v| {
-    //         *v += views_len;
-    //     });
-    //
-    //     views
-    // };
-    // let a = fff.clone();
-    // let comment_ref = NodeRef::new();
-    // let infinte = use_infinite_scroll(comment_ref, fff);
-
-    // let infinte = ArcRwSignal::new(None::<AnyView>);
-    // let infinte = std::sync::Arc::new(view! {
-    //     <div>"www"</div>
-    // });
-    // let on_comment = move |e: SubmitEvent| {
-    //     trace!("commenting");
-    // };
 
     view! {
         <main node_ref=main_ref class="font-hi grid grid-rows-[auto_1fr] h-screen text-base05">
@@ -287,11 +227,6 @@ pub fn Page() -> impl IntoView {
                 <div class="flex flex-col gap-2 md:gap-6 lg:overflow-y-scroll">
                     <div class="flex justify-start gap-2 flex flex-wrap">
                         { previews }
-                        // <div class="h-[5rem] bg-base05"></div>
-                        // <div class="h-[5rem] bg-base05"></div>
-                        // <div class="h-[5rem] bg-base05"></div>
-                        // <div class="h-[5rem] bg-base05"></div>
-                        // <div class="h-[5rem] bg-base05"></div>
                     </div>
 
 
@@ -320,7 +255,6 @@ pub fn Page() -> impl IntoView {
                     </div>
                     <div  class="flex flex-col gap-2 md:gap-4 justify-between mt-4 pb-1">
                         <h1 class="text-[1.3rem] text-base0F ">"Comments"</h1>
-                        // <button on:click=move |_| lll.set("wowza".to_string()) class="ml-auto rounded-full font-semibold text-[1rem] font-medium px-[0.8rem] py-[0.2rem] hover:bg-base05 bg-base0D text-base01">"Reply"</button>
                         <form class="flex  bg-base01 rounded-xl flex-col gap-2 py-2 px-4 " on:submit=post_comments.on_comment.to_fn() >
                             <textarea placeholder="Comment" node_ref=comment_input_ref class="focus:outline-none! appearance-none border-none resize text-[1.1rem]" id="story" name="story" rows="5" cols="30" ></textarea>
                             <ul class="text-base08 list-disc ml-[1rem]">
@@ -332,15 +266,9 @@ pub fn Page() -> impl IntoView {
                             </div>
                         </form>
 
-                        // <form method="POST" action="" on:submit=on_comment >
-                        //     <p>"wowza"</p>
-                        //     // <textarea id="story" name="story" rows="5" cols="33"></textarea>
-                        //     // <input type="submit" value="Post" class="transition-all duration-300 ease-in hover:font-bold"/>
-                        // </form>
                         <div node_ref=comment_container_ref class="h-[20rem]  flex flex-col gap-2 overflow-y-scroll relative">
                             { post_comment_views }
                         </div>
-                        // <div class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}", if fn_description_is_empty() {"text-base03"} else {"text-base05"} )>{fn_description}</div>
                     </div>
                 </div>
             </div>

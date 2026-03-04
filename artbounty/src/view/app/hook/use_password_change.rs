@@ -1,4 +1,3 @@
-use shipyard::*;
 
 use crate::{
     api::{
@@ -82,7 +81,6 @@ pub struct ChangePassword {
     pub form_stage: RwQuery<ChangePasswordFormStage>,
     pub btn_stage: StoredValue<Box<dyn Fn() -> ChangePasswordBtnStage + Sync + Send + 'static>>,
     pub on_change: StoredValue<Box<dyn Fn(SubmitEvent) + Sync + Send + 'static>>,
-    // pub token: RwQuery<String>,
 }
 
 pub fn use_password_change(
@@ -156,28 +154,6 @@ pub fn use_password_change(
                         }
                     });
 
-                // api.send_change_password(email)
-                //     .send_web(move |result| async move {
-                //         let err: Result<(), String> = match result {
-                //             Ok(ServerRes::PasswordChangeStage(PasswordChangeStage::Confirm)) => {
-                //                 q_stage.set(ChangePasswordFormStage::Confirm);
-                //                 Ok(())
-                //             }
-                //             Ok(res) => Err(format!("error, expected OK, received: {res:?}")),
-                //             Err(ServerErr::Cha) => Err("This invite link is already expired.".to_string()),
-                //             Err(ServerErr::RegistrationErr(ServerRegistrationErr::TokenUsed)) => {
-                //                 Err("This invite link was already used.".to_string())
-                //             }
-                //             Err(ServerErr::RegistrationErr(
-                //                 ServerRegistrationErr::TokenNotFound,
-                //             )) => Err("This invite link is invalid.".to_string()),
-                //             Err(err) => Err(err.to_string()),
-                //         };
-                //         if let Err(err) = err {
-                //             error!(err);
-                //             err_general.set(err);
-                //         }
-                //     });
             }
             ChangePasswordFormStage::Confirm => {
                 let (Some(password), Some(password_confirmation)) = (

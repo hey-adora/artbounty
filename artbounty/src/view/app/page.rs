@@ -1,9 +1,5 @@
 pub mod post;
 pub mod settings {
-    use shipyard::*;
-
-    use std::rc::Rc;
-
     use crate::api::{
         Api, ApiWeb, EmailChangeStage, ServerAddPostErr, ServerErr, ServerReqImg, ServerRes,
     };
@@ -325,9 +321,6 @@ pub mod settings {
     }
 }
 pub mod upload {
-    use shipyard::*;
-
-    use std::rc::Rc;
 
     use crate::api::{Api, ApiWeb, ServerAddPostErr, ServerErr, ServerReqImg};
     use crate::path::link_post;
@@ -382,7 +375,6 @@ pub mod upload {
 
             upload_title_err.set(title.clone().err().unwrap_or_default());
             upload_description_err.set(description.clone().err().unwrap_or_default());
-            // upload_tags_err.set(description.clone().err().unwrap_or_default());
             upload_image_err.set(String::new());
             upload_general_err.set(String::new());
             let (Ok(title), Ok(description)) = (title, description) else {
@@ -391,7 +383,6 @@ pub mod upload {
             spawn_local(async move {
                 let mut files_data = Vec::<ServerReqImg>::new();
                 'for_file: for file in files {
-                    // let a = file.;
                     let stream = match file.get_file_stream() {
                         Ok(stream) => stream,
                         Err(err) => {
@@ -410,9 +401,7 @@ pub mod upload {
                     } {
                         chunk.push_to_vec(&mut data);
                     }
-                    // let data_str = String::from_utf8_lossy(&data);
                     let path = file.name();
-                    // trace!("file: {:02X?}", data);
                     trace!("file: {}", path);
                     files_data.push(ServerReqImg { data, path });
                 }
@@ -423,7 +412,6 @@ pub mod upload {
                         async move {
                             match res {
                                 Ok(crate::api::ServerRes::Post(post)) => {
-                                    //
                                     navigate(
                                         &link_post(post.user.username, post.id),
                                         Default::default(),
@@ -440,11 +428,6 @@ pub mod upload {
                                         .join("\n");
                                     let _ = upload_image_err.try_set(msg);
                                 }
-                                // Err(ServerErr::ServerAddPostErr(
-                                //     ServerAddPostErr::ServerDirCreationFailed(err),
-                                // )) => {
-                                //     let _ = upload_general_err.try_set(err.to_string());
-                                // }
                                 Ok(err) => {
                                     error!("expected Post, received {err:?}");
                                     let _ = upload_general_err
@@ -517,7 +500,6 @@ pub mod upload {
     }
 }
 pub mod profile {
-    use shipyard::*;
 
     use crate::api::Api;
     use crate::api::ApiWeb;
@@ -532,8 +514,6 @@ pub mod profile {
     use leptos_router::{hooks::use_params, params::Params};
     use std::rc::Rc;
     use tracing::error;
-
-    use leptos_router::hooks::use_query;
     use tracing::trace;
 
     #[derive(Params, PartialEq, Clone)]
@@ -544,7 +524,6 @@ pub mod profile {
     #[component]
     pub fn Page() -> impl IntoView {
         let main_ref = NodeRef::new();
-        // let api_user = controller::auth::route::user::client.ground();
         let api = ApiWeb::new();
         let param = use_params::<UserParams>();
         let param_username = move || param.read().as_ref().ok().and_then(|v| v.username.clone());
@@ -586,9 +565,6 @@ pub mod profile {
     }
 }
 pub mod home {
-    use shipyard::*;
-
-    use std::rc::Rc;
 
     use crate::view::{
         app::components::{
@@ -624,49 +600,16 @@ pub mod home {
             let imgs = Img::rand_vec(200);
             fake_imgs.set(imgs);
         });
-
-        // let fetch_init = Rc::new(move |count| -> Vec<Img> {
-        //     trace!("gog1");
-        //     if count == 0 || count > fake_imgs.with(|v| v.len()) {
-        //         Vec::new()
-        //     } else {
-        //         fake_imgs.with(|v| v[..count].to_vec())
-        //     }
-        // });
-        //
-        // let fetch_top = move |count: usize, last_img: Img| -> Vec<Img> {
-        //     trace!("gogtop");
-        //
-        //     fake_imgs
-        //         .with_untracked(|imgs| {
-        //             imgs.iter()
-        //                 .position(|img| img.id == last_img.id)
-        //                 .and_then(|pos_end| {
-        //                     trace!("FETCH_TOP: POS_END {pos_end}");
-        //                     if pos_end == 0 {
-        //                         return None;
-        //                     }
-        //                     let pos_start = pos_end.saturating_sub(count);
-        //                     Some(imgs[pos_start..pos_end].to_vec())
-        //                 })
-        //         })
-        //         .unwrap_or_default()
-        // };
-
-        // <AwaitProps<>
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] h-screen">
                 <Nav/>
                 <Gallery row_height=250 />
-                // <Gallery fetch_init fetch_bottom=|c, img| async {Vec::new()} fetch_top />
             </main>
         }
     }
 }
 
 pub mod register {
-    use shipyard::*;
-
 
     use crate::view::app::hook::use_register::{self, RegStage as RegKind, use_register};
     use leptos::Params;
@@ -712,12 +655,9 @@ pub mod register {
             register_password_confirmation,
         );
 
-        // encode_uri(decoded)
-
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] min-h-[100dvh]">
                 <Nav/>
-                // <div class=move || format!("grid  text-base05 {}", if api_register.is_pending() || api_register.is_complete() || api_invite.is_complete() || api_invite.is_pending() || get_query_token().is_some() || get_query_email().is_some() {"items-center"} else {"justify-stretch"})>
                 <div class=move || format!("grid  text-base05 {}", if api.is_pending_tracked() {"items-center"} else {"justify-stretch"})>
                     <div class=move||format!("mx-auto text-[1.5rem] {}", if api.is_pending_tracked() {""} else {"hidden"})>
                         <h1>"LOADING..."</h1>
@@ -725,19 +665,12 @@ pub mod register {
                     <div class=move||format!("mx-auto flex flex-col gap-2 text-center {}", if reg.stage.get_or_default().is_check_email() && !api.is_pending_tracked() {""} else {"hidden"})>
                         <h1 class="text-[1.5rem] my-[4rem]">"VERIFY EMAIL"</h1>
                         <p class="max-w-[30rem]">"Verification email was sent to \""{ move ||reg.email.get_or_default() }"\" click the confirmtion link in the email."</p>
-                        // <a href="/login" class="underline">"Go to Login"</a>
                     </div>
-                    // <form method="POST" action="" on:submit=on_invite class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if api_invite.is_pending() || api_invite.is_complete() || get_query_token().is_some() || get_query_email().is_some() {"hidden"} else {""})>
                     <form method="POST" action="" on:submit=reg.on_invite.to_fn() class=move || format!("flex flex-col px-[4rem] max-w-[30rem] mx-auto w-full {}", if reg.stage.get_or_default().is_none() && !api.is_pending_tracked() {""} else {"hidden"})>
                         <h1 class="text-[1.5rem]  text-center my-[4rem]">"REGISTRATION"</h1>
                         <div class=move||format!("text-red-600 text-center {}", if reg.err_general.is_some() {""} else {"hidden"})>{move || { reg.err_general.get_or_default() }}</div>
                         <div class="flex flex-col gap-0">
                             <label for="email_invite" class="text-[1.2rem] ">"Email"</label>
-                            // <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if invite_email_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
-                            //     <ul class="list-disc ml-[1rem]">
-                            //         {move || invite_email_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
-                            //     </ul>
-                            // </div>
                             <input placeholder="alice@mail.com" id="email_invite" node_ref=register_email type="text" class="border-b-2 border-base05 w-full mt-1 " />
                         </div>
                         <div class="flex flex-col gap-[1.3rem] mx-auto my-[4rem] text-center">
@@ -782,7 +715,6 @@ pub mod register {
                         </div>
                         <div class="flex flex-col gap-[1.3rem] mx-auto my-[4rem] text-center">
                             <input type="submit" value="Register" class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
-                            // <a href="/login" class="underline">"or Login"</a>
                         </div>
                     </form>
                 </div>
@@ -792,12 +724,8 @@ pub mod register {
 
     #[cfg(test)]
     mod fe {
-        use shipyard::*;
-
         use log::trace;
-        // use pretty_assertions::assert_eq;
         use std::str::FromStr;
-        // use test_log::test;
 
         use super::RegKind;
 
@@ -815,8 +743,6 @@ pub mod register {
 }
 
 pub mod login {
-    use shipyard::*;
-
     use leptos::html;
     use leptos::{html::Input, prelude::*};
 
@@ -833,11 +759,6 @@ pub mod login {
     use crate::view::toolbox::prelude::*;
     use tracing::{error, trace};
     use web_sys::SubmitEvent;
-
-    // use crate::{
-    //     controller::{self, valid::auth::proccess_email},
-    //     view::app::GlobalState,
-    // };
 
     #[component]
     pub fn Page() -> impl IntoView {
@@ -861,25 +782,15 @@ pub mod login {
             change_password_password_confirmation,
         );
 
-        // let api_login = controller::auth::route::login::client.ground();
         let on_login = move |e: SubmitEvent| {
             e.prevent_default();
             let (Some(email), Some(password)) = (input_email.get(), input_password.get()) else {
                 return;
             };
 
-            // let email = proccess_email(email.value());
             let email = email.value();
             let password = password.value();
-            // let password = proccess_password(password.value(), None); NEVER PUT PASSWORD VERIFICATION ON LOGIN; if password verification rules ever change the old accounts wont be able to login.
-
-            // email_err.set(email.clone().err().unwrap_or_default());
-            // password_err.set(password.clone().err().unwrap_or_default());
             general_err.set(String::new());
-
-            // let Ok(email) = email else {
-            //     return;
-            // };
 
             trace!("login dispatched");
             api.login(email, password)
@@ -891,12 +802,6 @@ pub mod login {
                         Ok(res) => {
                             error!("expected Ok, received {res:?}");
                         }
-                        // Err(ServerLoginErr::) => {
-                        //     let r = general_err.try_set(err.to_string());
-                        //     if r.is_some() {
-                        //         error!("global state acc was disposed somehow");
-                        //     }
-                        // }
                         Err(err) => {
                             let r = general_err.try_set(err.to_string());
                             if r.is_some() {
@@ -905,7 +810,6 @@ pub mod login {
                         }
                     }
                 });
-            // api_login.dispatch(controller::auth::route::login::Input { email, password });
         };
 
         let view_current_stage_label = move |current_stage: u8, view_stage: u8| {
@@ -929,40 +833,6 @@ pub mod login {
             )
         };
 
-        // let login_completed = {let login = login.clone(); move || login.is_complete()};
-        // let login_pending = {let login = login.clone(); move || login.is_pending()};
-        //
-        // Effect::new(move || {
-        //     let Some(result) = api_login.value_tracked() else {
-        //         trace!("does anything work?");
-        //         return;
-        //     };
-        //     trace!("received {result:#?}");
-        //     match result {
-        //         Ok(res) => {
-        //             global_state.acc.set(Some(Acc {
-        //                 username: res.username,
-        //             }));
-        //
-        //             navigate("/", Default::default());
-        //         }
-        //         Err(ResErr::ClientErr(err)) => {
-        //             general_err.set(format!("Error sending request \"{err}\"."));
-        //         }
-        //         Err(ResErr::ServerErr(controller::auth::route::login::ServerErr::Incorrect)) => {
-        //             general_err.set("Email or Password is incorrect.".to_string());
-        //         }
-        //         Err(ResErr::ServerErr(controller::auth::route::login::ServerErr::ServerErr))
-        //         | Err(ResErr::ServerErr(
-        //             controller::auth::route::login::ServerErr::CreateCookieErr,
-        //         )) => {
-        //             general_err.set("Server error.".to_string());
-        //         }
-        //         Err(err) => {
-        //             general_err.set(err.to_string());
-        //         }
-        //     }
-        // });
         view! {
             <main node_ref=main_ref class="grid grid-rows-[auto_1fr] min-h-[100dvh] relative">
                 <Nav/>
@@ -985,11 +855,6 @@ pub mod login {
                             </div>
                             <div class="flex flex-col gap-0">
                                 <label for="password" class="text-[1.2rem] ">"Password"</label>
-                                // <div class=move || format!("text-red-600 transition-[font-size] duration-300 ease-in {}", if password_err.with(|err| err.is_empty()) {"text-[0rem]"} else {"text-[1rem]"}) >
-                                //     <ul class="list-disc ml-[1rem]">
-                                //         {move || password_err.get().trim().split("\n").filter(|v| v.len() > 1).into_iter().map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
-                                //     </ul>
-                                // </div>
                                 <input id="password" node_ref=input_password type="password" class="border-b-2 border-base05" />
                             </div>
                             <a href=link_login_form_password_send() class="underline">"forgot password?"</a>

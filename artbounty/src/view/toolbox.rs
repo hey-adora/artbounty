@@ -1,4 +1,3 @@
-use shipyard::*;
 
 pub mod prelude {
     pub use super::dropzone::{self, AddDropZone};
@@ -18,7 +17,6 @@ pub mod prelude {
 // TODO fx bs api, create struct abstraction over web api and let user freely use it anywhere
 
 pub mod time {
-    use shipyard::*;
 
     use tracing::trace;
     use web_sys::js_sys;
@@ -36,7 +34,6 @@ pub mod time {
             } else {
                 use wasm_bindgen::JsValue;
                 use web_sys::js_sys::Date;
-                // let time = Date::new(&JsValue::null());
                 let time = Date::new_0();
                 let time = time.get_time() as u64;
                 let time = time as u128 * 1000000;
@@ -88,7 +85,6 @@ pub mod time {
 
     #[cfg(test)]
     mod time_tests {
-        use shipyard::*;
 
         use std::time::Duration;
 
@@ -97,8 +93,6 @@ pub mod time {
         #[test]
         fn time_to_str_test() {
             init_test_log();
-
-            // assert_eq!(Duration::from_hours(24).as_nanos(), );
 
             let result = ns_to_str(Duration::from_nanos(1).as_nanos());
             assert_eq!(result, "1 ns");
@@ -134,7 +128,6 @@ pub mod time {
 }
 
 pub mod leptos_helpers {
-    use shipyard::*;
 
     use leptos::prelude::*;
     use leptos_router::NavigateOptions;
@@ -246,7 +239,6 @@ pub mod leptos_helpers {
         pub check: StoredValue<Box<dyn Fn() -> bool + Sync + Send + 'static>>,
     }
 
-    // impl<T: Clone + Sync + Send + 'static> Clone for QueryField<T> {}
     impl<T: Clone + Sync + Send + 'static> Copy for QueryField<T> {}
 
     impl<T: Clone + Sync + Send + Default + 'static> QueryField<T> {
@@ -432,7 +424,6 @@ pub mod leptos_helpers {
 }
 
 pub mod random {
-    use shipyard::*;
 
     use web_sys::js_sys::Math::random;
 
@@ -454,7 +445,6 @@ pub mod random {
 }
 
 pub mod interval {
-    use shipyard::*;
 
     use std::time::Duration;
 
@@ -575,7 +565,6 @@ pub mod interval {
 }
 
 pub mod intersection_observer {
-    use shipyard::*;
 
     use leptos::html::ElementType;
     use leptos::prelude::*;
@@ -800,7 +789,6 @@ pub mod intersection_observer {
 }
 
 pub mod mutation_observer {
-    use shipyard::*;
 
     use leptos::{html::ElementType, prelude::*};
     use tracing::{error, trace_span};
@@ -974,7 +962,6 @@ pub mod mutation_observer {
 }
 
 pub mod resize_observer {
-    use shipyard::*;
 
     use std::collections::HashMap;
 
@@ -1092,7 +1079,6 @@ pub mod resize_observer {
 }
 
 pub mod event_listener {
-    use shipyard::*;
 
     use std::fmt::Debug;
 
@@ -1149,7 +1135,6 @@ pub mod event_listener {
 }
 
 pub mod file {
-    use shipyard::*;
 
     use thiserror::Error;
     use wasm_bindgen::JsCast;
@@ -1309,7 +1294,6 @@ pub mod file {
 }
 
 pub mod dropzone {
-    use shipyard::*;
 
 
     use std::{cell::RefCell, fmt::Display, future::Future, rc::Rc};

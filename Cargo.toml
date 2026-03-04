@@ -1,39 +1,22 @@
 [workspace]
 resolver = "2"
-members = [
-    # "artbounty-api",
-    # "artbounty-db",
-    # "artbounty-backend",
-    # "artbounty-frontend",
-    # "artbounty-shared",
-    "artbounty",
-    "artbounty-seed", "shipyard",
-]
+members = ["artbounty", "artbounty-seed"]
 
 [workspace.dependencies]
-shipyard = { path = "shipyard" }
 strum = { version = "0.27.1", features = ["strum_macros", "derive"] }
 artbounty = { path = "artbounty" }
 little_exif = "0.6.14"
-# aws-lc-rs = { path = "/home/hey/github/aws-lc-rs/aws-lc-rs" }
-# aws-lc-fips-sys = { path = "/home/hey/github/aws-lc-rs/aws-lc-fips-sys" }
-# aws-lc-sys = { path = "/home/hey/github/aws-lc-rs/aws-lc-sys" }
 image = "0.25.6"
 webp = "0.3.0"
 config = "0.15.14"
 cfg-if = "1"
 gxhash = { version = "3.5.0", features = ["deterministic"] }
 argon2 = "0.5.3"
-# jsonwebtoken = { path = "/home/hey/github/jsonwebtoken" }
 reqwest = { version = "0.13.2", features = ["zstd", "multipart"] }
-# reqwest = { path = "/home/hey/github/reqwest", features = ["zstd", "multipart"] }
 rand = "0.9.1"
 serde = { version = "1.0.219", features = ["serde_derive"] }
-# axum = { path = "/home/hey/github/axum/axum", features = ["http2", "multipart"]} # dyn
 axum = { version = "0.8.8", features = ["http2"] }
 axum-test = { version = "19.0.0", features = ["reqwest"] }
-# axum-test = { version = "19.0.0", features = ["reqwest"] }
-# axum-test = { path = "/home/hey/github/axum-test", features = ["reqwest"] }
 tokio = { version = "1.46.1", features = ["full"] }
 tower = { version = "0.5.2", features = ["timeout"] }
 http = "1.3.1"
@@ -42,20 +25,11 @@ tower-http = { version = "0.6.4", features = [
     "timeout",
     "cors",
 ] }
-surrealdb = { git = "https://github.com/hey-adora/surrealdb", features = ["kv-surrealkv", "kv-mem"] }
-# surrealdb = { version = "2.3.3", features = ["kv-surrealkv", "kv-mem"] }
+surrealdb = { git = "https://github.com/hey-adora/surrealdb", features = [
+    "kv-surrealkv",
+    "kv-mem",
+] }
 console_error_panic_hook = "0.1.7" # dyn
-# leptos = { path = "/home/hey/github/leptos/leptos" } # dyn
-# leptos_router = { path = "/home/hey/github/leptos/router" } # dyn
-# leptos_meta = { path = "/home/hey/github/leptos/meta" } # dyn
-# leptos_axum = { path = "/home/hey/github/leptos/integrations/axum" }
-
-# leptos = { git = "https://github.com/hey-adora/leptos" } # dyn
-# leptos_router = { git = "https://github.com/hey-adora/leptos" } # dyn
-# leptos_meta = { git = "https://github.com/hey-adora/leptos" } # dyn
-# leptos_axum = { git = "https://github.com/hey-adora/leptos" } # dyn
-
-# leptos_axum = { path = "/home/hey/github/leptos/integrations/axum" } # dyn
 leptos = { version = "0.8.17", features = [] }
 leptos_router = { version = "0.8.12" }
 leptos_axum = { version = "0.8.8" }
@@ -112,11 +86,7 @@ site-root = "target/site"
 site-pkg-dir = "pkg"
 tailwind-input-file = "style/tailwind.css"
 assets-dir = "assets"
-# site-addr = "127.0.0.1:3000"
-# site-addr = "[fe80::6b0b:bdc1:8191:2bad]:3000"
-# site-addr = "[::1]:3000"
 site-addr = "0.0.0.0:3000"
-# site-addr = "192.168.0.164:3000"
 reload-port = 3001
 end2end-cmd = "yarn playwright test"
 end2end-dir = "e2e"

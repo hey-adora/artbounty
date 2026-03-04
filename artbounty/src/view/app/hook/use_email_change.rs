@@ -1,17 +1,7 @@
-use shipyard::*;
-
-use std::sync::Arc;
 use std::time::Duration;
 
 use crate::view::app::GlobalState;
 use crate::view::toolbox::prelude::*;
-// use gloo::history::query;
-// use humantime::format_duration;
-// use jiff::Span;
-// use jiff::{
-//     ToSpan,
-//     fmt::friendly::{Designator, SpanPrinter},
-// };
 use leptos::html;
 use leptos::{prelude::*, task::spawn_local};
 use leptos_router::params::Params;
@@ -280,9 +270,6 @@ pub fn use_change_email<API: Api + Sync + Send + Clone + Copy + 'static>(
 
     let get_query = move || query.get().ok().unwrap_or_default();
     let get_query_untracked = move || query.get_untracked().ok().unwrap_or_default();
-    // let get_query_email_stage = move || get_query().email_stage.unwrap_or_default();
-    // let get_query_email_stage_untracked =
-    //     move || get_query_untracked().email_stage.unwrap_or_default();
     let create_err_link = move |err: String| -> String {
         let query = get_query_untracked();
         query
@@ -328,7 +315,6 @@ pub fn use_change_email<API: Api + Sync + Send + Clone + Copy + 'static>(
             } else {
                 let elapsed = Duration::from_nanos(elapsed as u64);
                 // TODO make human time
-                // format_duration(elapsed).to_string()
                 format!("{elapsed:?}")
             };
             let _ = time_until_expires.try_set(output);

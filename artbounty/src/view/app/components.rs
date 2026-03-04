@@ -1,7 +1,5 @@
-use shipyard::*;
 
 pub mod nav {
-    use shipyard::*;
 
     use crate::{
         api::{Api, ApiWeb},
@@ -16,8 +14,6 @@ pub mod nav {
     pub fn Nav() -> impl IntoView {
         let global_state = expect_context::<GlobalState>();
         let api = ApiWeb::new();
-        // let api_logout = controller::auth::route::logout::client.ground();
-        // let is_logged_in = move || global_state.acc.with(|v| v.is_some());
         let logout_or_loading = move || {
             if api.is_pending_tracked() {
                 "loading..."
@@ -56,13 +52,11 @@ pub mod nav {
                         <input type="submit" value=logout_or_loading class="transition-all duration-300 ease-in hover:font-bold"/>
                     </form>
                 </div>
-                // <a href="/register" class="">"Register"</a>
             </nav>
         }
     }
 }
 pub mod gallery {
-    use shipyard::*;
 
 
     use crate::api::{Api, ApiWeb, UserPost, UserPostFile};
@@ -115,7 +109,6 @@ pub mod gallery {
                                 count: u32,
                                 username: Option<String>| {
             let current_img_count = gallery.with_untracked(|v| v.len());
-            // api_top.get_posts_newer_or_equal(time, limit)
 
             if let Some(username) = username {
                 if bottom {
@@ -190,18 +183,6 @@ pub mod gallery {
                         if current_img_count > 0 {
                             gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
                         }
-                        // if let Some(query_scroll) = get_query_scroll.get_untracked()
-                        //     && gallery.with_untracked(|v| v.is_empty())
-                        // {
-                        //     trace!("using initial scroll: {query_scroll}");
-                        //     gallery.set(resized_imgs);
-                        //     // gallery_elm.scroll_by_with_x_and_y(0.0, query_scroll as f64);
-                        //     delayed_scroll.set(query_scroll);
-                        // } else {
-                        //     trace!("using new scroll: {scroll_by}");
-                        //     gallery.set(resized_imgs);
-                        //     gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
-                        // }
 
                         set_query_direction
                             .set(Some(if bottom { "down" } else { "up" }.to_string()));
@@ -274,9 +255,6 @@ pub mod gallery {
             let user_username = username.get_untracked();
             trace!("gallery fetch btm username state: {user_username:?}");
             let user_username = user_username.flatten();
-            // if username.is_some() && user_username.is_none() {
-            //     return;
-            // }
 
             trace!("gallery elm found");
             let width = gallery_elm.client_width() as u32;
@@ -301,28 +279,11 @@ pub mod gallery {
         };
 
         let run_on_click = move |e: MouseEvent, img: Img| {
-            // let Some(gallery_elm) = gallery_ref.get_untracked() else {
-            //     trace!("gallery NOT found");
-            //     return;
-            // };
-            // if gallery.with_untracked(|v| v.is_empty()) {
-            //     return;
-            // }
-
-            // e.prevent_default();
-            // e.stop_propagation();
             //
-            // let scroll_top = gallery_elm.scroll_top() as usize;
-            // set_query_scroll.set(Some(scroll_top));
-            //
-            // let link = link_post(img.username.clone(), img.id.clone());
-            // navigate(&link, Default::default());
         };
 
         let _ = interval::new(
             move || {
-                // run_fetch_top();
-                // run_fetch_bottom();
                 let Some(gallery_elm) = gallery_ref.get_untracked() else {
                     trace!("gallery NOT found");
                     return;
@@ -330,10 +291,6 @@ pub mod gallery {
 
                 let user_username = username.get_untracked();
                 trace!("gallery watch username state: {user_username:?}");
-                // let user_username = user_username.flatten();
-                // if username.is_some() && user_username.is_none() {
-                //     return;
-                // }
 
                 let scroll_top = gallery_elm.scroll_top() as u32;
                 let scroll_height = gallery_elm.scroll_height() as u32;
@@ -355,8 +312,6 @@ pub mod gallery {
 
         let _ = interval::new(
             move || {
-                // run_fetch_top();
-                // run_fetch_bottom();
                 let Some(gallery_elm) = gallery_ref.get_untracked() else {
                     trace!("gallery NOT found");
                     return;
@@ -366,7 +321,6 @@ pub mod gallery {
                 }
 
                 let scroll_top = gallery_elm.scroll_top() as usize;
-                // let current_query_scroll = get_query_scroll();
                 set_query_scroll.set(Some(scroll_top));
             },
             Duration::from_millis(1000),
@@ -487,14 +441,6 @@ pub mod gallery {
             set_gallery(true, width, height, time, count, user_username);
         });
 
-        // let on_scroll = move |e: web_sys::Event| {
-        //     let Some(gallery_elm) = gallery_ref.get() else {
-        //         return;
-        //     };
-        //     let scroll_top = gallery_elm.scroll_top() as usize;
-        //     set_query_scroll.set(Some(scroll_top));
-        // };
-
         gallery_ref.add_mutation_observer(
             move |entries, observer| {
                 trace!("IT HAS MUTATED");
@@ -516,7 +462,6 @@ pub mod gallery {
             <div
                 id="gallery"
                 node_ref=gallery_ref
-                // on:scroll=on_scroll
                 class="relative overflow-y-scroll overflow-x-hidden"
             >
                 {
@@ -568,7 +513,6 @@ pub mod gallery {
                 activated.set_value(false);
 
                 let elm_on_which_fetches = total_count / 3;
-                // if index == total_count.saturating_sub(1) && is_intersecting {
                 if index == total_count.saturating_sub(elm_on_which_fetches)
                     || index == total_count.saturating_sub(1)
                 {
@@ -599,29 +543,9 @@ pub mod gallery {
         let fn_width = move || format!("{view_width}px");
         let fn_height = move || format!("{view_height}px");
 
-        // let l = location();
 
         let on_img_click = move |e: MouseEvent| {
-            // e.prevent_default();
-            // e.stop_propagation();
-            // trace!("img click!!!!!!!!");
-            // let link = link_post_with_history(img_username.clone(), img_id.clone(), 999);
-            // navigate(&link, Default::default());
             run_on_click(e, img.clone());
-            // let Some(link_ref) = link_ref.get_untracked() else {
-            //     return;
-            // };
-
-            // set_query("scroll", "9999");
-            // let href = e.target().map(|v| v);
-            // set_query_scroll.set(Some(9999));
-            // let issue_list_url = url::Url::parse(
-            //     "https://github.com/rust-lang/rust/issues?labels=E-easy&state=open",
-            // )
-            // .unwrap();
-
-            // l.set_search(value);
-            // query.with(|v| v);
         };
 
         view! {
@@ -650,7 +574,6 @@ pub mod gallery {
         pub username: String,
         pub hash: String,
         pub extension: String,
-        // pub row_id: usize,
         pub width: u32,
         pub height: u32,
         pub view_width: f64,
@@ -708,9 +631,6 @@ pub mod gallery {
         fn get_post_link(&self) -> String {
             link_post(&self.username, &self.id)
         }
-        // fn get_post_link_with_history(&self, scroll: usize) -> String {
-        //     link_post_with_history(&self.username, &self.id, scroll)
-        // }
         fn get_img_link(&self) -> String {
             link_img(&self.hash, &self.extension)
         }
@@ -756,7 +676,6 @@ pub mod gallery {
 
             Self {
                 id: id.to_string(),
-                // row_id: 0,
                 username: "bot".to_string(),
                 hash: "404".to_string(),
                 extension: "webp".to_string(),
@@ -776,7 +695,6 @@ pub mod gallery {
 
             Self {
                 id,
-                // row_id: 0,
                 username: "bot".to_string(),
                 hash: "404".to_string(),
                 extension: "webp".to_string(),
@@ -802,7 +720,6 @@ pub mod gallery {
     pub trait ResizableImage {
         fn get_id(&self) -> String;
         fn get_post_link(&self) -> String;
-        // fn get_post_link_with_history(&self) -> String;
         fn get_img_link(&self) -> String;
         fn get_width(&self) -> u32;
         fn get_height(&self) -> u32;
@@ -1138,7 +1055,6 @@ pub mod gallery {
                     if let Some(row) = rows.last_mut() {
                         let img_fits_in_row =
                             row.total_scaled_width + scaled_width <= max_width as f64;
-                        // if img_fits_in_row && (row.aspect_ratio + ratio) < 5.0 {
                         if img_fits_in_row {
                             row.aspect_ratio += ratio;
                             row.start_at = i;
@@ -1295,7 +1211,6 @@ pub mod gallery {
 
     #[cfg(test)]
     mod resize_tests {
-        use shipyard::*;
 
         use crate::view::app::components::gallery::{get_total_height, vec_img_to_string};
 
@@ -1304,11 +1219,7 @@ pub mod gallery {
             get_rows_to_bottom, get_rows_to_top, normalize_imgs_y_v2, remove_until_fit_from_bottom,
             remove_until_fit_from_top, resize_v2, set_rows_to_bottom, set_rows_to_top,
         };
-        // use leptos::prelude::*;
-        // use ordered_float::OrderedFloat;
-        // use pretty_assertions::assert_eq;
         use std::fmt::Display;
-        // use test_log::test;
         use tracing::trace;
 
         use wasm_bindgen_test::*;
@@ -1354,16 +1265,6 @@ pub mod gallery {
                     self.view_pos_x,
                     self.view_pos_y
                 )
-                // write!(
-                //     f,
-                //     "Img {{ width: {}, height: {}, view_width: OrderedFloat({:.5}), view_height: OrderedFloat({:.5}), view_pos_x: OrderedFloat({:.5}), view_pos_y: OrderedFloat({:.5})}}",
-                //     self.width,
-                //     self.height,
-                //     self.view_width,
-                //     self.view_height,
-                //     self.view_pos_x,
-                //     self.view_pos_y
-                // )
             }
         }
 
@@ -1377,10 +1278,6 @@ pub mod gallery {
                     view_height: 0.0_f64,
                     view_pos_x: 0.0_f64,
                     view_pos_y: 0.0_f64,
-                    // view_width: 0.0_f64.to_bits(),
-                    // view_height: 0.0_f64.to_bits(),
-                    // view_pos_x: 0.0_f64.to_bits(),
-                    // view_pos_y: 0.0_f64.to_bits(),
                 }
             }
 
@@ -1401,10 +1298,6 @@ pub mod gallery {
                     view_height: view_height,
                     view_pos_x: view_pos_x,
                     view_pos_y: view_pos_y,
-                    // view_width: view_width.to_bits(),
-                    // view_height: view_height.to_bits(),
-                    // view_pos_x: view_pos_x.to_bits(),
-                    // view_pos_y: view_pos_y.to_bits(),
                 }
             }
         }

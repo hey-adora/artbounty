@@ -1,7 +1,3 @@
-use shipyard::*;
-
-use leptos::Params;
-use leptos::tachys::reactive_graph::bind::GetValue;
 use leptos::{html, prelude::*};
 use leptos_router::NavigateOptions;
 use leptos_router::hooks::{query_signal, use_query, use_query_map};
@@ -16,17 +12,6 @@ use crate::view::app::{Acc, GlobalState};
 use crate::view::toolbox::leptos_helpers::ToQueryField;
 use crate::view::toolbox::prelude::*;
 use tracing::{error, trace};
-
-// #[derive(Params, PartialEq, Clone)]
-// pub struct RegParams {
-//     pub err_general: Option<String>,
-//     pub err_username: Option<String>,
-//     pub err_token: Option<String>,
-//     pub err_password: Option<String>,
-//     pub token: Option<String>,
-//     pub email: Option<String>,
-//     pub kind: Option<RegStage>,
-// }
 
 #[derive(
     Debug,
@@ -95,7 +80,6 @@ pub fn use_register(
     input_password_confirmatoin: NodeRef<html::Input>,
 ) -> Register {
     let global_state = expect_context::<GlobalState>();
-    // let query = use_query::<RegParams>();
 
     let navigate = leptos_router::hooks::use_navigate();
 
@@ -107,7 +91,6 @@ pub fn use_register(
     let token = RwQuery::<String>::new(RegQueryFields::Token.to_string());
     let email = RwQuery::<String>::new(RegQueryFields::Email.to_string());
 
-    // let email = RwQuery::<String>::new("email");
     let token_decoded = LocalResource::new(move || async move {
         let token = token.get_or_default();
         if token.is_empty() {
@@ -208,14 +191,6 @@ pub fn use_register(
                 None
             }
         };
-        // let username = proccess_username();
-        // err_username.set(username.clone().err().unwrap_or_default());
-        // let email = proccess_email(email.value());
-        // let password = proccess_password(password.value(), Some(password_confirmation.value()));
-
-        // register_email_err.set(email.clone().err().unwrap_or_default());
-
-        // err_password.set(password.clone().err().unwrap_or_default());
 
         let password_value = password.value();
         let password_confirmation_value = password_confirmation.value();

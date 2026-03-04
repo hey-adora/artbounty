@@ -1,6 +1,4 @@
-use shipyard::*;
 
-// extern crate leptos;
 use leptos;
 use leptos::prelude::*;
 use leptos_meta::MetaTags;
@@ -10,7 +8,6 @@ use app::App;
 pub mod app;
 pub mod logger;
 pub mod toolbox;
-pub mod utils;
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {

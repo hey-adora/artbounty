@@ -3,48 +3,21 @@ name = "artbounty"
 version = "0.1.0"
 edition = "2024"
 
-# [lib]
-# crate-type = ["cdylib"]
-
-# [lib]
-# crate-type = ["rlib", "dylib"]
-
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-# [[bin]]
-# name = "seed"
-# [features]
-# hydrate = ["shipyard/hydrate"]
-# ssr = [
-#     "shipyard/ssr",
-# ]
-# csr = ["shipyard/csr"]
-
 [features]
-hydrate = ["leptos/hydrate", 
-
-# "shipyard/hydrate"
-
-]
+hydrate = ["leptos/hydrate"]
 ssr = [
     "leptos/ssr",
     "leptos_router/ssr",
-    # "shipyard/ssr",
     "dep:axum",
-    # "dep:axum-extra",
     "dep:tower",
     "dep:leptos_axum",
-    # "dep:tower_governor",
     "dep:tower-http",
     "dep:tokio",
-    # "dep:biscotti",
     "dep:argon2",
-    # "dep:jsonwebtoken",
-    # "dep:resend-rs",
     "dep:image",
-    # "dep:imageproc",
-    # "dep:ab_glyph",
     "dep:webp",
     "dep:little_exif",
     "dep:gxhash",
@@ -52,30 +25,12 @@ ssr = [
     "dep:config",
     "dep:rand",
 ]
-csr = ["leptos/csr", 
-
-# "shipyard/csr"
-]
+csr = ["leptos/csr"]
 
 [dependencies]
-# artbounty-shared = { workspace = true }
-# artbounty-api = { workspace = true }
-# artbounty = { workspace = true }
-shipyard = { workspace = true }
-
-# aws-lc-rs = { workspace = true }
-# aws-lc-fips-sys = { workspace = true }
-# aws-lc-sys = { workspace = true }
 cfg-if = { workspace = true }
-# regex = { workspace = true }
-# url = { workspace = true }
-# macro_rules_attribute = { workspace = true }
 strum = { workspace = true }
 serde = { workspace = true }
-# serde-untagged = { workspace = true }
-# serde_urlencoded = { workspace = true }
-# serde_json = { workspace = true }
-# serde_qs = { workspace = true }
 rkyv = { workspace = true }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
@@ -84,47 +39,24 @@ leptos = { workspace = true }
 leptos_router = { workspace = true }
 leptos_meta = { workspace = true }
 console_error_panic_hook = { workspace = true }
-# gloo = { workspace = true }
-# reactive_stores = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-# tracing-appender = { workspace = true }
-# indextree = { workspace = true }
-# uuid = { workspace = true }
 send_wrapper = { workspace = true }
-# ordered-float = { workspace = true }
-# sha2 = { workspace = true }
 futures = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
-# pretty_assertions = { workspace = true }
-# itertools = { workspace = true }
-# colored = { workspace = true }
 log = { workspace = true }
 server_fn = { workspace = true }
-# chrono = { workspace = true }
-# jiff = { workspace = true }
-# humantime = { workspace = true }
-# bytecheck = { workspace = true }
 reqwest = { workspace = true }
 http = { workspace = true }
-# bytes = { workspace = true }
 rand = { workspace = true, optional = true }
 argon2 = { workspace = true, optional = true }
-# pin-project-lite = { workspace = true }
 axum = { workspace = true, optional = true }
-# axum-extra = { workspace = true, optional = true }
 leptos_axum = { workspace = true, optional = true }
 tower = { workspace = true, optional = true }
 tower-http = { workspace = true, optional = true }
-# tower_governor = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
-# biscotti = { workspace = true, optional = true }
-# jsonwebtoken = { workspace = true, optional = true }
-# resend-rs = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
-# imageproc = { workspace = true, optional = true }
-# ab_glyph = { workspace = true, optional = true }
 webp = { workspace = true, optional = true }
 little_exif = { workspace = true, optional = true }
 gxhash = { workspace = true, optional = true }
@@ -133,6 +65,4 @@ config = { workspace = true, optional = true }
 
 [dev-dependencies]
 wasm-bindgen-test = { workspace = true }
-# simple_logger = { workspace = true }
-# test-log = { workspace = true }
 axum-test = { workspace = true }

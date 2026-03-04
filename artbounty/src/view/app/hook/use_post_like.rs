@@ -1,23 +1,13 @@
-use shipyard::*;
-
 use leptos::prelude::*;
 use tracing::error;
 use web_sys::MouseEvent;
 
 use crate::api::{Api, ApiWeb, ServerRes};
-use crate::view::app::GlobalState;
-use crate::view::toolbox::prelude::*;
 
 #[derive(Clone, Copy)]
 pub struct PostLike {
-    // pub err_general: RwQuery<String>,
-    // pub email: RwQuery<String>,
-    // pub form_stage: RwQuery<ChangePasswordFormStage>,
-    // pub btn_stage: StoredValue<Box<dyn Fn() -> ChangePasswordBtnStage + Sync + Send + 'static>>,
-    // pub stage: RwSignal<PostLikeStage>,
     pub stage: StoredValue<Box<dyn Fn() -> PostLikeStage + Sync + Send + 'static>>,
     pub on_like: StoredValue<Box<dyn Fn(MouseEvent) + Sync + Send + 'static>>,
-    // pub token: RwQuery<String>,
 }
 
 #[derive(
@@ -40,10 +30,8 @@ pub enum PostLikeStage {
 }
 
 pub fn use_post_like(
-    // post_id: impl Fn() -> Option<String> + Clone + Sync + Send + 'static,
     post_id: Memo<Option<String>>,
 ) -> PostLike {
-    // let post_id = post_id.into();
     let api = ApiWeb::new();
     let stage = RwSignal::new(PostLikeStage::Loading);
     let stage_view = move || {
@@ -53,38 +41,6 @@ pub fn use_post_like(
             stage.get()
         }
     };
-
-    // let r = Resource::new(post_id, move |post_id| async move {
-    //     let result = api.check_post_like(post_id.clone()).send_native().await;
-    //
-    //     match result {
-    //         Ok(ServerRes::Condition(condition)) => {
-    //             if condition {
-    //                 stage.set(PostLikeStage::Liked);
-    //             } else {
-    //                 stage.set(PostLikeStage::Unliked);
-    //             }
-    //         }
-    //         Ok(err) => {
-    //             error!("use_post_like: expected ServerRes::Condition, received: {err:?}");
-    //             stage.set(PostLikeStage::Unliked);
-    //         }
-    //         Err(err) => {
-    //             error!("use_post_like: {err}");
-    //             stage.set(PostLikeStage::Unliked);
-    //         }
-    //     }
-    // });
-    // let s = Memo::new(move |v| {
-    //     let post_id = post_id();
-    //     match post_id {
-    //         Some(post_id) => {
-    //             //
-    //         }
-    //         None => {}
-    //     }
-    // });
-    // let s2 = LocalResource
 
     Effect::new({
         let post_id = post_id.clone();

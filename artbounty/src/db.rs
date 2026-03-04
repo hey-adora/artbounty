@@ -1,4 +1,3 @@
-use shipyard::*;
 
 use std::fmt::Display;
 use std::str::FromStr;
@@ -14,11 +13,6 @@ use thiserror::Error;
 use tracing::{error, trace};
 
 use crate::db::post::create_post_id;
-
-// pub static DB: LazyLock<Db<local::Db>> = LazyLock::new(Db::init);
-// derive_alias! {
-//     #[derive(Save!)] = #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)];
-// }
 
 pub type DbEngine = Db<local::Db>;
 pub async fn new_local(time: u128, path: impl AsRef<str>) -> Db<local::Db> {
@@ -38,12 +32,6 @@ pub async fn new_mem(time: u128) -> Db<local::Db> {
 
     db
 }
-
-// pub fn surreal_time_from_duration(time: Duration) -> surrealdb::Datetime {
-//     surrealdb::Datetime::from(chrono::DateTime::from_timestamp_nanos(
-//         time.as_nanos() as i64
-//     ))
-// }
 
 pub trait SurrealCheckUtils {
     fn check_good<ERR: std::error::Error + From<surrealdb::Error>>(
@@ -134,29 +122,12 @@ pub trait SurrealErrUtils {
 
 impl SurrealErrUtils for surrealdb::Error {
     fn index_exists(&self, index_name: impl AsRef<str>) -> bool {
-        // let details = self.details();
-        // let kind = self.kind_str();
         let msg = self.message();
         // TODO optimize string allocation size thing
         let mut needle = String::from("Database index `");
         needle.push_str(index_name.as_ref());
         needle.push_str("` already contains");
         msg.contains(&needle)
-        // trace!("SURREAL DB ERROR {self:#?} {details:?} {kind:?} {msg:?}");
-        // false
-        // self.code == -3000 && self.message.contains(index_name.as_ref())
-
-        // self.kind_str()
-
-        // if index == index_name.as_ref() ;
-        // match self {
-        //     surrealdb::Error(a)
-        //     {
-        //         true
-        //     }
-        //
-        //     _ => false,
-        // }
     }
 
     fn field_value_null(&self, field_name: impl AsRef<str>) -> bool {
@@ -166,30 +137,6 @@ impl SurrealErrUtils for surrealdb::Error {
         needle.push_str(field_name.as_ref());
         needle.push('`');
         msg.contains(&needle)
-        // let details = self.details();
-        // let kind = self.kind_str();
-        // trace!("SURREAL DB ERROR {self:#?} {details:?} {kind:?}");
-        // false
-        // match self {
-        //     surrealdb::Error::Db(surrealdb::error::Db::FieldCheck {
-        //         thing,
-        //         value,
-        //         field,
-        //         check,
-        //     }) if value == "NULL"
-        //         || value == "NONE"
-        //             && field
-        //                 .first()
-        //                 .map(|f| f.to_string())
-        //                 .inspect(|f| trace!("field: {f}"))
-        //                 .map(|f| &f[1..] == field_name.as_ref())
-        //                 .unwrap_or_default() =>
-        //     {
-        //         true
-        //     }
-        //
-        //     _ => false,
-        // }
     }
 }
 
@@ -355,7 +302,6 @@ impl Db<local::Db> {
     pub async fn connect(&self) {
         // TODO make path as env
         let db = &self.db;
-        // db.connect::<SurrealKv>("db5").await.unwrap();
         db.use_ns("artbounty").use_db("web").await.unwrap();
     }
 }
@@ -626,9 +572,6 @@ pub mod session {
 
         #[error("user \"{0}\" not found")]
         UserNotFound(String),
-
-        // #[error("token already exists")]
-        // TokenExists,
     }
 
     pub fn create_session_id(id: impl Into<String>) -> RecordId {
@@ -639,7 +582,6 @@ pub mod session {
         pub async fn add_session(
             &self,
             time: u128,
-            // token: impl Into<String>,
             username: impl Into<String>,
         ) -> Result<DBSession, AddSessionErr> {
             let username: String = username.into();
@@ -651,12 +593,10 @@ pub mod session {
                 "#,
             )
             .bind(("time", time))
-            // .bind(("access_token", token.into()))
             .bind(("username", username.clone()))
             .await
             .check_good(|err| match err {
                 err if err.field_value_null("user") => AddSessionErr::UserNotFound(username),
-                // err if err.index_exists("idx_session_access_token") => AddSessionErr::TokenExists,
                 err => err.into(),
             })
             .and_then_take_expect(1)
@@ -709,9 +649,7 @@ pub mod session {
     mod tests {
         use std::time::Duration;
 
-        // use pretty_assertions::assert_eq;
         use surrealdb::{engine::local::Mem, types::{RecordId, ToSql}};
-        // use test_log::test;
         use tracing::trace;
 
         use crate::{
@@ -737,10 +675,6 @@ pub mod session {
             trace!("created {user:#?}");
             let session = db.add_session(0, "hey").await.unwrap();
             let token1 = session.id.key.to_sql();
-
-            // let session = db.add_session(0, "hey").await;
-            // trace!("session: {session:?}");
-            // assert!(matches!(session, Err(AddSessionErr::TokenExists)));
 
             let session = db.add_session(0, "hey2").await;
             trace!("session: {session:?}");
@@ -770,31 +704,8 @@ pub mod session {
     }
 }
 
-// pub fn key_to_str(key: RecordIdKey) {
-//     let output = match key {
-//         RecordIdKey::Uuid(v) => v.to_string(),
-//         RecordIdKey::Array(v) => v.into_iter().fold(String::new(), |mut a, b| {
-//             if let Some(v) = b.as_string() {
-//                 a.push_str(v);
-//             }
-//
-//             a
-//         }),
-//         RecordIdKey::Range(v) => v..into_iter().fold(String::new(), |mut a, b| {
-//             if let Some(v) = b.as_string() {
-//                 a.push_str(v);
-//             }
-//
-//             a
-//         }),
-//         RecordIdKey::Number(v) => v.to_string(),
-//         RecordIdKey::String(v) => v,
-//         RecordIdKey::Object(v) => String::new(),
-//     };
-// }
 
 pub mod post_like {
-    use shipyard::*;
 
     use crate::db::DB404Err;
     use crate::db::DBPostLikeErr;
@@ -931,13 +842,10 @@ pub mod post_like {
 
     #[cfg(test)]
     mod tests {
-        use shipyard::*;
 
         use std::time::Duration;
 
-        // use pretty_assertions::assert_eq;
         use surrealdb::{engine::local::Mem, types::RecordId};
-        // use test_log::test;
         use tracing::trace;
 
         use crate::{
@@ -962,7 +870,6 @@ pub mod post_like {
 
             // TODO add more failure tests
 
-            // let result = db.add_post_like(0, user.id.clone(), post.id.clone()).await;
             let result = db.add_post_like(0, user.id.clone(), "wtf").await;
             assert!(matches!(result, Err(DBPostLikeErr::PostNotFound(_))));
 
@@ -989,9 +896,6 @@ pub mod post_like {
                 .await;
             assert!(matches!(result, Err(DBPostLikeErr::PostWasAlreadyLiked)));
 
-            // let result = db.add_post_like(0, user.id.clone(), post.id.clone()).await;
-            // assert!(matches!(result, Err(DBPostLikeErr::PostWasAlreadyLiked)));
-
             let result = db.get_post_like(0, user.id.clone(), post.id.clone()).await;
             assert!(result.is_ok());
 
@@ -1007,7 +911,6 @@ pub mod post_like {
 }
 
 pub mod confirm_email {
-    use shipyard::*;
 
     use crate::db::DB404Err;
     use crate::db::SurrealCheckUtils;
@@ -1023,42 +926,11 @@ pub mod confirm_email {
     pub struct DBConfirmEmail {
         pub id: RecordId,
         pub to_email: String,
-        // pub token: String,
         pub completed: bool,
         pub expires: u128,
         pub modified_at: u128,
         pub created_at: u128,
     }
-
-    // #[derive(Save!)]
-    // pub enum DBSalvation {
-    //     Fox,
-    //     Bunny {
-    //         honey: String,
-    //     },
-    //     Funny(usize),
-    // }
-    //
-    // fn from_evil<S: Serializer>(v: &DBSalvation, serializer: S) -> Result<S::Ok, S::Error> {
-    //     let v: [(&'de str, Option<usize>, String)] =  match v {
-    //         DBSalvation::Fox => ["fox", None::<usize>, String::new()],
-    //         DBSalvation::Bunny { honey } => ["bunny", None::<usize>, honey.clone()],
-    //         DBSalvation::Funny(v) => ["funny", Some(*v), String::new()],
-    //     };
-    //     v.serialize(serializer)
-    // }
-    //
-    // fn to_evil<'de, D: Deserializer<'de>>(deserializer: D) -> Result<DBSalvation, D::Error> {
-    //     <[(&'de str, Option<usize>, String)]>::deserialize(deserializer).map(|v| match v {
-    //         ("fox", None, _) => DBSalvation::Fox,
-    //         ("bunny", None, v) => DBSalvation::Bunny { honey: v },
-    //         ("funny", Some(n), _) => DBSalvation::Funny(n),
-    //         _ => unreachable!("cant happen")
-    //     })
-    //
-    //     // Option::<String>::deserialize(deserializer)
-    //     //     .and_then(|str| Ok(str.and_then(|str| Some(Evil { two: str }))))
-    // }
 
     impl<C: Connection> Db<C> {
         pub async fn add_confirm_email(
@@ -1082,15 +954,7 @@ pub mod confirm_email {
                 .bind(("time", time))
                 .bind(("exp", expires))
                 .bind(("to_email", to_email.into()))
-                // .bind(("email_token", token.into()))
                 .await
-                // .check_good(|err| match err {
-                //     err if err.index_exists("idx_user_email") => AddUserErr::EmailIsTaken(email),
-                //     err if err.index_exists("idx_user_username") => {
-                //         AddUserErr::UsernameIsTaken(username)
-                //     }
-                //     err => err.into(),
-                // })
                 .and_then_take_expect(0)
         }
 
@@ -1158,13 +1022,10 @@ pub mod confirm_email {
 
     #[cfg(test)]
     mod tests {
-        use shipyard::*;
 
         use std::time::Duration;
 
-        // use pretty_assertions::assert_eq;
         use surrealdb::{engine::local::Mem, types::ToSql};
-        // use test_log::test;
         use tracing::trace;
 
         use crate::{
@@ -1191,12 +1052,6 @@ pub mod confirm_email {
 
             let result = db.get_confirm_email_latest(0, "prime@heyadora.com").await;
             assert!(result.is_ok());
-
-            // must fail because cant have dublicate tokens
-            // let result = db
-            //     .add_confirm_email(0, "prime@heyadora.com", &key, 1)
-            //     .await;
-            // assert!(result.is_err());
 
             let result = db.get_confirm_email_by_key(0, key.clone()).await;
             assert!(result.is_ok());
@@ -1227,7 +1082,6 @@ pub mod confirm_email {
 }
 
 pub mod post {
-    use shipyard::*;
 
     use surrealdb::types::{RecordId, RecordIdKey};
 
@@ -1237,7 +1091,6 @@ pub mod post {
 }
 
 pub mod email_change {
-    use shipyard::*;
 
     use crate::db::DB404Err;
     use crate::db::DBUser;
@@ -1277,7 +1130,6 @@ pub mod email_change {
     pub struct DBEmailChange {
         pub id: RecordId,
         pub user: DBUser,
-        // pub stage: DBEmailChangeStage,
         pub current: DBEmailChangeToken,
         pub new: Option<DBEmailChangeToken>,
         pub completed: bool,
@@ -1291,7 +1143,6 @@ pub mod email_change {
         pub email: String,
         pub token_raw: String,
         pub token_used: bool,
-        // pub token_expires: u128,
     }
 
     #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, SurrealValue)]
@@ -1320,32 +1171,6 @@ pub mod email_change {
         },
         Cancelled,
     }
-
-    // #[derive(Save!)]
-    // pub enum DBEmailTokenKind {
-    //     RequestConfirmRegistrationEmail,
-    //     RequestChangeEmail,
-    //     RequestConfirmNewEmail,
-    // }
-    //
-    // impl Display for DBEmailTokenKind {
-    //     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    //         let name = match self {
-    //             Self::RequestConfirmRegistrationEmail => "registration",
-    //             Self::RequestChangeEmail => "change_email",
-    //             Self::RequestConfirmNewEmail => "confirm_new_email",
-    //         };
-    //         write!(f, "{}", name)
-    //     }
-    // }
-
-    // impl From<EmailConfirmTokenKind> for DBEmailTokenKind {
-    //     fn from(value: EmailConfirmTokenKind) -> Self {
-    //         match value {
-    //             EmailConfirmTokenKind::ChangeEmail => DBEmailTokenKind::RequestChangeEmail,
-    //         }
-    //     }
-    // }
 
     impl<C: Connection> Db<C> {
         pub async fn add_email_change(
@@ -1376,12 +1201,10 @@ pub mod email_change {
                 RETURN *, user.*;
             "#,
                 )
-                // .bind(("kind", kind.into().to_string()))
                 .bind(("user", user))
                 .bind(("token_raw", token_raw))
                 .bind(("user_email", user_email.clone()))
                 .bind(("expires", expires))
-                // .bind(("where_used", where_used))
                 .bind(("time", time))
                 .await
                 .check_good(surrealdb::Error::from)
@@ -1413,8 +1236,6 @@ pub mod email_change {
             new_email: impl Into<String>,
             token_raw: impl Into<String>,
         ) -> Result<DBEmailChange, EmailIsTakenErr> {
-            // let a = RecordId::from_table_key("user", "a");
-            // let email_change = RecordId::from_str(email_change.as_ref())?;
             let new_email = new_email.into();
             self.db
                 .query(
@@ -1573,13 +1394,10 @@ pub mod email_change {
 
     #[cfg(test)]
     mod tests {
-        use shipyard::*;
 
         use std::time::Duration;
 
-        // use pretty_assertions::assert_eq;
         use surrealdb::engine::local::Mem;
-        // use test_log::test;
         use tracing::trace;
 
         use crate::db::{DB404Err, Db, EmailIsTakenErr, email_change::DBChangeEmailErr};
@@ -1708,135 +1526,6 @@ impl<C: Connection> Db<C> {
         db.use_ns("artbounty").use_db("web").await?;
         Ok(Self { db })
     }
-
-    // pub async fn migrate(&self, time: u128) -> Result<(), surrealdb::Error> {
-    //     let db = &self.db;
-    //     let result = db
-    //             .query(
-    //                 r#"
-    //                 -- migration
-    //                 DEFINE TABLE migration SCHEMAFULL;
-    //                 DEFINE FIELD version ON TABLE migration TYPE int;
-    //                 DEFINE FIELD modified_at ON TABLE migration TYPE number;
-    //                 DEFINE FIELD created_at ON TABLE migration TYPE number;
-    //                 DEFINE INDEX idx_migration_version ON TABLE migration COLUMNS version UNIQUE;
-    //                 -- user
-    //                 DEFINE TABLE user SCHEMAFULL;
-    //                 DEFINE FIELD username ON TABLE user TYPE string;
-    //                 DEFINE FIELD email ON TABLE user TYPE string;
-    //                 DEFINE FIELD password ON TABLE user TYPE string;
-    //                 DEFINE FIELD modified_at ON TABLE user TYPE number;
-    //                 DEFINE FIELD created_at ON TABLE user TYPE number;
-    //                 DEFINE INDEX idx_user_username ON TABLE user COLUMNS username UNIQUE;
-    //                 DEFINE INDEX idx_user_email ON TABLE user COLUMNS email UNIQUE;
-    //                 -- session
-    //                 DEFINE TABLE session SCHEMAFULL;
-    //                 DEFINE FIELD access_token ON TABLE session TYPE string;
-    //                 DEFINE FIELD user ON TABLE session TYPE record<user>;
-    //                 DEFINE FIELD modified_at ON TABLE session TYPE number;
-    //                 DEFINE FIELD created_at ON TABLE session TYPE number;
-    //                 DEFINE INDEX idx_session_access_token ON TABLE session COLUMNS access_token UNIQUE;
-    //                 -- stats
-    //                 DEFINE TABLE stat SCHEMAFULL;
-    //                 DEFINE FIELD country ON TABLE stat TYPE string;
-    //                 DEFINE FIELD modified_at ON TABLE stat TYPE number;
-    //                 DEFINE FIELD created_at ON TABLE stat TYPE number;
-    //                 DEFINE INDEX idx_stat_country ON TABLE stat COLUMNS country UNIQUE;
-    //                 -- sent_email
-    //                 DEFINE TABLE sent_email SCHEMAFULL;
-    //                 DEFINE FIELD body ON TABLE sent_email TYPE string;
-    //                 DEFINE FIELD to_email ON TABLE sent_email TYPE string;
-    //                 DEFINE FIELD reason ON TABLE sent_email TYPE string;
-    //                 DEFINE FIELD modified_at ON TABLE sent_email TYPE number;
-    //                 DEFINE FIELD created_at ON TABLE sent_email TYPE number;
-    //                 -- invite
-    //                 DEFINE TABLE invite SCHEMAFULL;
-    //                 DEFINE FIELD token_raw ON TABLE invite TYPE string;
-    //                 -- DEFINE FIELD kind ON TABLE invite TYPE string;
-    //                 DEFINE FIELD email ON TABLE invite TYPE string;
-    //                 DEFINE FIELD expires ON TABLE invite TYPE number;
-    //                 DEFINE FIELD used ON TABLE invite TYPE bool;
-    //                 DEFINE FIELD modified_at ON TABLE invite TYPE number;
-    //                 DEFINE FIELD created_at ON TABLE invite TYPE number;
-    //                 DEFINE INDEX idx_invite_token_raw ON TABLE invite COLUMNS token_raw UNIQUE;
-    //
-    //                 -- confirm email
-    //                 DEFINE TABLE confirm_email SCHEMAFULL;
-    //                 DEFINE FIELD to_email ON TABLE confirm_email TYPE string;
-    //                 -- DEFINE FIELD token ON TABLE confirm_email TYPE string;
-    //                 DEFINE FIELD completed ON TABLE confirm_email TYPE bool;
-    //                 DEFINE FIELD expires ON TABLE confirm_email TYPE number;
-    //                 DEFINE FIELD modified_at ON TABLE confirm_email TYPE number;
-    //                 DEFINE FIELD created_at ON TABLE confirm_email TYPE number;
-    //
-    //                 -- DEFINE INDEX idx_confirm_email_token ON TABLE confirm_email COLUMNS token UNIQUE;
-    //
-    //                 -- email change
-    //                 DEFINE TABLE email_change SCHEMAFULL;
-    //                 DEFINE FIELD user ON TABLE email_change TYPE record<user>;
-    //                 -- DEFINE FIELD stage ON TABLE email_change TYPE object;
-    //
-    //                 DEFINE FIELD current ON TABLE email_change TYPE object;
-    //                 DEFINE FIELD current.email ON TABLE email_change TYPE string;
-    //                 DEFINE FIELD current.token_raw ON TABLE email_change TYPE string;
-    //                 DEFINE FIELD current.token_used ON TABLE email_change TYPE bool;
-    //                 DEFINE FIELD new ON TABLE email_change TYPE option<object>;
-    //                 DEFINE FIELD new.email ON TABLE email_change TYPE string;
-    //                 DEFINE FIELD new.token_raw ON TABLE email_change TYPE string;
-    //                 DEFINE FIELD new.token_used ON TABLE email_change TYPE bool;
-    //                 DEFINE FIELD completed ON TABLE email_change TYPE bool;
-    //
-    //                 DEFINE FIELD expires ON TABLE email_change TYPE number;
-    //                 DEFINE FIELD modified_at ON TABLE email_change TYPE number;
-    //                 DEFINE FIELD created_at ON TABLE email_change TYPE number;
-    //                 -- post
-    //                 DEFINE TABLE post SCHEMAFULL;
-    //                 DEFINE FIELD user ON TABLE post TYPE record<user>;
-    //                 DEFINE FIELD show ON TABLE post TYPE bool;
-    //                 DEFINE FIELD title ON TABLE post TYPE string;
-    //                 DEFINE FIELD description ON TABLE post TYPE string;
-    //                 DEFINE FIELD favorites ON TABLE post TYPE number;
-    //                 DEFINE FIELD file ON TABLE post TYPE array<object>;
-    //                 DEFINE FIELD file.*.extension ON TABLE post TYPE string;
-    //                 DEFINE FIELD file.*.hash ON TABLE post TYPE string;
-    //                 DEFINE FIELD file.*.width ON TABLE post TYPE int;
-    //                 DEFINE FIELD file.*.height ON TABLE post TYPE int;
-    //                 DEFINE FIELD modified_at ON TABLE post TYPE number;
-    //                 DEFINE FIELD created_at ON TABLE post TYPE number;
-    //                 -- DEFINE INDEX idx_post_hash ON TABLE post COLUMNS hash UNIQUE;
-    //
-    //                 --post like
-    //                 DEFINE TABLE post_like SCHEMAFULL;
-    //                 DEFINE FIELD user ON TABLE post_like TYPE record<user>;
-    //                 DEFINE FIELD post ON TABLE post_like TYPE record<post>;
-    //                 DEFINE FIELD modified_at ON TABLE post_like TYPE number;
-    //                 DEFINE FIELD created_at ON TABLE post_like TYPE number;
-    //                 DEFINE INDEX idx_user_post ON TABLE post_like COLUMNS user, post UNIQUE;
-    //
-    //                 --post comment
-    //                 DEFINE TABLE post_comment SCHEMAFULL;
-    //                 DEFINE FIELD user ON TABLE post_comment TYPE record<user>;
-    //                 DEFINE FIELD post ON TABLE post_comment TYPE record<post>;
-    //                 DEFINE FIELD post_comment ON TABLE post_comment TYPE option<record<post_comment>>;
-    //                 DEFINE FIELD text ON TABLE post_comment TYPE string;
-    //                 DEFINE FIELD modified_at ON TABLE post_comment TYPE number;
-    //                 DEFINE FIELD created_at ON TABLE post_comment TYPE number;
-    //
-    //                 CREATE migration SET version = 0, modified_at = $time, created_at = $time;
-    //
-    //                 SELECT * FROM migration;
-    //             "#,
-    //             )
-    //             .bind(("time", time))
-    //             .await.inspect_err(|result| trace!("DB RESULT {:#?}", result) )?;
-    //     result.check()?;
-    //     Ok(())
-    // }
-
-    // pub async fn get_post_str(&self, post_key: impl AsRef<str>) -> Result<DBUserPost, DB404Err> {
-    //     let post_id = RecordId::from_str(post_key.as_ref())?;
-    //     self.get_post(post_id).await
-    // }
 
     pub async fn get_post(&self, post_key: impl Into<RecordIdKey>) -> Result<DBUserPost, DB404Err> {
         self.db
@@ -2002,51 +1691,6 @@ impl<C: Connection> Db<C> {
             .and_then_take_expect(2)
     }
 
-    // pub async fn add_invite(
-    //     &self,
-    //     time: u128,
-    //     // kind: impl Into<DBEmailTokenKind>,
-    //     token_raw: impl Into<String>,
-    //     email: impl Into<String>,
-    //     expires: u128,
-    // ) -> Result<DBInvite, surrealdb::Error> {
-    //     let email: String = email.into();
-    //
-    //     self.db.query(
-    //         r#"
-    //          LET $prev_token = SELECT * FROM ONLY invite WHERE email = $email AND kind = $kind AND used = 0 AND expires >= $time ORDER BY created_at DESC;
-    //          IF $prev_token {
-    //             return $prev_token;
-    //          } ELSE {
-    //             LET $result = CREATE email_confirm SET
-    //                token_raw = $token_raw,
-    //                kind = $kind,
-    //                email = $email,
-    //                expires = $expires,
-    //                used = 0,
-    //                modified_at = $time,
-    //                created_at = $time;
-    //             return $result;
-    //          }
-    //         "#,
-    //     )
-    //     .bind(("kind", kind.into().to_string()))
-    //     .bind(("token_raw", token_raw.into()))
-    //     .bind(("email", email.clone()))
-    //     .bind(("expires", expires))
-    //     .bind(("time", time))
-    //     .await
-    //     .check_good(surrealdb::Error::from)
-    //     .and_then_take_expect(1)
-    // }
-    // current.email = $user_email AND
-    // current.token_used = false AND
-    // current.token_expires >= $time AND
-    // (new = NONE OR (
-    // new.token_used = false AND
-    // new.token_expires >= $time
-    // ))
-    // ORDER BY created_at DESC;
     pub async fn add_sent_email(
         &self,
         time: u128,
@@ -2109,11 +1753,9 @@ impl<C: Connection> Db<C> {
     pub async fn add_invite(
         &self,
         time: u128,
-        // kind: impl Into<DBEmailTokenKind>,
         token_raw: impl Into<String>,
         email: impl Into<String>,
         expires: u128,
-        // where_used: u64,
     ) -> Result<DBInvite, EmailIsTakenErr> {
         let token_raw = token_raw.into();
         let email: String = email.into();
@@ -2137,11 +1779,9 @@ impl<C: Connection> Db<C> {
              }
             "#,
         )
-        // .bind(("kind", kind.into().to_string()))
         .bind(("token_raw", token_raw))
         .bind(("email", email.clone()))
         .bind(("expires", expires))
-        // .bind(("where_used", where_used))
         .bind(("time", time))
         .await
         .check_good(|err| match err {
@@ -2174,12 +1814,10 @@ impl<C: Connection> Db<C> {
 
     pub async fn get_invite_any_by_token(
         &self,
-        // kind: impl Into<DBEmailTokenKind>,
         token: impl Into<String>,
     ) -> Result<DBInvite, DB404Err> {
         self.db
             .query("SELECT * FROM ONLY invite WHERE token_raw = $invite_token;")
-            // .bind(("kind", kind.into().to_string()))
             .bind(("invite_token", token.into()))
             .await
             .check_good(DB404Err::from)
@@ -2189,15 +1827,11 @@ impl<C: Connection> Db<C> {
     pub async fn get_invite_valid(
         &self,
         time: u128,
-        // kind: impl Into<DBEmailTokenKind>,
         email: impl Into<String>,
-        // used: u64,
     ) -> Result<DBInvite, DB404Err> {
         self.db.query("SELECT * FROM invite WHERE email = $email AND used = false AND expires >= $time ORDER BY created_at DESC;")
-            // .bind(("kind", kind.into().to_string()))
             .bind(("email", email.into()))
             .bind(("time", time))
-            // .bind(("used", used))
             .await
             .check_good(DB404Err::from)
             .and_then_take_all(0)
@@ -2207,21 +1841,14 @@ impl<C: Connection> Db<C> {
     pub async fn update_invite_used(
         &self,
         time: u128,
-        // kind: impl Into<DBEmailTokenKind>,
         token_raw: impl Into<String>,
-        // where_used: u64,
-        // set_used: u64,
     ) -> Result<DBInvite, DB404Err> {
         self.db
             .query(
                 "UPDATE invite SET modified_at = $time, used = true WHERE token_raw = $token_raw AND used = false AND expires >= $time;",
-                // "UPDATE email_confirm SET modified_at = $time, used = 1 WHERE kind = $kind AND token_raw = $token_raw AND expires >= $time;",
             )
             .bind(("token_raw", token_raw.into()))
-            // .bind(("kind", kind.into().to_string()))
             .bind(("time", time))
-            // .bind(("set_used", set_used))
-            // .bind(("where_used", where_used))
             .await
             .check_good(DB404Err::from)
             .and_then_take_or(0, DB404Err::NotFound)
@@ -2362,11 +1989,9 @@ impl<C: Connection> Db<C> {
 
 #[cfg(test)]
 mod tests {
-    use shipyard::*;
 
     use std::time::Duration;
 
-    // use pretty_assertions::assert_eq;
     use surrealdb::engine::local::Mem;
     use tracing::trace;
 
@@ -2520,14 +2145,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(posts.len(), 0);
-
-        // let posts = db.get_post_older(1, 1).await.unwrap();
-        // assert_eq!(posts.len(), 2);
-
-        // let post2 = db.get_post_older(2, 25).await.unwrap();
-        // assert_eq!(post, post2);
-        // let posts3 = db.get_post_older(1, 25).await.unwrap();
-        // assert_eq!(posts, posts3);
     }
 
     #[tokio::test]
@@ -2540,11 +2157,9 @@ mod tests {
         let invite = db
             .add_invite(
                 0,
-                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
                 "wowza",
                 "hey@hey.com",
                 0,
-                // 0,
             )
             .await
             .unwrap();
@@ -2552,11 +2167,9 @@ mod tests {
         let invite = db
             .add_invite(
                 1,
-                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
                 "wowza1",
                 "hey@hey.com",
                 2,
-                // 0
             )
             .await
             .unwrap();
@@ -2564,11 +2177,9 @@ mod tests {
         let invite = db
             .add_invite(
                 1,
-                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
                 "wowza2",
                 "hey@hey.com",
                 0,
-                // 0
             )
             .await
             .unwrap();
@@ -2576,9 +2187,7 @@ mod tests {
         let invite = db
             .get_invite_valid(
                 1,
-                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
                 "hey@hey.com",
-                // 0,
             )
             .await;
         trace!("{invite:#?}");
@@ -2589,39 +2198,21 @@ mod tests {
         let invite = db
             .get_invite_valid(
                 0,
-                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
                 "hey1@hey.com",
-                // 0,
             )
             .await;
         trace!("{invite:#?}");
         assert!(matches!(invite, Err(DB404Err::NotFound)));
         let invites = db.get_invite_all_valid(1, "hey@hey.com").await.unwrap();
         assert_eq!(invites.len(), 1);
-        // let result = db.update_email_confirm_used(1, "wowza", 0, 1).await;
-        // assert!(matches!(result, Err(DB404Err::NotFound)));
-        // // let result = db.update_email_confirm_used(1, "wowza1", 1).await;
-        // // assert!(matches!(result, Err(DB404Err::NotFound)));
-        // let _invite = db.update_email_confirm_used(1, "wowza1", 0,  1).await.unwrap();
-        // let invite = db
-        //     .get_invite_valid(
-        //         1,
-        //         // DBEmailTokenKind::RequestConfirmRegistrationEmail,
-        //         "hey@hey.com",
-        //         // 0,
-        //     )
-        //     .await;
-        // assert!(matches!(invite, Err(DB404Err::NotFound)));
 
         let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
         let invite2 = db
             .add_invite(
                 0,
-                // DBEmailTokenKind::RequestConfirmRegistrationEmail,
                 "wowza",
                 "hey1@hey.com",
                 0,
-                // 0,
             )
             .await;
         trace!("{invite2:#?}");

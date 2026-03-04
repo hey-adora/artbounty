@@ -1,4 +1,3 @@
-use shipyard::*;
 
 use leptos::prelude::*;
 use leptos_router::components::*;
@@ -150,30 +149,13 @@ pub struct Acc {
 pub fn App() -> impl IntoView {
     provide_context(GlobalState::new());
     let global_state = expect_context::<GlobalState>();
-    // let a = 77;
 
     let api = ApiWeb::new();
-    // // let profile = ServerAction::<api::profile::Profile>::new();
+
     Effect::new(move || {
         global_state.update_auth();
     });
 
-    // Effect::new(move || {
-    //     let Some(result) = api_profile.value_tracked() else {
-    //         return;
-    //     };
-    //     match result {
-    //         Ok(res) => {
-    //             global_state.acc.set(Some(Acc {
-    //                 username: res.username,
-    //             }));
-    //         }
-    //         Err(err) => {
-    //             trace!("profile err: {err}");
-    //         }
-    //     }
-    //     global_state.acc_pending.set(false);
-    // });
     let redirect_path = move || {
         global_state
             .get_username_untracked()

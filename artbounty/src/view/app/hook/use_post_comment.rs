@@ -1,5 +1,3 @@
-use shipyard::*;
-
 use leptos::html::{self, ElementType};
 use leptos::prelude::*;
 use tracing::{error, trace};
@@ -17,7 +15,6 @@ pub trait SizedIntoView: IntoView + Sized {}
 
 #[derive(Clone, Copy)]
 pub struct PostComment {
-    // pub comments: StoredValue<Box<dyn Fn() -> AnyView + Sync + Send + 'static>>,
     pub err_post: RwQuery<String>,
     pub data: RwSignal<Vec<UserPostComment>, LocalStorage>,
     pub on_comment: StoredValue<Box<dyn Fn(SubmitEvent) + Sync + Send + 'static>>,
@@ -51,10 +48,8 @@ where
     let api = ApiWeb::new();
 
     let err_post = RwQuery::<String>::new(PostCommentFields::ErrPost.to_string());
-    // let general_err = RwSignal::new_local(String::new());
 
     let infinite_fn = move |stage: InfiniteStage<UserPostComment>| async move {
-        // err_post.set(String::new());
 
         let post_id = match stage {
             InfiniteStage::Init => post_id.get_untracked(),
@@ -120,16 +115,9 @@ where
                 text_input.set_value("");
 
                 let comments = vec![comment];
-                // let data = comments.iter().map(|v| v.created_at).collect::<Vec<u128>>();
-
-                // let comments = comments
-                //             .into_iter()
-                //             .map(move |comment| view! { <div class="border border-base0E px-2 py-1" >{comment.text}</div> })
-                //             .collect_view();
 
                 InfiniteMerge::Top {
                     data: comments,
-                    // views: comments,
                 }
             }
             Ok(ServerRes::Comments(comments)) => {
