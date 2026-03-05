@@ -2,10 +2,10 @@ use crate::api::app_state::AppState;
 use crate::api::shared::post_comment::{PostCommentErrResolver, UserPostComment};
 use crate::api::{
     AuthToken, ChangeUsernameErr, EmailChangeErr, EmailChangeNewErr, EmailChangeStage,
-    EmailChangeTokenErr, Server404Err, ServerAddPostErr, ServerAuthErr,
-    ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerLoginErr,
-    ServerRegistrationErr, ServerReq, ServerRes, ServerTokenErr, User, UserPost, UserPostFile,
-    auth_token_get,  hash_password, verify_password,
+    EmailChangeTokenErr, Server404Err, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr,
+    ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerLoginErr, ServerRegistrationErr,
+    ServerReq, ServerRes, ServerTokenErr, User, UserPost, UserPostFile, auth_token_get,
+    hash_password, verify_password,
 };
 use crate::db::DB404Err;
 use crate::db::{AddUserErr, DBPostCommentErr, DBUser};
@@ -52,7 +52,13 @@ pub async fn get_post_comment(
 ) -> Result<ServerRes, ServerErr> {
     type ResErr = Server404Err;
     //
-    let ServerReq::GetComments { post_id, limit, time_range, order } = req else {
+    let ServerReq::GetComments {
+        post_id,
+        limit,
+        time_range,
+        order,
+    } = req
+    else {
         return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
             "get_post_comment expected PostId, received: {req:?}"
         ))));
@@ -61,7 +67,15 @@ pub async fn get_post_comment(
 
     let comments: Vec<UserPostComment> = app
         .db
-        .get_post_comments(time, post_id.clone(), limit, time_range, order)
+        .get_post_comments(
+            time,
+            post_id.clone(),
+            None::<String>,
+            false,
+            limit,
+            time_range,
+            order,
+        )
         .await
         .map_err(|err| match err {
             DB404Err::NotFound => ResErr::NotFound.into(),
@@ -100,7 +114,9 @@ pub async fn delete_post_comment(
 
 #[cfg(test)]
 mod tests {
-    use crate::api::{Api, Order, ServerRes, TimeRange, shared::post_comment::UserPostComment, tests::ApiTestApp};
+    use crate::api::{
+        Api, Order, ServerRes, TimeRange, shared::post_comment::UserPostComment, tests::ApiTestApp,
+    };
     use tracing::{debug, error, trace};
     use web_sys::console::assert;
 
@@ -166,21 +182,30 @@ mod tests {
 
         let comment = app
             .add_post_comment(0, &auth_token, post.id.clone(), "wowza".to_string())
-            .await.unwrap();
+            .await
+            .unwrap();
 
         let comment = app
             .add_post_comment(1, &auth_token, post.id.clone(), "wowza2".to_string())
-            .await.unwrap();
+            .await
+            .unwrap();
 
         let comments = app
-            .get_post_comments(2, &auth_token, post.id.clone(), 2, TimeRange::None, Order::ThreeTwoOne)
-            .await.unwrap();
+            .get_post_comments(
+                2,
+                &auth_token,
+                post.id.clone(),
+                2,
+                TimeRange::None,
+                Order::ThreeTwoOne,
+            )
+            .await
+            .unwrap();
 
         assert!(comments.len() == 2);
 
         let comment_first = comments.first().unwrap();
 
         assert_eq!(comment_first.text, "wowza2");
-
     }
 }

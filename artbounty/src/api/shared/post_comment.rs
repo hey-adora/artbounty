@@ -1,6 +1,5 @@
 use crate::api::User;
 
-
 #[derive(
     Debug,
     Clone,
@@ -15,7 +14,7 @@ pub struct UserPostComment {
     pub key: String,
     pub user: User,
     pub post_key: String,
-    pub comment_reply_key: Option<String>,
+    pub parent_key: Vec<String>,
     pub text: String,
     pub modified_at: u128,
     pub created_at: u128,
@@ -49,7 +48,7 @@ impl From<crate::db::post_comment::DBPostComment> for UserPostComment {
             key: value.id.key.to_sql(),
             user: value.user.into(),
             post_key: value.post.key.to_sql(),
-            comment_reply_key: value.comment.map(|v| v.key.to_sql()),
+            parent_key: value.parent.into_iter().map(|v| v.key.to_sql()).collect(),
             text: value.text,
             modified_at: value.modified_at,
             created_at: value.created_at,
