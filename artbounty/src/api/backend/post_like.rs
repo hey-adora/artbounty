@@ -83,3 +83,53 @@ pub async fn delete_post_like(
 
     Ok(ServerRes::Ok)
 }
+
+#[cfg(test)]
+pub mod tests {
+    use surrealdb::types::{RecordId, ToSql};
+    use tokio::fs::{self, create_dir_all};
+
+    use tracing::{debug, error, trace};
+
+    use crate::api::app_state::AppState;
+    use crate::api::shared::post_comment::UserPostComment;
+    use crate::api::tests::ApiTestApp;
+    use crate::db::{DBUser, DBEmailIsTakenErr, email_change::DBEmailChange};
+
+    #[tokio::test]
+    async fn api_post_like_test() {
+        crate::init_test_log();
+
+        let app = ApiTestApp::new(1).await;
+
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+
+        let post = app.add_post(0, &auth_token).await.unwrap();
+        debug!("wtf is that {post:#?}");
+
+        app.check_post_like(0, &auth_token, post.id.clone(), false)
+            .await
+            .unwrap();
+        app.add_post_like(0, &auth_token, post.id.clone())
+            .await
+            .unwrap();
+        app.check_post_like(0, &auth_token, post.id.clone(), true)
+            .await
+            .unwrap();
+        app.add_post_like_err_already_liked(0, &auth_token, post.id.clone())
+            .await
+            .unwrap();
+        app.add_post_like_err_not_found(0, &auth_token, "none")
+            .await
+            .unwrap();
+        app.delete_post_like(0, &auth_token, post.id.clone())
+            .await
+            .unwrap();
+        app.check_post_like(0, &auth_token, post.id.clone(), false)
+            .await
+            .unwrap();
+    }
+}
