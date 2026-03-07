@@ -10,7 +10,7 @@ use crate::api::{
 use crate::db::email_change::create_email_change_id;
 use crate::db::{AddUserErr, email_change::DBChangeEmailErr};
 use crate::db::{DB404Err, DBChangeUsernameErr, create_user_id};
-use crate::db::{DBUser, EmailIsTakenErr};
+use crate::db::{DBUser, DBEmailIsTakenErr};
 use crate::db::{DBUserPostFile, email_change::DBEmailChange};
 use crate::path::{link_settings_form_email_current_confirm, link_settings_form_email_new_confirm};
 use crate::valid::auth::{
@@ -505,39 +505,6 @@ pub async fn add_post(
 
 // email change
 
-pub async fn send_email_invite(
-    State(app): State<AppState>,
-    req: ServerReq,
-) -> Result<ServerRes, ServerErr> {
-    let ServerReq::EmailAddress { email } = req else {
-        return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
-            "expected AddPost, received: {req:?}"
-        ))));
-    };
-
-    let time = app.time().await;
-    let address = app.get_address().await;
-    let (confirm_token, exp) = app.new_token(&email).await?;
-    trace!("email token created: {confirm_token}");
-
-    let email_token = app.db.add_invite(time, confirm_token, email, exp).await;
-    let confirm_token = match email_token {
-        Err(EmailIsTakenErr::EmailIsTaken(_)) => {
-            return Ok(ServerRes::Ok);
-        }
-        invite => invite.map_err(|_| ServerErr::DbErr),
-    }?;
-    trace!("result {confirm_token:?}");
-
-    let link = format!(
-        "{}{}",
-        &address,
-        crate::path::link_reg_finish(&confirm_token.token_raw, None),
-    );
-    trace!("{link}");
-
-    Ok(ServerRes::Ok)
-}
 
 pub async fn auth_optional_middleware(
     State(app_state): State<AppState>,

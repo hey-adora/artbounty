@@ -1,4 +1,3 @@
-
 use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
@@ -177,18 +176,6 @@ pub struct DBUserPostFile {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, SurrealValue)]
-pub struct DBInvite {
-    pub id: RecordId,
-    pub token_raw: String,
-    // pub kind: String,
-    pub email: String,
-    pub expires: u128,
-    pub used: bool,
-    pub modified_at: u128,
-    pub created_at: u128,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, SurrealValue)]
 pub struct DBSentEmail {
     pub id: RecordId,
     pub body: String,
@@ -278,7 +265,7 @@ pub enum DBPostLikeErr {
 }
 
 #[derive(Debug, Error)]
-pub enum EmailIsTakenErr {
+pub enum DBEmailIsTakenErr {
     #[error("DB error {0}")]
     DB(#[from] surrealdb::Error),
 
@@ -310,6 +297,313 @@ pub fn create_user_id(id: impl Into<String>) -> RecordId {
     RecordId::new("user", id.into())
 }
 pub mod post_comment;
+pub mod invite {
+    use crate::db::DB404Err;
+    use crate::db::DBPostLikeErr;
+    use crate::db::DBUser;
+    use crate::db::DBUserPost;
+    use crate::db::DBEmailIsTakenErr;
+    use crate::db::SurrealCheckUtils;
+    use crate::db::SurrealErrUtils;
+    use crate::db::SurrealSerializeUtils;
+
+    use super::Db;
+    pub use surrealdb::Connection;
+    use surrealdb::types::RecordId;
+    use surrealdb::types::RecordIdKey;
+    use surrealdb::types::SurrealValue;
+    use surrealdb::types::ToSql;
+    use tracing::{info, trace};
+
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, SurrealValue)]
+    pub struct DBInvite {
+        pub id: RecordId,
+        // pub token_raw: String,
+        // pub kind: String,
+        pub email: String,
+        pub expires: u128,
+        pub used: bool,
+        pub modified_at: u128,
+        pub created_at: u128,
+    }
+
+    pub fn create_invite_id(id: impl Into<RecordIdKey>) -> RecordId {
+        RecordId::new("invite", id)
+    }
+
+    impl<C: Connection> Db<C> {
+        pub async fn add_invite(
+            &self,
+            time: u128,
+            email: impl Into<String>,
+            expires: u128,
+        ) -> Result<DBInvite, DBEmailIsTakenErr> {
+            let email: String = email.into();
+
+            self.db
+                .query(
+                    r#"
+                 LET $user_email = SELECT email FROM ONLY user WHERE email = $email;
+                 CREATE invite SET
+                       kind = $kind,
+                       email = if $user_email { null } else { $email },
+                       expires = $expires,
+                       used = false,
+                       modified_at = $time,
+                       created_at = $time
+                       RETURN *
+                "#,
+                )
+                .bind(("email", email.clone()))
+                .bind(("expires", expires))
+                .bind(("time", time))
+                .await
+                .check_good(|err| match err {
+                    err if err.field_value_null("email") => DBEmailIsTakenErr::EmailIsTaken(email),
+                    err => err.into(),
+                })
+                .and_then_take_expect(1)
+        }
+
+        pub async fn get_invite_any_by_key(
+            &self,
+            // email: impl Into<String>,
+            invite_key: impl Into<RecordIdKey>,
+        ) -> Result<DBInvite, DB404Err> {
+            let invite_id = create_invite_id(invite_key);
+            self.db
+                .query("SELECT * FROM ONLY $invite_id;")
+                .bind(("invite_id", invite_id))
+                // .bind(("email", email.into()))
+                .await
+                .check_good(DB404Err::from)
+                .and_then_take_or(0, DB404Err::NotFound)
+        }
+
+        pub async fn update_invite_used(
+            &self,
+            time: u128,
+            // email: impl Into<String>,
+            invite_key: impl Into<RecordIdKey>,
+        ) -> Result<DBInvite, DB404Err> {
+            let invite_id = create_invite_id(invite_key);
+            self.db
+            .query(
+                "UPDATE invite SET modified_at = $time, used = true WHERE id = $invite_id AND used = false AND expires >= $time;",
+            )
+            .bind(("invite_id", invite_id))
+            .bind(("time", time))
+            // .bind(("email", email.into()))
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_or(0, DB404Err::NotFound)
+        }
+
+        pub async fn get_invite_all(&self) -> Result<Vec<DBInvite>, DB404Err> {
+            self.db
+                .query("SELECT * FROM invite;")
+                .await
+                .check_good(DB404Err::from)
+                .and_then_take_all(0)
+        }
+
+        pub async fn get_invite_all_valid<Email: Into<String>>(
+            &self,
+            time: u128,
+            email: Email,
+        ) -> Result<Vec<DBInvite>, DB404Err> {
+            self.db.query("SELECT * FROM invite WHERE email = $email AND used = false AND expires >= $time ORDER BY created_at DESC;")
+            .bind(("email", email.into()))
+            .bind(("time", time))
+        .await
+            .check_good(DB404Err::from)
+            .and_then_take_all(0)
+        }
+
+        pub async fn get_invite_valid(
+            &self,
+            time: u128,
+            email: impl Into<String>,
+        ) -> Result<DBInvite, DB404Err> {
+            self.db.query("SELECT * FROM invite WHERE email = $email AND used = false AND expires >= $time ORDER BY created_at DESC;")
+            .bind(("email", email.into()))
+            .bind(("time", time))
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_all(0)
+            .and_then(|v| v.first().cloned().ok_or(DB404Err::NotFound))
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+
+        use std::time::Duration;
+
+        use surrealdb::{
+            engine::local::Mem,
+            types::{RecordId, ToSql},
+        };
+        use tracing::trace;
+
+        use crate::{
+            api::{ChangeUsernameErr, ServerRes},
+            db::{
+                AddUserErr, DB404Err, DBChangeUsernameErr, DBPostLikeErr, DBSentEmailReason,
+                DBUserPostFile, Db, DBEmailIsTakenErr, post_like::create_post_like_id,
+                session::AddSessionErr,
+            },
+            init_test_log,
+        };
+
+        #[tokio::test]
+        async fn db_invite_add_test() {
+            init_test_log();
+
+            let db = Db::new::<Mem>(()).await.unwrap();
+            db.migrate(0).await.unwrap();
+
+            let invite1 = db.add_invite(0, "hey@hey.com", 1).await.unwrap();
+            let invite2 = db.add_invite(0, "hey@hey.com", 1).await.unwrap();
+        }
+
+        #[tokio::test]
+        async fn db_invite_get_test() {
+            init_test_log();
+
+            let db = Db::new::<Mem>(()).await.unwrap();
+            db.migrate(0).await.unwrap();
+
+            let invite1 = db.add_invite(0, "hey@hey.com", 1).await.unwrap();
+
+            let result = db
+                .get_invite_any_by_key(invite1.id.key.to_sql())
+                .await
+                .unwrap();
+
+            // let result = db.get_invite_any_by_key(invite1.id.key.to_sql()).await;
+            // assert!(matches!(result, Err(DB404Err::NotFound)));
+
+            let result = db.get_invite_any_by_key("wrong").await;
+            assert!(matches!(result, Err(DB404Err::NotFound)));
+        }
+
+        #[tokio::test]
+        async fn db_invite_update_test() {
+            init_test_log();
+
+            let db = Db::new::<Mem>(()).await.unwrap();
+            db.migrate(0).await.unwrap();
+
+            let invite1 = db.add_invite(0, "hey@hey.com", 1).await.unwrap();
+            let invite2 = db.add_invite(0, "hey@hey.com", 1).await.unwrap();
+
+            let result = db
+                .update_invite_used(0, invite1.id.key.to_sql())
+                .await
+                .unwrap();
+
+            // let result = db
+            //     .update_invite_used(0, invite1.id.key.to_sql())
+            //     .await;
+            // assert!(matches!(result, Err(DB404Err::NotFound)));
+            //
+            // let result = db
+            //     .update_invite_used(0, invite2.id.key.to_sql())
+            //     .await;
+            // assert!(matches!(result, Err(DB404Err::NotFound)));
+
+            let result = db.update_invite_used(0, "wrong").await;
+            assert!(matches!(result, Err(DB404Err::NotFound)));
+
+            let result = db.update_invite_used(2, invite2.id.key.to_sql()).await;
+            assert!(matches!(result, Err(DB404Err::NotFound)));
+        }
+
+        #[tokio::test]
+        async fn db_invite_all_test() {
+            init_test_log();
+
+            let db = Db::new::<Mem>(()).await.unwrap();
+            db.migrate(0).await.unwrap();
+
+            let invite1 = db.add_invite(0, "hey@hey.com", 1).await.unwrap();
+            let invite2 = db.add_invite(0, "hey@hey.com", 1).await.unwrap();
+
+            let all = db.get_invite_all().await.unwrap();
+            assert_eq!(all.len(), 2);
+        }
+
+        #[tokio::test]
+        async fn db_invite_all_valid_test() {
+            init_test_log();
+
+            let db = Db::new::<Mem>(()).await.unwrap();
+            db.migrate(0).await.unwrap();
+
+            let invite1 = db.add_invite(0, "hey@hey.com", 1).await.unwrap();
+            let invite2 = db.add_invite(0, "hey@hey.com", 2).await.unwrap();
+            let invite2 = db.add_invite(0, "hey@hey.com", 3).await.unwrap();
+
+            db.update_invite_used(1, invite2.id.key.to_sql()).await;
+
+            let all = db.get_invite_all_valid(2, "hey@hey.com").await.unwrap();
+            assert_eq!(all.len(), 1);
+        }
+
+        #[tokio::test]
+        async fn db_invite_get_valid_test() {
+            init_test_log();
+
+            let db = Db::new::<Mem>(()).await.unwrap();
+            db.migrate(0).await.unwrap();
+
+            let invite1 = db.add_invite(0, "hey@hey.com", 1).await.unwrap();
+            let invite2 = db.add_invite(0, "hey@hey.com", 2).await.unwrap();
+            let invite3 = db.add_invite(0, "hey@hey.com", 3).await.unwrap();
+
+            db.update_invite_used(1, invite2.id.key.to_sql()).await;
+
+            let result = db.get_invite_valid(2, "hey@hey.com").await.unwrap();
+            assert_eq!(result, invite3);
+        }
+
+        // #[tokio::test]
+        // async fn db_invite_test() {
+        //     let db = Db::new::<Mem>(()).await.unwrap();
+        //     let time = Duration::from_nanos(0);
+        //     let time = time.as_nanos();
+        //     db.migrate(time).await.unwrap();
+        //
+        //
+        //     let invite2 = db.add_invite(1, "hey@hey.com", 2).await.unwrap();
+        //     trace!("{invite2:#?}");
+        //
+        //     let invite3 = db.add_invite(1, "hey@hey.com", 0).await.unwrap();
+        //     trace!("{invite3:#?}");
+        //     let result = db.get_invite_valid(1, "hey@hey.com").await.unwrap();
+        //     // assert!(matches!(result, Ok(_)));
+        //     // trace!("{invite:#?}");
+        //     // assert_eq!(invite.unwrap().token_raw, "wowza1");
+        //     let invite = db
+        //         .get_invite_any_by_key(invite1.id.key.to_sql())
+        //         .await
+        //         .unwrap();
+        //     trace!("{invite:#?}");
+        //     // assert_eq!(invite.unwrap().token_raw, "wowza1");
+        //     let invite = db.get_invite_valid(0, "hey1@hey.com").await;
+        //     trace!("{invite:#?}");
+        //     assert!(matches!(invite, Err(DB404Err::NotFound)));
+        //     let invites = db.get_invite_all_valid(1, "hey@hey.com").await.unwrap();
+        //     assert_eq!(invites.len(), 1);
+        //
+        //     let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
+        //     let invite2 = db.add_invite(0, "wowza", "hey1@hey.com", 0).await;
+        //     trace!("{invite2:#?}");
+        //     assert!(matches!(invite2, Err(EmailIsTakenErr::EmailIsTaken(_))));
+        // }
+    }
+}
 pub mod migration {
     use crate::db::DB404Err;
     use crate::db::DBPostLikeErr;
@@ -415,14 +709,14 @@ pub mod migration {
                     DEFINE FIELD created_at ON TABLE sent_email TYPE number;
                     -- invite 
                     DEFINE TABLE invite SCHEMAFULL;
-                    DEFINE FIELD token_raw ON TABLE invite TYPE string;
+                    -- DEFINE FIELD token_raw ON TABLE invite TYPE string;
                     -- DEFINE FIELD kind ON TABLE invite TYPE string;
                     DEFINE FIELD email ON TABLE invite TYPE string;
                     DEFINE FIELD expires ON TABLE invite TYPE number;
                     DEFINE FIELD used ON TABLE invite TYPE bool;
                     DEFINE FIELD modified_at ON TABLE invite TYPE number;
                     DEFINE FIELD created_at ON TABLE invite TYPE number;
-                    DEFINE INDEX idx_invite_token_raw ON TABLE invite COLUMNS token_raw UNIQUE;
+                    -- DEFINE INDEX idx_invite_token_raw ON TABLE invite COLUMNS token_raw UNIQUE;
 
                     -- confirm email
                     DEFINE TABLE confirm_email SCHEMAFULL;
@@ -651,14 +945,18 @@ pub mod session {
     mod tests {
         use std::time::Duration;
 
-        use surrealdb::{engine::local::Mem, types::{RecordId, ToSql}};
+        use surrealdb::{
+            engine::local::Mem,
+            types::{RecordId, ToSql},
+        };
         use tracing::trace;
 
         use crate::{
             api::{ChangeUsernameErr, ServerRes},
             db::{
                 AddUserErr, DB404Err, DBChangeUsernameErr, DBPostLikeErr, DBSentEmailReason,
-                DBUserPostFile, Db, EmailIsTakenErr, post_like::create_post_like_id, session::AddSessionErr,
+                DBUserPostFile, Db, DBEmailIsTakenErr, post_like::create_post_like_id,
+                session::AddSessionErr,
             },
         };
 
@@ -705,7 +1003,6 @@ pub mod session {
         }
     }
 }
-
 
 pub mod post_like {
 
@@ -854,7 +1151,7 @@ pub mod post_like {
             api::{ChangeUsernameErr, ServerRes},
             db::{
                 AddUserErr, DB404Err, DBChangeUsernameErr, DBPostLikeErr, DBSentEmailReason,
-                DBUserPostFile, Db, EmailIsTakenErr, post_like::create_post_like_id,
+                DBUserPostFile, Db, DBEmailIsTakenErr, post_like::create_post_like_id,
             },
         };
 
@@ -1033,8 +1330,8 @@ pub mod confirm_email {
         use crate::{
             api::ChangeUsernameErr,
             db::{
-                 AddUserErr, DB404Err, DBChangeUsernameErr, DBSentEmailReason,
-                DBUserPostFile, Db, EmailIsTakenErr,
+                AddUserErr, DB404Err, DBChangeUsernameErr, DBSentEmailReason, DBUserPostFile, Db,
+                DBEmailIsTakenErr,
             },
         };
 
@@ -1096,7 +1393,7 @@ pub mod email_change {
 
     use crate::db::DB404Err;
     use crate::db::DBUser;
-    use crate::db::EmailIsTakenErr;
+    use crate::db::DBEmailIsTakenErr;
     use crate::db::SurrealCheckUtils;
     use crate::db::SurrealErrUtils;
     use crate::db::SurrealSerializeUtils;
@@ -1237,7 +1534,7 @@ pub mod email_change {
             email_change: RecordId,
             new_email: impl Into<String>,
             token_raw: impl Into<String>,
-        ) -> Result<DBEmailChange, EmailIsTakenErr> {
+        ) -> Result<DBEmailChange, DBEmailIsTakenErr> {
             let new_email = new_email.into();
             self.db
                 .query(
@@ -1258,7 +1555,7 @@ pub mod email_change {
                 .await
                 .check_good(|err| match err {
                     err if err.field_value_null("new.email") => {
-                        EmailIsTakenErr::EmailIsTaken(new_email)
+                        DBEmailIsTakenErr::EmailIsTaken(new_email)
                     }
                     err => err.into(),
                 })
@@ -1402,7 +1699,7 @@ pub mod email_change {
         use surrealdb::engine::local::Mem;
         use tracing::trace;
 
-        use crate::db::{DB404Err, Db, EmailIsTakenErr, email_change::DBChangeEmailErr};
+        use crate::db::{DB404Err, Db, DBEmailIsTakenErr, email_change::DBChangeEmailErr};
 
         #[tokio::test]
         async fn db_email_change() {
@@ -1445,7 +1742,7 @@ pub mod email_change {
                         "token2",
                     )
                     .await;
-                assert!(matches!(result, Err(EmailIsTakenErr::EmailIsTaken(_))));
+                assert!(matches!(result, Err(DBEmailIsTakenErr::EmailIsTaken(_))));
             }
 
             // add new email stage
@@ -1752,110 +2049,6 @@ impl<C: Connection> Db<C> {
             .and_then_take_or(0, DB404Err::NotFound)
     }
 
-    pub async fn add_invite(
-        &self,
-        time: u128,
-        token_raw: impl Into<String>,
-        email: impl Into<String>,
-        expires: u128,
-    ) -> Result<DBInvite, EmailIsTakenErr> {
-        let token_raw = token_raw.into();
-        let email: String = email.into();
-
-        self.db.query(
-            r#"
-             LET $prev_token = SELECT * FROM ONLY invite WHERE email = $email AND kind = $kind AND used = false AND expires >= $time ORDER BY created_at DESC;
-             IF $prev_token {
-                return $prev_token;
-             } ELSE {
-                LET $user_email = SELECT email FROM ONLY user WHERE email = $email;
-                LET $result = CREATE invite SET
-                   token_raw = $token_raw,
-                   kind = $kind,
-                   email = if $user_email { null } else { $email },
-                   expires = $expires,
-                   used = false,
-                   modified_at = $time,
-                   created_at = $time;
-                return $result;
-             }
-            "#,
-        )
-        .bind(("token_raw", token_raw))
-        .bind(("email", email.clone()))
-        .bind(("expires", expires))
-        .bind(("time", time))
-        .await
-        .check_good(|err| match err {
-            err if err.field_value_null("email") => EmailIsTakenErr::EmailIsTaken(email),
-            err => err.into(),
-        })
-        .and_then_take_expect(1)
-    }
-
-    pub async fn get_invite_all(&self) -> Result<Vec<DBInvite>, DB404Err> {
-        self.db
-            .query("SELECT * FROM invite;")
-            .await
-            .check_good(DB404Err::from)
-            .and_then_take_all(0)
-    }
-
-    pub async fn get_invite_all_valid<Email: Into<String>>(
-        &self,
-        time: u128,
-        email: Email,
-    ) -> Result<Vec<DBInvite>, DB404Err> {
-        self.db.query("SELECT * FROM invite WHERE email = $email AND used = false AND expires >= $time ORDER BY created_at DESC;")
-            .bind(("email", email.into()))
-            .bind(("time", time))
-        .await
-            .check_good(DB404Err::from)
-            .and_then_take_all(0)
-    }
-
-    pub async fn get_invite_any_by_token(
-        &self,
-        token: impl Into<String>,
-    ) -> Result<DBInvite, DB404Err> {
-        self.db
-            .query("SELECT * FROM ONLY invite WHERE token_raw = $invite_token;")
-            .bind(("invite_token", token.into()))
-            .await
-            .check_good(DB404Err::from)
-            .and_then_take_or(0, DB404Err::NotFound)
-    }
-
-    pub async fn get_invite_valid(
-        &self,
-        time: u128,
-        email: impl Into<String>,
-    ) -> Result<DBInvite, DB404Err> {
-        self.db.query("SELECT * FROM invite WHERE email = $email AND used = false AND expires >= $time ORDER BY created_at DESC;")
-            .bind(("email", email.into()))
-            .bind(("time", time))
-            .await
-            .check_good(DB404Err::from)
-            .and_then_take_all(0)
-            .and_then(|v| v.first().cloned().ok_or(DB404Err::NotFound))
-    }
-
-    pub async fn update_invite_used(
-        &self,
-        time: u128,
-        token_raw: impl Into<String>,
-    ) -> Result<DBInvite, DB404Err> {
-        self.db
-            .query(
-                "UPDATE invite SET modified_at = $time, used = true WHERE token_raw = $token_raw AND used = false AND expires >= $time;",
-            )
-            .bind(("token_raw", token_raw.into()))
-            .bind(("time", time))
-            .await
-            .check_good(DB404Err::from)
-            .and_then_take_or(0, DB404Err::NotFound)
-    }
-
     pub async fn update_user_username(
         &self,
         user: RecordId,
@@ -2000,8 +2193,8 @@ mod tests {
     use crate::{
         api::ChangeUsernameErr,
         db::{
-             AddUserErr, DB404Err, DBChangeUsernameErr, DBSentEmailReason,
-            DBUserPostFile, Db, EmailIsTakenErr,
+            AddUserErr, DB404Err, DBChangeUsernameErr, DBSentEmailReason, DBUserPostFile, Db,
+            DBEmailIsTakenErr,
         },
     };
 
@@ -2147,78 +2340,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(posts.len(), 0);
-    }
-
-    #[tokio::test]
-    async fn db_email_token() {
-        let db = Db::new::<Mem>(()).await.unwrap();
-        let time = Duration::from_nanos(0);
-        let time = time.as_nanos();
-        db.migrate(time).await.unwrap();
-
-        let invite = db
-            .add_invite(
-                0,
-                "wowza",
-                "hey@hey.com",
-                0,
-            )
-            .await
-            .unwrap();
-        trace!("{invite:#?}");
-        let invite = db
-            .add_invite(
-                1,
-                "wowza1",
-                "hey@hey.com",
-                2,
-            )
-            .await
-            .unwrap();
-        trace!("{invite:#?}");
-        let invite = db
-            .add_invite(
-                1,
-                "wowza2",
-                "hey@hey.com",
-                0,
-            )
-            .await
-            .unwrap();
-        trace!("{invite:#?}");
-        let invite = db
-            .get_invite_valid(
-                1,
-                "hey@hey.com",
-            )
-            .await;
-        trace!("{invite:#?}");
-        assert_eq!(invite.unwrap().token_raw, "wowza1");
-        let invite = db.get_invite_any_by_token("wowza1").await;
-        trace!("{invite:#?}");
-        assert_eq!(invite.unwrap().token_raw, "wowza1");
-        let invite = db
-            .get_invite_valid(
-                0,
-                "hey1@hey.com",
-            )
-            .await;
-        trace!("{invite:#?}");
-        assert!(matches!(invite, Err(DB404Err::NotFound)));
-        let invites = db.get_invite_all_valid(1, "hey@hey.com").await.unwrap();
-        assert_eq!(invites.len(), 1);
-
-        let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
-        let invite2 = db
-            .add_invite(
-                0,
-                "wowza",
-                "hey1@hey.com",
-                0,
-            )
-            .await;
-        trace!("{invite2:#?}");
-        assert!(matches!(invite2, Err(EmailIsTakenErr::EmailIsTaken(_))));
     }
 
     #[tokio::test]

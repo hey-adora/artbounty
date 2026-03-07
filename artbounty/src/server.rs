@@ -126,7 +126,7 @@ pub fn create_api_router(
         )
         .route(
             path::PATH_API_SEND_EMAIL_INVITE,
-            post(api::backend::send_email_invite),
+            post(api::backend::auth::send_email_invite),
         )
         .route(path::PATH_API_USER, post(api::backend::get_user))
         .route(path::PATH_API_POST_GET, post(api::backend::get_post))

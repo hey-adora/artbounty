@@ -7,7 +7,7 @@ use crate::api::{
 };
 use crate::db::email_change::{DBChangeEmailErr, create_email_change_id};
 use crate::db::{AddUserErr, DBUser};
-use crate::db::{DB404Err, EmailIsTakenErr};
+use crate::db::{DB404Err, DBEmailIsTakenErr};
 use crate::valid::auth::{proccess_password, proccess_username};
 use axum::Extension;
 use axum::extract::State;
@@ -157,10 +157,10 @@ pub async fn send_email_new(
         .update_email_change_add_new(time, id, email.clone(), confirm_token.clone())
         .await
         .map_err(|err| match err {
-            EmailIsTakenErr::EmailIsTaken(email) => {
+            DBEmailIsTakenErr::EmailIsTaken(email) => {
                 ServerErr::from(EmailChangeNewErr::EmailIsTaken(email))
             }
-            EmailIsTakenErr::DB(_) => ServerErr::DbErr,
+            DBEmailIsTakenErr::DB(_) => ServerErr::DbErr,
         })?;
 
     let stage = EmailChangeStage::from(&result);

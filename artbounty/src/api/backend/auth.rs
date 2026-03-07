@@ -1,17 +1,12 @@
 use surrealdb::types::ToSql;
 
-
 use crate::api::app_state::AppState;
 use crate::api::{
-    AuthToken, ChangeUsernameErr, EmailChangeErr, EmailChangeNewErr, EmailChangeStage,
-    EmailChangeTokenErr, Server404Err, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr,
-    ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerLoginErr, ServerRegistrationErr,
-    ServerReq, ServerRes, ServerTokenErr, User, UserPost, UserPostFile, auth_token_get,
-    hash_password, verify_password,
+    AuthToken, ChangeUsernameErr, EmailChangeErr, EmailChangeNewErr, EmailChangeStage, EmailChangeTokenErr, Server404Err, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes, ServerSendInviteErr, ServerTokenErr, User, UserPost, UserPostFile, auth_token_get, hash_password, verify_password
 };
-use crate::db::AddUserErr;
 use crate::db::DB404Err;
-use crate::valid::auth::{proccess_password, proccess_username};
+use crate::db::{AddUserErr, DBEmailIsTakenErr};
+use crate::valid::auth::{proccess_email, proccess_password, proccess_username};
 use axum::extract::State;
 use http::header::COOKIE;
 use tracing::{debug, error, info, trace};
@@ -35,9 +30,7 @@ pub async fn register(
 
     let invite_token_decoded = app_state
         .db
-        .get_invite_any_by_token(
-            &invite_token,
-        )
+        .get_invite_any_by_key(invite_token.clone())
         .await
         .map_err(|err| match err {
             DB404Err::DB(_) => ServerErr::DbErr,
@@ -93,7 +86,7 @@ pub async fn register(
 
     let result = app_state
         .db
-        .update_invite_used(time_ns, &invite_token)
+        .update_invite_used(time_ns, invite_token.clone())
         .await
         .inspect_err(|err| error!("failed to run use_invite {err}"))
         .map_err(|err| ServerErr::DbErr)?;
@@ -186,13 +179,11 @@ pub async fn decode_email_token(
     let time_ns = app.clock.now().await;
     let invite_token = app
         .db
-        .get_invite_any_by_token(
-            &token,
-        )
+        .get_invite_any_by_key(token.clone())
         .await
         .map_err(|err| match err {
             DB404Err::DB(_) => ServerErr::DbErr,
-            DB404Err::NotFound => ServerRegistrationErr::TokenNotFound.into(),
+            DB404Err::NotFound => ResErr::InviteNotFound.into(),
         })
         .and_then(|invite| {
             if invite.expires < time_ns {
@@ -210,4 +201,86 @@ pub async fn decode_email_token(
         created_at: invite_token.created_at,
         exp: invite_token.expires,
     })
+}
+
+pub async fn send_email_invite(
+    State(app): State<AppState>,
+    req: ServerReq,
+) -> Result<ServerRes, ServerErr> {
+    type ResErr = ServerSendInviteErr;
+
+    let ServerReq::EmailAddress { email } = req else {
+        return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+            "expected AddPost, received: {req:?}"
+        ))));
+    };
+
+    let time = app.time().await;
+    let address = app.get_address().await;
+    let exp = app.new_exp().await;
+
+    let email = proccess_email(email).map_err(|err| ResErr::InvalidEmail(err))?;
+
+    let email_token = app.db.add_invite(time, email, exp).await;
+    let confirm_token = match email_token {
+        Err(DBEmailIsTakenErr::EmailIsTaken(_)) => {
+            return Ok(ServerRes::Ok);
+        }
+        invite => invite.map_err(|_| ServerErr::DbErr),
+    }?;
+    trace!("result {confirm_token:?}");
+
+    let link = format!(
+        "{}{}",
+        &address,
+        crate::path::link_reg_finish(&confirm_token.id.key.to_sql(), None),
+    );
+    trace!("{link}");
+
+    Ok(ServerRes::Ok)
+}
+#[cfg(test)]
+pub mod tests {
+    use surrealdb::types::{RecordId, ToSql};
+    use tokio::fs::{self, create_dir_all};
+
+    use tracing::{debug, error, trace};
+
+    use crate::api::app_state::AppState;
+    use crate::api::shared::post_comment::UserPostComment;
+    use crate::api::tests::ApiTestApp;
+    use crate::db::{DBUser, DBEmailIsTakenErr, email_change::DBEmailChange};
+
+    #[tokio::test]
+    async fn api_auth_test() {
+        crate::init_test_log();
+
+        let app = ApiTestApp::new(1).await;
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+        app
+            .register_taken(0, "HEY@heyadora.com")
+            .await;
+        app
+            .register_taken(0, " hey@heyadora.com")
+            .await;
+        // assert!(auth_token2.is_none());
+        app.is_logged_in(0, &auth_token).await.unwrap();
+        app.register_fail_expired_taken(0, 2, "hey2", "hey2@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+        app.register_fail_404(0, "hey2").await.unwrap();
+        app.register_fail_invalid(0, "pr", "prime@heyadora.com", "wowowowwoW12222pp")
+            .await
+            .unwrap();
+        app.logout(0, &auth_token).await.unwrap();
+        app.is_logged_out(0, &auth_token).await.unwrap();
+        let auth_token = app
+            .login(0, "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+        app.is_logged_in(0, &auth_token).await.unwrap();
+    }
 }
