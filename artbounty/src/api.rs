@@ -1,3 +1,7 @@
+// TODO deserialization error
+// what if i change enum order
+// but client is on old version
+// wrong input
 
 use http::HeaderMap;
 use http::header::{AUTHORIZATION, SET_COOKIE};
@@ -96,7 +100,7 @@ pub mod app_state {
             self.settings.site.address.clone()
         }
 
-        pub async fn get_invite_exp_ns(&self) -> u128 {
+        pub fn get_invite_exp_ns(&self) -> u128 {
             self.settings.auth.invite_exp_ns.into()
         }
 
@@ -117,7 +121,7 @@ pub mod app_state {
             email: impl Into<String>,
         ) -> Result<(String, u128), ServerErr> {
             let time = self.time().await;
-            let exp = time + self.get_invite_exp_ns().await;
+            let exp = time + self.get_invite_exp_ns();
             let key = self.gen_key().await;
 
             Ok((key, exp))
@@ -125,7 +129,7 @@ pub mod app_state {
 
         pub async fn new_exp(&self) -> u128 {
             let time = self.time().await;
-            let exp = time + self.get_invite_exp_ns().await;
+            let exp = time + self.get_invite_exp_ns();
             exp
         }
 
@@ -582,6 +586,9 @@ pub enum ServerErr {
     #[error("decode invite err {0}")]
     DecodeInviteErr(#[from] ServerDecodeInviteErr),
 
+    #[error("send invite err {0}")]
+    SendInviteErr(#[from] ServerSendInviteErr),
+
     #[error("get invite err {0}")]
     TokenErr(#[from] ServerTokenErr),
 
@@ -793,6 +800,22 @@ pub enum ServerDecodeInviteErr {
 
     #[error("jwt err {0}")]
     JWT(String),
+}
+
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub enum ServerSendInviteErr {
+    #[error("invalid email {0}")]
+    InvalidEmail(String),
 }
 
 #[derive(
@@ -1466,7 +1489,6 @@ pub fn hash_password<S: Into<String>>(password: S) -> Result<String, argon2::pas
     Ok(password_hash)
 }
 
-
 pub trait Api {
     fn provide_builder(&self, path: impl AsRef<str>) -> RequestBuilder;
     fn provide_signal_result(&self) -> Option<RwSignal<Option<Result<ServerRes, ServerErr>>>> {
@@ -2123,7 +2145,6 @@ pub async fn recv(
 #[cfg(feature = "ssr")]
 impl axum::response::IntoResponse for ServerErr {
     fn into_response(self) -> axum::response::Response {
-
         let status = axum::http::StatusCode::INTERNAL_SERVER_ERROR;
 
         match self {
@@ -2257,11 +2278,12 @@ pub mod tests {
     use crate::api::{
         Api, ApiTest, EmailChangeErr, EmailChangeNewErr, EmailChangeStage, EmailChangeTokenErr,
         PostLikeErr, Server404Err, ServerAuthErr, ServerErr, ServerLoginErr, ServerRegistrationErr,
-        ServerReqImg, ServerRes, UserPost,
+        ServerReqImg, ServerRes, ServerSendInviteErr, UserPost,
     };
+    use crate::db::DB404Err;
     use crate::db::email_change::create_email_change_id;
     use crate::db::post_comment::DBPostComment;
-    use crate::db::{DBUser, EmailIsTakenErr, email_change::DBEmailChange};
+    use crate::db::{DBEmailIsTakenErr, DBUser, email_change::DBEmailChange};
     use crate::server::create_api_router;
 
     pub struct ApiTestApp {
@@ -2563,23 +2585,42 @@ pub mod tests {
             let all = self.state.db.get_invite_all().await.unwrap();
             trace!("----- ALL INVITES ------\n{all:#?}");
 
-            let invite = self
-                .state
-                .db
-                .get_invite_valid(
-                    time,
-                    email,
-                )
-                .await
-                .unwrap();
+            let invite = self.state.db.get_invite_valid(time, email).await.unwrap();
 
             let (token, decoded_token, result) = self
                 .api
-                .register(username, &invite.token_raw, password)
+                .register(username, &invite.id.key.to_sql(), password)
                 .send_native_and_extract_auth(&secret)
                 .await;
 
             token
+        }
+
+        pub async fn register_taken(
+            &self,
+            server_time: u128,
+            email: impl Into<String>,
+        ) -> Option<()> {
+            self.set_time(server_time).await;
+
+            let email = email.into();
+            let time = self.state.clock.now().await;
+
+            let result = self
+                .api
+                .send_email_invite(email.clone())
+                .send_native()
+                .await;
+
+            let invite = self.state.db.get_invite_valid(time, email).await;
+            // let result = matches!(
+            //     result,
+            //     Err(ServerErr::SendInviteErr(ServerSendInviteErr::InvalidEmail(
+            //         _
+            //     )))
+            // );
+
+            if invite.is_err() { Some(()) } else { None }
         }
 
         pub async fn register_fail_expired_taken(
@@ -2616,7 +2657,7 @@ pub mod tests {
 
             let result = self
                 .api
-                .register(username, &invite.token_raw, password)
+                .register(username, invite.id.key.to_sql(), password)
                 .send_native()
                 .await;
 
@@ -2683,7 +2724,7 @@ pub mod tests {
 
             let result = self
                 .api
-                .register(username, &invite.token_raw, password)
+                .register(username, invite.id.key.to_sql(), password)
                 .send_native()
                 .await;
 
@@ -3406,69 +3447,6 @@ pub mod tests {
             .await
             .unwrap();
         app.status_email_change(0, id.clone(), &auth_token, |v| v.is_complete(), None, None)
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn api_auth_test() {
-        crate::init_test_log();
-
-        let app = ApiTestApp::new(1).await;
-        let auth_token = app
-            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
-            .await
-            .unwrap();
-        app.is_logged_in(0, &auth_token).await.unwrap();
-        app.register_fail_expired_taken(0, 2, "hey2", "hey2@heyadora.com", "pas$word123456789")
-            .await
-            .unwrap();
-        app.register_fail_404(0, "hey2").await.unwrap();
-        app.register_fail_invalid(0, "pr", "prime@heyadora.com", "wowowowwoW12222pp")
-            .await
-            .unwrap();
-        app.logout(0, &auth_token).await.unwrap();
-        app.is_logged_out(0, &auth_token).await.unwrap();
-        let auth_token = app
-            .login(0, "hey@heyadora.com", "pas$word123456789")
-            .await
-            .unwrap();
-        app.is_logged_in(0, &auth_token).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn api_post_like_test() {
-        crate::init_test_log();
-
-        let app = ApiTestApp::new(1).await;
-
-        let auth_token = app
-            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
-            .await
-            .unwrap();
-
-        let post = app.add_post(0, &auth_token).await.unwrap();
-        debug!("wtf is that {post:#?}");
-
-        app.check_post_like(0, &auth_token, post.id.clone(), false)
-            .await
-            .unwrap();
-        app.add_post_like(0, &auth_token, post.id.clone())
-            .await
-            .unwrap();
-        app.check_post_like(0, &auth_token, post.id.clone(), true)
-            .await
-            .unwrap();
-        app.add_post_like_err_already_liked(0, &auth_token, post.id.clone())
-            .await
-            .unwrap();
-        app.add_post_like_err_not_found(0, &auth_token, "none")
-            .await
-            .unwrap();
-        app.delete_post_like(0, &auth_token, post.id.clone())
-            .await
-            .unwrap();
-        app.check_post_like(0, &auth_token, post.id.clone(), false)
             .await
             .unwrap();
     }

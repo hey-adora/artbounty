@@ -128,7 +128,7 @@ pub mod valid {
 
         pub fn proccess_email<S: AsRef<str>>(email: S) -> Result<String, String> {
             let mut errors = String::new();
-            let email = email.as_ref().trim().to_owned();
+            let email = email.as_ref().trim().to_owned().to_lowercase();
             if email.is_empty() {
                 errors += "email cannot be empty\n";
             }
