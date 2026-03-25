@@ -5,7 +5,8 @@ pub mod prelude {
     pub use super::intersection_observer::{self, AddIntersectionObserver, IntersectionOptions};
     pub use super::interval::{self};
     pub use super::leptos_helpers::{
-        FnRun, FnRunT0, FnRunT1, Hidden, QueryField, QueryFn, QueryGetter, RwQuery, ToFnT0, ToFnT1, ToQueryField,
+        FnRun, FnRunT0, FnRunT1, Hidden, QueryField, QueryFn, QueryGetter, RwQuery, ToFnT0, ToFnT1,
+        ToQueryField,
     };
     pub use super::mutation_observer::{self, AddMutationObserver, MutationObserverOptions};
     pub use super::random::{random_u8, random_u32, random_u32_ranged, random_u64};
@@ -414,39 +415,43 @@ pub mod leptos_helpers {
         fn run(&self, t: T) -> O;
     }
 
-    impl<O, F: Fn() -> O > FnRun<O, ()> for F {
+    impl<O, F: Fn() -> O> FnRun<O, ()> for F {
         fn run(&self, _: ()) -> O {
             (self)()
         }
     }
 
-    impl<O, T1,  F: Fn(T1) -> O > FnRun<O, (T1,)> for F {
+    impl<O, T1, F: Fn(T1) -> O> FnRun<O, (T1,)> for F {
         fn run(&self, (t1,): (T1,)) -> O {
             (self)(t1)
         }
     }
 
-    pub trait FnRunT0<O: Send + Sync + Clone + 'static> {
+    pub trait FnRunT0<O: 'static> {
         fn run(&self) -> O;
     }
 
-    pub trait FnRunT1<O: Send + Sync + Clone + 'static, T1: 'static> {
+    pub trait FnRunT1<O: 'static, T1: 'static> {
         fn run(&self, t1: T1) -> O;
     }
 
-    pub trait FnRunT2<O: Send + Sync + Clone + 'static, T1, T2> {
+    pub trait FnRunT2<O: 'static, T1, T2> {
         fn run(&self, t1: T1, t2: T2) -> O;
     }
 
-    impl<O: Send + Sync + Clone + 'static> FnRunT0<O>
-        for StoredValue<Box<dyn Fn() -> O + Sync + Send + 'static>>
-    {
+    impl<O: 'static> FnRunT0<O> for StoredValue<Box<dyn Fn() -> O + Sync + Send + 'static>> {
         fn run(&self) -> O {
             self.to_fn()()
         }
     }
 
-    impl<O: Send + Sync + Clone + 'static, T1: 'static> FnRunT1<O, T1>
+    impl<O: 'static> FnRunT0<O> for StoredValue<Box<dyn Fn() -> O + 'static>, LocalStorage> {
+        fn run(&self) -> O {
+            self.to_fn()()
+        }
+    }
+
+    impl<O: 'static, T1: 'static> FnRunT1<O, T1>
         for StoredValue<Box<dyn Fn(T1) -> O + Sync + Send + 'static>>
     {
         fn run(&self, t1: T1) -> O {
@@ -454,45 +459,73 @@ pub mod leptos_helpers {
         }
     }
 
+    impl<O: 'static, T1: 'static> FnRunT1<O, T1>
+        for StoredValue<Box<dyn Fn(T1) -> O + 'static>, LocalStorage>
+    {
+        fn run(&self, t1: T1) -> O {
+            self.to_fn()(t1)
+        }
+    }
+
     pub trait ToFnT0<'a, T: 'static> {
-        fn to_fn(&self)
-        -> impl Fn() -> T + Send + Sync + Clone + Copy + 'static + use<'a, Self, T>;
+        fn to_fn(&self) -> impl Fn() -> T + 'static + use<'a, Self, T>;
     }
 
     impl<'a, T: 'static> ToFnT0<'a, T> for StoredValue<Box<dyn Fn() -> T + Sync + Send + 'static>> {
-        fn to_fn(&self) -> impl Fn() -> T + Send + Sync + Clone + Copy + 'static + use<'a, T> {
+        fn to_fn(&self) -> impl Fn() -> T + 'static + use<'a, T> {
+            let f = self.clone();
+            move || (f.read_value())()
+        }
+    }
+
+    impl<'a, T: 'static> ToFnT0<'a, T> for StoredValue<Box<dyn Fn() -> T + 'static>, LocalStorage> {
+        fn to_fn(&self) -> impl Fn() -> T + 'static + use<'a, T> {
             let f = self.clone();
             move || (f.read_value())()
         }
     }
 
     impl<'a, O: 'static> ToFnT0<'a, O> for StoredValue<Box<dyn FnRun<O, ()> + Sync + Send + 'static>> {
-        fn to_fn(&self) -> impl Fn() -> O + Send + Sync + Clone + Copy + 'static + use<'a, O> {
+        fn to_fn(&self) -> impl Fn() -> O + 'static + use<'a, O> {
             let f = self.clone();
             move || f.read_value().run(())
         }
     }
 
-    impl<'a, O: 'static, T1: 'static> ToFnT1<'a, O, T1> for StoredValue<Box<dyn FnRun<O, (T1, )> + 'static>, LocalStorage> {
-        fn to_fn(&self) -> impl Fn(T1) -> O  + 'static + use<'a, O, T1> {
+    impl<'a, O: 'static> ToFnT0<'a, O> for StoredValue<Box<dyn FnRun<O, ()> + 'static>, LocalStorage> {
+        fn to_fn(&self) -> impl Fn() -> O + 'static + use<'a, O> {
             let f = self.clone();
-            move |t1: T1| f.read_value().run((t1, ))
+            move || f.read_value().run(())
         }
     }
 
     pub trait ToFnT1<'a, T: 'static, P1> {
-        fn to_fn(
-            &self,
-        ) -> impl Fn(P1) -> T + 'static + use<'a, Self, T, P1>;
+        fn to_fn(&self) -> impl Fn(P1) -> T + 'static + use<'a, Self, T, P1>;
         // ) -> impl Fn(P1) -> T + Send + Sync + Clone + Copy + 'static + use<'a, Self, T, P1>;
     }
 
     impl<'a, T: 'static, P1: 'static> ToFnT1<'a, T, P1>
         for StoredValue<Box<dyn Fn(P1) -> T + Sync + Send + 'static>>
     {
-        fn to_fn(
-            &self,
-        ) -> impl Fn(P1) -> T + Send + Sync + Clone + Copy + 'static + use<'a, T, P1> {
+        fn to_fn(&self) -> impl Fn(P1) -> T + 'static + use<'a, T, P1> {
+            let f = self.clone();
+            move |v: P1| (f.read_value())(v)
+        }
+    }
+
+    impl<'a, O: 'static, T1: 'static> ToFnT1<'a, O, T1>
+        for StoredValue<Box<dyn FnRun<O, (T1,)> + 'static>, LocalStorage>
+    {
+        fn to_fn(&self) -> impl Fn(T1) -> O + 'static + use<'a, O, T1> {
+            let f = self.clone();
+            move |t1: T1| f.read_value().run((t1,))
+        }
+    }
+
+    impl<'a, T: 'static, P1: 'static> ToFnT1<'a, T, P1>
+        for StoredValue<Box<dyn Fn(P1) -> T + 'static>, LocalStorage>
+    {
+        fn to_fn(&self) -> impl Fn(P1) -> T + 'static + use<'a, T, P1> {
             let f = self.clone();
             move |v: P1| (f.read_value())(v)
         }

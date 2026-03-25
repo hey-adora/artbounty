@@ -35,17 +35,13 @@ pub struct InfiniteItem {
 
 #[derive(Clone, Copy)]
 pub struct InfiniteScrollFn {
-    // pub observer: StoredValue<Option<MutationObserver>, LocalStorage>,
-    // pub callback: StoredValue<F, LocalStorage>,
     pub on: StoredValue<Box<dyn Fn(Element) + Sync + Send + 'static>>,
 }
 
 impl InfiniteScrollFn {
     pub fn new<FnGetData>(f: FnGetData) -> Self
     where
-        // Elm: ElementType,
-        // Elm::Output: JsCast + Clone + 'static + Into<HtmlElement>,
-        FnGetData: Fn(Option<InfiniteItem>) -> () + Clone + Sync + Send + 'static,
+        FnGetData: Fn(Option<InfiniteItem>) -> () + Clone + 'static,
     {
         let activated_btm = StoredValue::new(false);
         let intersection = Intersection::new(move |entry, b| {
@@ -78,17 +74,6 @@ impl InfiniteScrollFn {
                 .map(|v| Into::<JsValue>::into(v))
                 .map(|v| Into::<Element>::into(v))
                 .and_then(|v| v.last_element_child())
-            // .and_then(|v| v.last_child())
-            // .inspect(|v| trace!("infinite scroll fn {v:?}"))
-            // .and_then(|v| {
-            //     if v.is_instance_of::<Element>() {
-            //         Some(v)
-            //     } else {
-            //         None
-            //     }
-            // })
-            // .and_then(|v| v.v.elements().first().cloned())
-            // .and_then(|v| v.last_element_child())
             else {
                 trace!("running mutation bounced");
                 return;
@@ -98,77 +83,20 @@ impl InfiniteScrollFn {
         });
 
         let on = move |target: Element| {
-            trace!("infinite scroll fn running ON");
-            mutation.observe_only(target, MutationObserverOptions::new().set_child_list());
+            let html = target.outer_html();
+            trace!("infinite scroll fn running ON {html}");
+            mutation.observe_only(
+                target,
+                MutationObserverOptions::new()
+                    .subtree()
+                    .character_data()
+                    .set_child_list(),
+            );
         };
 
         InfiniteScrollFn {
             on: StoredValue::new(Box::new(on)),
         }
-        // Effect::new(move || {
-        //     // NO
-        //     container_ref.get_untracked()
-        //     mutation.observe(target);
-        // });
-
-        // on_cleanup(move || {
-        //     if let Some(observer) = observer_mutation.get_value() {
-        //         observer.disconnect();
-        //     };
-        //     if let Some(observer) = observer_intersection_bottom.get_value() {
-        //         observer.disconnect();
-        //     };
-        // });
-        //
-        // Effect::new(move || {
-        //     let intersection_observer_options = IntersectionObserverInit::new();
-        //     intersection_observer_options.set_threshold(&JsValue::from_f64(0.0));
-        //
-        //     let new_interception_observer_btm = intersection_observer::new_with_options_raw(
-        //         {
-        //             let f = f.clone();
-        //             move |entry, _observer| {
-        //                 let Some(entry) = entry.first() else {
-        //                     return;
-        //                 };
-        //
-        //                 let is_intersecting = entry.is_intersecting();
-        //
-        //                 if !is_intersecting {
-        //                     activated_btm.set_value(true);
-        //                     return;
-        //                 }
-        //
-        //                 if !activated_btm.get_value() {
-        //                     return;
-        //                 }
-        //
-        //                 activated_btm.set_value(false);
-        //                 trace!("yo wtf is going on");
-        //
-        //                 f(None);
-        //             }
-        //         },
-        //         &intersection_observer_options,
-        //     );
-        //     observer_intersection_bottom.set_value(Some(new_interception_observer_btm.clone()));
-        //
-        //     let new_mutation_observer = mutation_observer::new_raw(move |a, b| {
-        //         let Some(infinite_scroll_elm) = container_ref
-        //             .get_untracked()
-        //             .map(|v| Into::<HtmlElement>::into(v))
-        //             .and_then(|v| v.last_element_child())
-        //         else {
-        //             trace!("running mutation bounced");
-        //             return;
-        //         };
-        //         new_interception_observer_btm.disconnect();
-        //         new_interception_observer_btm.observe(&infinite_scroll_elm);
-        //     });
-        //
-        //     observer_mutation.set_value(Some(new_mutation_observer));
-        //     //
-        // });
     }
 
     pub fn observe_only<Elm>(&self, target: Elm)

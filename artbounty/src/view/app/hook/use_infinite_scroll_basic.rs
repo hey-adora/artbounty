@@ -5,7 +5,10 @@ use crate::{
         app::{
             GlobalState,
             components::gallery::Img,
-            hook::{use_future::FutureFn, use_infinite_scroll_fn::{InfiniteItem, InfiniteScrollFn}},
+            hook::{
+                use_future::FutureFn,
+                use_infinite_scroll_fn::{InfiniteItem, InfiniteScrollFn},
+            },
         },
         toolbox::{leptos_helpers::FnRunT1, prelude::*},
     },
@@ -32,36 +35,34 @@ pub struct InfiniteBasic<ItemData> {
     pub observer: StoredValue<Box<dyn Fn(Element) + Sync + Send + 'static>>,
 }
 
+impl<ItemData> Clone for InfiniteBasic<ItemData> {
+    fn clone(&self) -> Self {
+        Self {
+            items: self.items.clone(),
+            observer: self.observer.clone(),
+        }
+    }
+}
+
+impl<ItemData> Copy for InfiniteBasic<ItemData> {}
+
 impl<ItemData> InfiniteBasic<ItemData>
 where
     ItemData: Clone + std::fmt::Debug + 'static,
 {
-    pub fn new<Fut, F>(callback: F) -> InfiniteBasic<ItemData>
+    pub fn new<F>(callback: F) -> InfiniteBasic<ItemData>
     where
         ItemData: Sync + Send + 'static,
-        Fut: Future<Output = Vec<ItemData>> + Sync + Send + 'static,
-        F: Fn(&mut Vec<ItemData>, Option<InfiniteItem>) -> Fut + Clone + Sync + Send + 'static,
+        F: AsyncFn(&mut Vec<ItemData>, Option<InfiniteItem>) + Clone + 'static,
     {
         let scroll_items = RwSignal::new_local(Vec::<ItemData>::new());
 
         let fut = FutureFn::new(move |a| {
+            trace!("infinite basic callback");
             let callback = callback.clone();
             async move {
-                // scroll_items.update(|v| {
-                // });
-
                 let mut v = scroll_items.write();
                 callback(&mut *v, a).await;
-
-                // v.tra
-                // let last = scroll_items.with_untracked(|v| v.last().cloned());
-                // let new_items = callback(last).await;
-                // if new_items.is_empty() {
-                //     return;
-                // }
-                // scroll_items.update(|v| {
-                //     v.extend(new_items);
-                // });
             }
         });
 
@@ -70,6 +71,7 @@ where
         });
 
         let observe = move |target: Element| {
+            trace!("infinite basic observe");
             infinite_fn.observe_only(target);
         };
 
@@ -79,7 +81,7 @@ where
         }
     }
 
-    pub fn observe<Elm>(&self, elm: Elm)
+    pub fn observe_only<Elm>(&self, elm: Elm)
     where
         Elm: JsCast + Clone + 'static + Into<Element>,
     {
@@ -87,14 +89,3 @@ where
         self.observer.run(elm);
     }
 }
-// pub fn use_infinite_scroll_basic<Elm, Fut, ItemData, FnGetData>(
-//     container_ref: NodeRef<Elm>,
-//     callback: FnGetData,
-// ) where
-//     Elm: ElementType,
-//     Elm::Output: JsCast + Clone + 'static + Into<HtmlElement>,
-//     ItemData: Clone + std::fmt::Debug + 'static,
-//     Fut: Future<Output = Vec<ItemData>> + 'static,
-//     FnGetData: Fn(Option<ItemData>) -> Fut + Clone + Sync + Send + 'static,
-// {
-// }

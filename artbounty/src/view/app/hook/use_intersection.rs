@@ -8,7 +8,7 @@ use web_sys::{
 #[derive(Clone, Copy)]
 pub struct Intersection<F>
 where
-    F: FnMut(Vec<IntersectionObserverEntry>, IntersectionObserver) + Clone + Send + Sync + 'static,
+    F: FnMut(Vec<IntersectionObserverEntry>, IntersectionObserver) + Clone  + 'static,
 {
     pub observer: StoredValue<Option<IntersectionObserver>, LocalStorage>,
     pub callback: StoredValue<F, LocalStorage>,
@@ -16,7 +16,7 @@ where
 
 impl<F> Intersection<F>
 where
-    F: FnMut(Vec<IntersectionObserverEntry>, IntersectionObserver) + Clone + Send + Sync + 'static,
+    F: FnMut(Vec<IntersectionObserverEntry>, IntersectionObserver) + Clone  + 'static,
 {
     pub fn new(callback: F) -> Self {
         let observer = StoredValue::new_local(None::<IntersectionObserver>);
