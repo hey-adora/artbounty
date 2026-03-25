@@ -1,9 +1,12 @@
-
+use crate::api::shared::post_comment::UserPostComment;
 use crate::api::{Api, ApiWeb, Server404Err, ServerErr};
 use crate::path::{PATH_LOGIN, link_home, link_img, link_user};
 use crate::view::app::GlobalState;
 use crate::view::app::components::nav::Nav;
-use crate::view::app::hook::use_infinite_scroll::{InfiniteStage, use_infinite_scroll};
+use crate::view::app::hook::use_infinite_scroll_fn::InfiniteScrollFn;
+use crate::view::app::hook::use_infinite_scroll_virtual::{
+    InfiniteStage, use_infinite_scroll_virtual,
+};
 use crate::view::app::hook::use_post_comment::use_post_comment;
 use crate::view::app::hook::use_post_like::{self, PostLikeStage, use_post_like};
 use crate::view::toolbox::prelude::*;
@@ -11,7 +14,7 @@ use leptos::{Params, task::spawn_local};
 use leptos::{html, prelude::*};
 use leptos_router::hooks::{use_location, use_params};
 use leptos_router::params::Params;
-use tracing::{error, trace};
+use tracing::{error, trace, debug};
 use web_sys::SubmitEvent;
 
 #[derive(Params, PartialEq, Clone)]
@@ -37,31 +40,47 @@ pub fn Page() -> impl IntoView {
     let not_found = RwSignal::new(false);
     let location = use_location();
 
-    let comment_container_ref = NodeRef::<html::Div>::new();
-    let comment_input_ref = NodeRef::<html::Textarea>::new();
-    let post_comments = use_post_comment(10, comment_container_ref, comment_input_ref, param_post);
-    let post_comment_views = move || {
-        let time_now = time_now_ns();
 
-        post_comments.data.get()
-                            .into_iter()
-                            .map(move |comment| view! { 
-                                <div class="flex gap-4 px-2 py-1 " >
-                                    <p class="text-[1rem] rounded-full h-[3rem] w-[3rem] shrink-0 bg-base05"></p>
-                                    <div class="flex flex-col  ">
-                                        <div class="flex gap-2 place-items-center ">
-                                            <div class="text-[1.2rem]"> {comment.user.username} </div>
-                                            <div class="text-[1rem] text-base03"> {ns_to_str(time_now.saturating_sub(comment.created_at))}" ago"</div>
-                                        </div>
-                                        
-                                        <div class=" mb-2 text-[1.1rem] break-all"> {comment.text} </div>
-                                        <div>
-                                            <button type="submit" class="ml-auto rounded-full font-semibold text-[1rem] font-medium px-[0.8rem] py-[0.2rem] hover:bg-base05 bg-base0D text-base01">"Reply"</button>
-                                        </div>
-                                    </div>
-                                </div> 
-                            })
-                            .collect_view()
+
+
+    // let rw_signal_tree = RwSignalTree::<String, Vec<UserPostComment>>::new_root();
+    let comment_container_ref = NodeRef::<html::Div>::new();
+
+
+    let infinite_fn = InfiniteScrollFn::new(move |v| {
+        debug!("boopboopbaap");
+    });
+    Effect::new(move || {
+        let Some(elm) = comment_container_ref.get() else {
+            return;
+        };
+
+        (infinite_fn.on.to_fn())(elm.into());
+    });
+
+
+    let comment_input_ref = NodeRef::<html::Textarea>::new();
+    let post_comments = use_post_comment(
+        false,
+        10,
+        comment_container_ref,
+        comment_input_ref,
+        param_post,
+        None::<String>,
+    );
+    let post_comment_views = move || {
+        let time_now = global_state.get_time_ns();
+
+        post_comments
+            .data
+            .get()
+            .into_iter()
+            .map(move |comment| {
+                view! {
+                    <PostCommentElm comment param_post max_depth=0 parent_depth=0 />
+                }
+            })
+            .collect_view()
     };
 
     let post_like = use_post_like(param_post);
@@ -141,7 +160,6 @@ pub fn Page() -> impl IntoView {
                             })
                             .collect(),
                     );
-
                 }
                 Ok(res) => {
                     error!("wrong res, expected Post, got {:?}", res);
@@ -268,7 +286,7 @@ pub fn Page() -> impl IntoView {
                                 <a class="mx-auto rounded-full font-semibold text-[1rem] font-medium px-[0.8rem] py-[0.2rem] hover:bg-base05 bg-base0D text-base01" href=PATH_LOGIN >"Login"</a>
                             </div>
                         </div>
-                        <form class=move || format!("flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 {}", if global_state.is_logged_in().unwrap_or_default() || global_state.acc_pending() { "" } else { "hidden" }) on:submit=post_comments.on_comment.to_fn() >
+                        <form class=move || format!("flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 {}", if global_state.is_logged_in().unwrap_or_default()  { "" } else { "hidden" }) on:submit=post_comments.on_comment.to_fn() >
                             <textarea placeholder="Comment" node_ref=comment_input_ref class="focus:outline-none! appearance-none border-none resize text-[1.1rem]" id="story" name="story" rows="5" cols="30" ></textarea>
                             <ul class="text-base08 list-disc ml-[1rem]">
                                 {move || post_comments.err_post.get().map(|v| v.trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view()) }
@@ -279,12 +297,155 @@ pub fn Page() -> impl IntoView {
                             </div>
                         </form>
 
-                        <div node_ref=comment_container_ref class="h-[20rem]  flex flex-col gap-2 overflow-y-scroll relative">
-                            { post_comment_views }
+                        <div node_ref=comment_container_ref class=" flex flex-col gap-2 relative 0h-[20rem] 0overflow-y-scroll">
+                            <For
+                                each=move || post_comments.data.get()
+                                key=|state| state.key.clone()
+                                let(data)
+                            >
+                                {
+                                    view!{
+                                        <PostCommentElm comment=data param_post max_depth=0 parent_depth=0 />
+                                    }.into_any()
+                                }
+                            </For>
+                            // { post_comment_views }
                         </div>
                     </div>
                 </div>
             </div>
         </main>
+    }
+}
+
+#[component]
+pub fn SVGTrash(#[prop(optional, into)] class: String) -> impl IntoView {
+    view! {
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class=class>
+          <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+        </svg>
+    }
+}
+
+#[component]
+pub fn SVGArrowDown(#[prop(optional, into)] class: String) -> impl IntoView {
+    view! {
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class=class>
+          <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+        </svg>
+    }
+}
+
+#[component]
+pub fn PostCommentElm(
+    comment: UserPostComment,
+    param_post: Memo<Option<String>>,
+    max_depth: usize,
+    parent_depth: usize,
+    // comment_key: Option<String>,
+) -> impl IntoView {
+    // let a = Some(true);
+    // let b = Some(false);
+    // let c = a.and_then(|a| Some(a && b?));
+    // let c = a.map(|a| a && b?);
+    // let c = a == Some(true) || b == Some(true);
+    // let a = a == Some(true);
+
+    let current_depth = parent_depth + 1;
+    let global_state = expect_context::<GlobalState>();
+    let comment_container_ref = NodeRef::<html::Div>::new();
+    let comment_input_ref = NodeRef::<html::Textarea>::new();
+    let reply_shown = RwSignal::new(false);
+
+    // let post_comments = use_post_comment(
+    //     false,
+    //     10,
+    //     comment_container_ref,
+    //     comment_input_ref,
+    //     param_post,
+    //     Some(comment.key.clone()),
+    // );
+
+    // let show_reply = move |key: String| {
+    //     reply_shown.update(|v| {
+    //         if *v == key {
+    //             v.clear();
+    //         } else {
+    //             *v = key;
+    //         }
+    //     });
+    // };
+
+    // let post_comment_views = move || {
+    //     let time_now = global_state.get_time_ns();
+    //     // let comment = comment.clone();
+    //
+    //     let result = post_comments
+    //         .data
+    //         .get()
+    //         .into_iter()
+    //         .map(move |comment| {
+    //             // let comment_key = comment.key.clone();
+    //             view! {
+    //                 // <div>{comment.text}</div>
+    //
+    //
+    //                 <PostCommentElm comment param_post max_depth=max_depth parent_depth=current_depth />
+    //             }
+    //             .into_any()
+    //         })
+    //         .collect_view();
+    //
+    //     result
+    // };
+
+    view! {
+
+        <div class="flex gap-4 px-2 py-1 " >
+            <p class="text-[1rem] rounded-full h-[3rem] w-[3rem] shrink-0 bg-base05"></p>
+            <div class="flex flex-col w-full ">
+                <div class="flex gap-2 place-items-center ">
+                    <div class="text-[1.2rem]"> {comment.user.username} </div>
+                    <div class="text-[1rem] text-base03"> {ns_to_str(global_state.get_time_ns().saturating_sub(comment.created_at))}" ago"</div>
+                    <SVGTrash class="size-6 ml-auto"/>
+                </div>
+
+                <div class=" mb-2 text-[1.1rem] break-all"> {comment.text} </div>
+                <div>
+                    <button on:click=move |_| reply_shown.update(|v| *v = !*v ) type="submit" class=move || format!("mb-4 ml-auto rounded-full font-semibold text-[1rem] font-medium px-[0.8rem] py-[0.2rem] w-[5rem]  {}", if reply_shown.get() { "text-base05 bg-base01 hover:bg-base02" } else { "text-base01 bg-base0D hover:bg-base05" })>
+                        <Show when=move || reply_shown.get() fallback=|| "Reply">
+                            <SVGArrowDown class="size-6 mx-auto"/>
+                        </Show>
+                    </button>
+                </div>
+                <Show when=move || reply_shown.get()>
+                    // <form class=move || format!("mb-4 flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 w-full {}", if global_state.is_logged_in().unwrap_or_default() || !global_state.acc_pending() { "" } else { "hidden" }) on:submit=post_comments.on_comment.to_fn() >
+                    <form class=move || format!("mb-4 flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 w-full {}", if global_state.is_logged_in().unwrap_or_default() || !global_state.acc_pending() { "" } else { "hidden" })  >
+                        <textarea placeholder="Comment" node_ref=comment_input_ref class="focus:outline-none! appearance-none border-none resize text-[1.1rem] w-full" id="story" name="story" rows="5"  ></textarea>
+                        // <ul class="text-base08 list-disc ml-[1rem]">
+                        //     {move || post_comments.err_post.get().map(|v| v.trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view()) }
+                        // </ul>
+                        <div class="flex justify-between place-items-center">
+                            <p>"0/2000"</p>
+                            <input  type="submit" value="Reply" class="ml-auto rounded-full font-medium text-[1rem] font-bold px-[0.8rem] py-[0.2rem] hover:bg-base05 bg-base0D text-base01 text-center w-[5rem]"/>
+                        </div>
+                    </form>
+                    <div node_ref=comment_container_ref class="0h-[20rem] 0overflow-y-scroll">
+                        // <For
+                        //     each=move || post_comments.data.get()
+                        //     key=|state| state.key.clone()
+                        //     let(data)
+                        // >
+                        //     {
+                        //         view!{
+                        //             <PostCommentElm comment=data param_post max_depth=max_depth parent_depth=current_depth />
+                        //         }.into_any()
+                        //     }
+                        // </For>
+                        // { post_comment_views }
+                    </div>
+                </Show>
+            </div>
+        </div>
     }
 }

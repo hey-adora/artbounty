@@ -39,6 +39,27 @@ pub enum PostCommentErr {
     ReplyCommentNotFound(String),
 }
 
+// #[derive(
+//     Debug,
+//     Default,
+//     Clone,
+//     PartialEq,
+//     PartialOrd,
+//     serde::Serialize,
+//     serde::Deserialize,
+//     rkyv::Archive,
+//     rkyv::Serialize,
+//     rkyv::Deserialize,
+//     strum::EnumString,
+//     strum::Display,
+//     strum::EnumIter,
+//     strum::EnumIs,
+// )]
+// pub enum CommentOrPostKey {
+//     PostKey(String),
+//     CommentKey(String),
+// }
+
 #[cfg(feature = "ssr")]
 impl From<crate::db::post_comment::DBPostComment> for UserPostComment {
     fn from(value: crate::db::post_comment::DBPostComment) -> Self {

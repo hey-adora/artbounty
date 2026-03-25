@@ -24,7 +24,12 @@ pub async fn add_post_comment(
 ) -> Result<ServerRes, ServerErr> {
     type ResErr = Server404Err;
     //
-    let ServerReq::AddPostComment { post_id, text } = req else {
+    let ServerReq::AddPostComment {
+        post_key,
+        comment_key,
+        text,
+    } = req
+    else {
         return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
             "add_post_comment expected AddPostComment, received: {req:?}"
         ))));
@@ -33,13 +38,19 @@ pub async fn add_post_comment(
 
     let comment = app
         .db
-        .add_post_comment(time, db_user.id.clone(), post_id.clone(), None, text)
+        .add_post_comment(
+            time,
+            db_user.id.clone(),
+            post_key.clone(),
+            comment_key,
+            text,
+        )
         .await
         .map_err(|err| match err {
             DBPostCommentErr::PostNotFound(_) => ResErr::NotFound.into(),
-            // DBPostCommentErr::PostNotFound(_) => ResErr::NotFound(format!("post \"{post_id}\" not found")).into(),
             DBPostCommentErr::DB(_) | DBPostCommentErr::ReplyCommentNotFound(_) => ServerErr::DbErr,
         })?;
+    // DBPostCommentErr::PostNotFound(_) => ResErr::NotFound(format!("post \"{post_id}\" not found")).into(),
     let comment = UserPostComment::from(comment);
 
     // //
@@ -53,7 +64,8 @@ pub async fn get_post_comment(
     type ResErr = Server404Err;
     //
     let ServerReq::GetComments {
-        post_id,
+        post_key,
+        comment_key,
         limit,
         time_range,
         order,
@@ -69,8 +81,8 @@ pub async fn get_post_comment(
         .db
         .get_post_comments(
             time,
-            post_id.clone(),
-            None::<String>,
+            post_key.clone(),
+            comment_key.clone(),
             false,
             limit,
             time_range,
@@ -125,13 +137,14 @@ mod tests {
             &self,
             server_time: u128,
             auth_token: impl AsRef<str>,
-            post_id: impl Into<String>,
+            post_key: impl Into<String>,
+            comment_key: Option<String>,
             text: impl Into<String>,
         ) -> Option<UserPostComment> {
             self.set_time(server_time).await;
             let result = self
                 .api
-                .add_post_comment(post_id, text)
+                .add_post_comment(post_key, comment_key, text)
                 .send_native_with_token(auth_token)
                 .await;
 
@@ -146,7 +159,8 @@ mod tests {
             &self,
             server_time: u128,
             auth_token: impl AsRef<str>,
-            post_id: impl Into<String>,
+            post_key: impl Into<String>,
+            comment_key: Option<String>,
             limit: usize,
             time_range: TimeRange,
             order: Order,
@@ -154,7 +168,7 @@ mod tests {
             self.set_time(server_time).await;
             let result = self
                 .api
-                .get_post_comment(post_id, limit, time_range, order)
+                .get_post_comment(post_key, comment_key, limit, time_range, order)
                 .send_native_with_token(auth_token)
                 .await;
 
@@ -181,12 +195,12 @@ mod tests {
         debug!("wtf is that {post:#?}");
 
         let comment = app
-            .add_post_comment(0, &auth_token, post.id.clone(), "wowza".to_string())
+            .add_post_comment(0, &auth_token, post.id.clone(), None, "wowza".to_string())
             .await
             .unwrap();
 
         let comment = app
-            .add_post_comment(1, &auth_token, post.id.clone(), "wowza2".to_string())
+            .add_post_comment(1, &auth_token, post.id.clone(), None, "wowza2".to_string())
             .await
             .unwrap();
 
@@ -195,6 +209,7 @@ mod tests {
                 2,
                 &auth_token,
                 post.id.clone(),
+                None::<String>,
                 2,
                 TimeRange::None,
                 Order::ThreeTwoOne,
@@ -206,6 +221,71 @@ mod tests {
 
         let comment_first = comments.first().unwrap();
 
+        assert_eq!(comment_first.text, "wowza2");
+    }
+
+    #[tokio::test]
+    async fn api_post_comment_reply_test() {
+        crate::init_test_log();
+
+        let app = ApiTestApp::new(1).await;
+
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+
+        let post = app.add_post(0, &auth_token).await.unwrap();
+        debug!("wtf is that {post:#?}");
+
+        let comment = app
+            .add_post_comment(0, &auth_token, post.id.clone(), None, "wowza".to_string())
+            .await
+            .unwrap();
+
+        let comment_reply = app
+            .add_post_comment(
+                1,
+                &auth_token,
+                post.id.clone(),
+                Some(comment.key.clone()),
+                "wowza2".to_string(),
+            )
+            .await
+            .unwrap();
+
+        let comments = app
+            .get_post_comments(
+                2,
+                &auth_token,
+                post.id.clone(),
+                None::<String>,
+                2,
+                TimeRange::None,
+                Order::ThreeTwoOne,
+            )
+            .await
+            .unwrap();
+
+        assert!(comments.len() == 1);
+        let comment_first = comments.first().unwrap();
+        assert_eq!(comment_first.text, "wowza");
+
+        let comments = app
+            .get_post_comments(
+                2,
+                &auth_token,
+                post.id.clone(),
+                Some(comment_first.key.clone()),
+                2,
+                TimeRange::None,
+                Order::ThreeTwoOne,
+            )
+            .await
+            .unwrap();
+
+        assert!(comments.len() == 1);
+        let comment_first = comments.first().unwrap();
         assert_eq!(comment_first.text, "wowza2");
     }
 }

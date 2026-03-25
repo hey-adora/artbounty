@@ -6,8 +6,8 @@ use web_sys::{HtmlElement, SubmitEvent};
 
 use crate::api::shared::post_comment::UserPostComment;
 use crate::api::{Api, ApiWeb, Order, ServerRes, TimeRange};
-use crate::view::app::hook::use_infinite_scroll::{
-    InfiniteMerge, InfiniteStage, use_infinite_scroll,
+use crate::view::app::hook::use_infinite_scroll_virtual::{
+    InfiniteMerge, InfiniteStage, use_infinite_scroll_virtual,
 };
 use crate::view::toolbox::prelude::*;
 
@@ -36,10 +36,12 @@ pub enum PostCommentFields {
 }
 
 pub fn use_post_comment<ContainerElm>(
+    virtual_scroll: bool,
     fetch_count: usize,
     comment_container_ref: NodeRef<ContainerElm>,
     text_area_ref: NodeRef<html::Textarea>,
-    post_id: Memo<Option<String>>,
+    post_key: Memo<Option<String>>,
+    comment_key: Option<String>,
 ) -> PostComment
 where
     ContainerElm: ElementType,
@@ -49,112 +51,118 @@ where
 
     let err_post = RwQuery::<String>::new(PostCommentFields::ErrPost.to_string());
 
-    let infinite_fn = move |stage: InfiniteStage<UserPostComment>| async move {
-
-        let post_id = match stage {
-            InfiniteStage::Init => post_id.get_untracked(),
-            _ => post_id.get_untracked(),
-        };
-        let Some(post_id) = post_id else {
-            return InfiniteMerge::None;
-        };
-        let (is_top, result) = match stage {
-            InfiniteStage::Manual => {
-                let Some(text_input) = text_area_ref.get_untracked() else {
-                    return InfiniteMerge::None;
-                };
-                let text = text_input.value();
-                (
+    let infinite_fn = move |stage: InfiniteStage<UserPostComment>| {
+        let comment_key = comment_key.clone();
+        async move {
+            let post_id = match stage {
+                InfiniteStage::Init => post_key.get_untracked(),
+                _ => post_key.get_untracked(),
+            };
+            let Some(post_id) = post_id else {
+                return InfiniteMerge::None;
+            };
+            let comment_key = comment_key.clone();
+            let (is_top, result) = match stage {
+                InfiniteStage::Manual => {
+                    let Some(text_input) = text_area_ref.get_untracked() else {
+                        return InfiniteMerge::None;
+                    };
+                    let text = text_input.value();
+                    (
+                        true,
+                        api.add_post_comment(post_id, comment_key, text)
+                            .send_native()
+                            .await,
+                    )
+                }
+                InfiniteStage::Init => {
+                    let time = time_now_ns();
+                    (
+                        false,
+                        api.get_post_comment(
+                            post_id,
+                            comment_key,
+                            fetch_count,
+                            TimeRange::LessOrEqual(time),
+                            Order::ThreeTwoOne,
+                        )
+                        .send_native()
+                        .await,
+                    )
+                }
+                InfiniteStage::Top(data) => (
                     true,
-                    api.add_post_comment(post_id, text).send_native().await,
-                )
-            }
-            InfiniteStage::Init => {
-                let time = time_now_ns();
-                (
+                    api.get_post_comment(
+                        post_id,
+                        comment_key,
+                        fetch_count,
+                        TimeRange::More(data.created_at),
+                        Order::OneTwoThree,
+                    )
+                    .send_native()
+                    .await,
+                ),
+                InfiniteStage::Btm(data) => (
                     false,
                     api.get_post_comment(
                         post_id,
+                        comment_key,
                         fetch_count,
-                        TimeRange::LessOrEqual(time),
+                        TimeRange::Less(data.created_at),
                         Order::ThreeTwoOne,
                     )
                     .send_native()
                     .await,
-                )
-            }
-            InfiniteStage::Top(data) => (
-                true,
-                api.get_post_comment(
-                    post_id,
-                    fetch_count,
-                    TimeRange::More(data.created_at),
-                    Order::OneTwoThree,
-                )
-                .send_native()
-                .await,
-            ),
-            InfiniteStage::Btm(data) => (
-                false,
-                api.get_post_comment(
-                    post_id,
-                    fetch_count,
-                    TimeRange::Less(data.created_at),
-                    Order::ThreeTwoOne,
-                )
-                .send_native()
-                .await,
-            ),
-        };
+                ),
+            };
 
-        let datas = match result {
-            Ok(ServerRes::Comment(comment)) => {
-                let Some(text_input) = text_area_ref.get_untracked() else {
-                    return InfiniteMerge::None;
-                };
-                text_input.set_value("");
+            let datas = match result {
+                Ok(ServerRes::Comment(comment)) => {
+                    let Some(text_input) = text_area_ref.get_untracked() else {
+                        return InfiniteMerge::None;
+                    };
+                    text_input.set_value("");
 
-                let comments = vec![comment];
+                    let comments = vec![comment];
 
-                InfiniteMerge::Top {
-                    data: comments,
+                    InfiniteMerge::Top { data: comments }
                 }
-            }
-            Ok(ServerRes::Comments(comments)) => {
-                if is_top {
-                    InfiniteMerge::Top {
-                        data: comments.into_iter().rev().collect(),
+                Ok(ServerRes::Comments(comments)) => {
+                    if is_top {
+                        InfiniteMerge::Top {
+                            data: comments.into_iter().rev().collect(),
+                        }
+                    } else {
+                        InfiniteMerge::Btm { data: comments }
                     }
-                } else {
-                    InfiniteMerge::Btm { data: comments }
                 }
-            }
-            Ok(err) => {
-                let err = format!("unexpected server response: {err:?}");
-                error!(err);
-                err_post.set(err);
+                Ok(err) => {
+                    let err = format!("unexpected server response: {err:?}");
+                    error!(err);
+                    err_post.set(err);
 
-                InfiniteMerge::None
-            }
-            Err(err) => {
-                let err = format!("use_post_like: {err}");
-                error!(err);
-                err_post.set(err);
-                InfiniteMerge::None
-            }
-        };
+                    InfiniteMerge::None
+                }
+                Err(err) => {
+                    let err = format!("use_post_like: {err}");
+                    error!(err);
+                    err_post.set(err);
+                    InfiniteMerge::None
+                }
+            };
 
-        datas
+            datas
+        }
     };
 
-    let infinte = use_infinite_scroll(comment_container_ref, infinite_fn);
+    let infinte = use_infinite_scroll_virtual(comment_container_ref, infinite_fn);
 
     let on_comment = move |stage: SubmitEvent| {
         stage.prevent_default();
 
         trace!("executing on_post");
 
-        let Some(post_id) = post_id.get_untracked() else {
+        let Some(post_id) = post_key.get_untracked() else {
             return;
         };
 

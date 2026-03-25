@@ -1,4 +1,6 @@
 
+use std::time::Duration;
+
 use leptos::prelude::*;
 use leptos_router::components::*;
 use leptos_router::path;
@@ -17,6 +19,7 @@ use crate::path::link_user;
 use crate::view::toolbox::prelude::*;
 
 
+
 pub mod components;
 pub mod hook;
 pub mod page;
@@ -25,15 +28,22 @@ pub mod page;
 pub struct GlobalState {
     pub acc: RwSignal<Option<Acc>>,
     pub acc_pending: RwSignal<bool>,
+    pub time: RwSignal<u128>,
 }
 
 impl GlobalState {
     pub fn new() -> Self {
         Self {
             acc_pending: RwSignal::new(true),
+            time: RwSignal::new(time_now_ns()),
             ..Default::default()
         }
     }
+
+    pub fn get_time_ns(&self) -> u128 {
+        time_now_ns()
+    }
+
     pub fn get_email_tracked(&self) -> Option<String> {
         self.acc
             .with(|acc| acc.as_ref().map(|acc| acc.email.clone()))
@@ -155,6 +165,12 @@ pub fn App() -> impl IntoView {
     Effect::new(move || {
         global_state.update_auth();
     });
+
+    interval::new(move || {
+        let time = time_now_ns();
+        global_state.time.set(time);
+
+    }, Duration::from_secs(1));
 
     let redirect_path = move || {
         global_state

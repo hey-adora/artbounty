@@ -455,7 +455,7 @@ pub mod gallery {
                 gallery_elm.scroll_by_with_x_and_y(0.0, delayed_scroll_value as f64);
                 delayed_scroll.set(0);
             },
-            MutationObserverOptions::new().set_child_list(true),
+            MutationObserverOptions::new().set_child_list(),
         );
 
         let a = view! {

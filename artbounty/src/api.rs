@@ -414,14 +414,16 @@ pub enum ServerReq {
         password: String,
     },
     AddPostComment {
-        post_id: String,
+        post_key: String,
+        comment_key: Option<String>,
         text: String,
     },
     CommentId {
         comment_id: String,
     },
     GetComments {
-        post_id: String,
+        post_key: String,
+        comment_key: Option<String>,
         limit: usize,
         time_range: TimeRange,
         order: Order,
@@ -1527,11 +1529,12 @@ pub trait Api {
         )
     }
     // post comment
-    fn add_post_comment(&self, post_id: impl Into<String>, text: impl Into<String>) -> ApiReq {
+    fn add_post_comment(&self, post_key: impl Into<String>, comment_key: Option<String>, text: impl Into<String>) -> ApiReq {
         self.into_req(
             crate::path::PATH_API_POST_COMMENT_ADD,
             ServerReq::AddPostComment {
-                post_id: post_id.into(),
+                post_key: post_key.into(),
+                comment_key,
                 text: text.into(),
             },
         )
@@ -1539,7 +1542,8 @@ pub trait Api {
 
     fn get_post_comment(
         &self,
-        post_id: impl Into<String>,
+        post_key: impl Into<String>,
+        comment_key: Option<String>,
         limit: usize,
         time_range: TimeRange,
         order: Order,
@@ -1547,7 +1551,8 @@ pub trait Api {
         self.into_req(
             crate::path::PATH_API_POST_COMMENT_GET,
             ServerReq::GetComments {
-                post_id: post_id.into(),
+                post_key: post_key.into(),
+                comment_key,
                 limit,
                 time_range,
                 order,

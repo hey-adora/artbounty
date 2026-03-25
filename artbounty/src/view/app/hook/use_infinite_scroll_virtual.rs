@@ -1,4 +1,3 @@
-
 use crate::{
     api::{Api, ApiWeb},
     path::{PATH_LOGIN, PATH_UPLOAD, link_settings, link_user},
@@ -37,26 +36,14 @@ pub enum InfiniteStage<ItemData: Clone> {
     Manual,
 }
 
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    PartialOrd,
-    strum::EnumString,
-    strum::Display,
-    strum::EnumIs,
-)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, strum::EnumString, strum::Display, strum::EnumIs)]
 #[strum(serialize_all = "lowercase")]
 pub enum InfiniteMerge<ItemData>
 where
     ItemData: Clone,
 {
-    Top {
-        data: Vec<ItemData>,
-    },
-    Btm {
-        data: Vec<ItemData>,
-    },
+    Top { data: Vec<ItemData> },
+    Btm { data: Vec<ItemData> },
     None,
 }
 
@@ -83,7 +70,7 @@ pub struct DelayedScroll {
     pub new_elm_count: usize,
 }
 
-pub fn use_infinite_scroll<Elm, Fut, ItemData, FnGetData>(
+pub fn use_infinite_scroll_virtual<Elm, Fut, ItemData, FnGetData>(
     infinite_scroll_ref: NodeRef<Elm>,
     callback: FnGetData,
 ) -> InfiniteScroll<ItemData>
@@ -100,6 +87,19 @@ where
     let observer_mutation = RwSignal::new(None::<SendWrapper<MutationObserver>>);
     let delayed_scroll = StoredValue::<Option<DelayedScroll>>::new(None);
     let busy = StoredValue::new(false);
+
+    let has_overflow_scroll = Memo::new(move |_| {
+        let window = window();
+        infinite_scroll_ref
+            .get()
+            .map(|v| Into::<HtmlElement>::into(v))
+            .and_then(|v| window.get_computed_style(&v).ok().flatten())
+            .and_then(|v| v.get_property_value("overflow-y").ok())
+            .inspect(|v| trace!("has_overflow_scroll 0: {v:?}"))
+            .map(|v| v == "scroll")
+            .inspect(|v| trace!("has_overflow_scroll 1: {v:?}"))
+            .unwrap_or_default()
+    });
 
     let get_items = move |stage: InfiniteStage<ItemData>| {
         if busy.get_value() {
@@ -130,9 +130,23 @@ where
                     }
                 };
 
-                let current_data = item_data.get_untracked();
+                let Some(current_data) = item_data.try_get_untracked() else {
+                    return;
+                };
+
                 let height = infinite_scroll_elm.client_height() as f64;
                 let scroll_height = infinite_scroll_elm.scroll_height() as f64;
+
+                trace!("scroll_height: {scroll_height}");
+
+                if !has_overflow_scroll.get_untracked() {
+                    trace!("no view was cropped or scrolled");
+                    let current_data = merge_data(current_data, new_data, is_top);
+                    trace!("settings data: {current_data:#?}");
+                    item_data.set(current_data);
+                    return;
+                }
+
                 let scroll_top = infinite_scroll_elm.scroll_top() as f64;
                 let save_height = if is_top {
                     scroll_top + height
@@ -310,7 +324,6 @@ where
                 let get_items = get_items.clone();
 
                 move |entry, _observer| {
-
                     let Some(entry) = entry.first() else {
                         return;
                     };
@@ -348,7 +361,6 @@ where
                 let get_items = get_items.clone();
 
                 move |entry, _observer| {
-
                     let Some(entry) = entry.first() else {
                         return;
                     };
@@ -492,11 +504,11 @@ fn crop_view(
     elms_len: usize,
     max_remove: usize,
     is_top: bool,
-    height: f64,
+    save_height: f64,
     height_mult: f64,
     scroll_height: f64,
 ) -> Option<(usize, f64)> {
-    let expected_scroll_height = height * height_mult;
+    let expected_scroll_height = save_height * height_mult;
 
     trace!("expected scroll {expected_scroll_height} scroll_top {scroll_height}");
     let mut scroll_height_save = 0.0_f64;
@@ -509,11 +521,16 @@ fn crop_view(
 
     trace!("init index {index}");
 
+    let mut confirm_exit = false;
+
     while let Some(height) = get_elm_height(index) {
-        if scroll_height_save >= expected_scroll_height
-        {
+        if confirm_exit {
             trace!("exiting saving loop");
             break;
+        }
+        if scroll_height_save >= expected_scroll_height {
+            trace!("confirming loop exit");
+            confirm_exit = true;
         }
         trace!("saving {height}");
 
@@ -593,7 +610,7 @@ mod use_infinite_scroll_tests {
 
     use crate::{
         init_test_log,
-        view::app::hook::use_infinite_scroll::{calc_removed, crop_data, crop_view, merge_data},
+        view::app::hook::use_infinite_scroll_virtual::{calc_removed, crop_data, crop_view, merge_data},
     };
 
     #[test]
@@ -622,7 +639,6 @@ mod use_infinite_scroll_tests {
 
         let result = crop_view(get_height, heights_len, 2, false, 10.0, 2.0, scroll_height);
         assert_eq!(result, Some((2, 20.0)));
-
     }
 
     #[test]
@@ -641,4 +657,3 @@ mod use_infinite_scroll_tests {
         assert_eq!(result, vec![7, 8, 9, 10, 11]);
     }
 }
-

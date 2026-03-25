@@ -1,4 +1,3 @@
-
 pub mod prelude {
     pub use super::dropzone::{self, AddDropZone};
     pub use super::event_listener::{self, AddEventListener};
@@ -6,15 +5,17 @@ pub mod prelude {
     pub use super::intersection_observer::{self, AddIntersectionObserver, IntersectionOptions};
     pub use super::interval::{self};
     pub use super::leptos_helpers::{
-        FnGet, Hidden, QueryField, QueryFn, QueryGetter, RwQuery, ToFnOne, ToFnZero, ToQueryField,
+        FnRun, FnRunT0, FnRunT1, Hidden, QueryField, QueryFn, QueryGetter, RwQuery, ToFnT0, ToFnT1, ToQueryField,
     };
     pub use super::mutation_observer::{self, AddMutationObserver, MutationObserverOptions};
     pub use super::random::{random_u8, random_u32, random_u32_ranged, random_u64};
     pub use super::resize_observer::{self, AddResizeObserver, GetContentBoxSize};
+    pub use super::rw_signal_tree::RwSignalTree;
     pub use super::time::{ns_to_str, time_now_ms, time_now_ns};
 }
 
 // TODO fx bs api, create struct abstraction over web api and let user freely use it anywhere
+// TODO edit: good luck wit that mate
 
 pub mod time {
 
@@ -126,6 +127,56 @@ pub mod time {
         }
     }
 }
+pub mod rw_signal_tree {
+    use std::{collections::HashMap, fmt::Debug, hash::Hash};
+    use tracing::trace;
+
+    use leptos::prelude::{LocalStorage, RwSignal, UpdateUntracked, on_cleanup};
+
+    // pub enum RwSignalKind<K, T> {
+    //     Root(T),
+    //     Two
+    // }
+
+    pub struct RwSignalTree<K, T> {
+        // pub rw_signal: RwSignal<HashMap<K, T>, LocalStorage>
+        pub root: RwSignal<HashMap<K, RwSignal<T, LocalStorage>>, LocalStorage>, // pub rw_signal: RwSignal<HashMap<K, RwSignal<T, LocalStorage>>, LocalStorage>
+    }
+
+    impl<K: 'static + Eq + Hash + Clone + Debug + Sync + Send, T: 'static> RwSignalTree<K, T> {
+        //
+        pub fn new_root() -> RwSignalTree<K, T> {
+            Self {
+                root: RwSignal::new_local(HashMap::new()),
+            }
+        }
+
+        pub fn leaf(&self, key: K, value_default: T) -> RwSignal<T, LocalStorage> {
+            let root = self.root.clone();
+            root.try_update_untracked(|v| {
+                v.entry(key.clone())
+                    .or_insert_with(|| {
+                        let signal = RwSignal::new_local(value_default);
+
+                        on_cleanup(move || {
+                            trace!("rw_signal_tree: ATTEMPTING to remove {key:?}");
+                            root.try_update_untracked(|v| {
+                                let result = v.remove(&key);
+                                if result.is_some() {
+                                    trace!("rw_signal_tree: removed {key:?}");
+                                }
+                            });
+                        });
+
+                        signal
+                    })
+                    .clone()
+            })
+            .unwrap()
+            // TODO i hope this doesnt explode
+        }
+    }
+}
 
 pub mod leptos_helpers {
 
@@ -204,7 +255,7 @@ pub mod leptos_helpers {
         fn hide_if_false(&self) -> &'static str;
     }
 
-    impl<T: FnGet<bool>> Hidden for T {
+    impl<T: FnRunT0<bool>> Hidden for T {
         fn hide_if_true(&self) -> &'static str {
             if self.run() { "hidden" } else { "visible" }
         }
@@ -359,37 +410,84 @@ pub mod leptos_helpers {
         }
     }
 
-    pub trait FnGet<T: Send + Sync + Clone + 'static> {
-        fn run(&self) -> T;
+    pub trait FnRun<O, T> {
+        fn run(&self, t: T) -> O;
     }
 
-    impl<T: Send + Sync + Clone + 'static> FnGet<T>
-        for StoredValue<Box<dyn Fn() -> T + Sync + Send + 'static>>
+    impl<O, F: Fn() -> O > FnRun<O, ()> for F {
+        fn run(&self, _: ()) -> O {
+            (self)()
+        }
+    }
+
+    impl<O, T1,  F: Fn(T1) -> O > FnRun<O, (T1,)> for F {
+        fn run(&self, (t1,): (T1,)) -> O {
+            (self)(t1)
+        }
+    }
+
+    pub trait FnRunT0<O: Send + Sync + Clone + 'static> {
+        fn run(&self) -> O;
+    }
+
+    pub trait FnRunT1<O: Send + Sync + Clone + 'static, T1: 'static> {
+        fn run(&self, t1: T1) -> O;
+    }
+
+    pub trait FnRunT2<O: Send + Sync + Clone + 'static, T1, T2> {
+        fn run(&self, t1: T1, t2: T2) -> O;
+    }
+
+    impl<O: Send + Sync + Clone + 'static> FnRunT0<O>
+        for StoredValue<Box<dyn Fn() -> O + Sync + Send + 'static>>
     {
-        fn run(&self) -> T {
+        fn run(&self) -> O {
             self.to_fn()()
         }
     }
 
-    pub trait ToFnZero<'a, T: 'static> {
+    impl<O: Send + Sync + Clone + 'static, T1: 'static> FnRunT1<O, T1>
+        for StoredValue<Box<dyn Fn(T1) -> O + Sync + Send + 'static>>
+    {
+        fn run(&self, t1: T1) -> O {
+            self.to_fn()(t1)
+        }
+    }
+
+    pub trait ToFnT0<'a, T: 'static> {
         fn to_fn(&self)
         -> impl Fn() -> T + Send + Sync + Clone + Copy + 'static + use<'a, Self, T>;
     }
 
-    impl<'a, T: 'static> ToFnZero<'a, T> for StoredValue<Box<dyn Fn() -> T + Sync + Send + 'static>> {
+    impl<'a, T: 'static> ToFnT0<'a, T> for StoredValue<Box<dyn Fn() -> T + Sync + Send + 'static>> {
         fn to_fn(&self) -> impl Fn() -> T + Send + Sync + Clone + Copy + 'static + use<'a, T> {
             let f = self.clone();
             move || (f.read_value())()
         }
     }
 
-    pub trait ToFnOne<'a, T: 'static, P1> {
-        fn to_fn(
-            &self,
-        ) -> impl Fn(P1) -> T + Send + Sync + Clone + Copy + 'static + use<'a, Self, T, P1>;
+    impl<'a, O: 'static> ToFnT0<'a, O> for StoredValue<Box<dyn FnRun<O, ()> + Sync + Send + 'static>> {
+        fn to_fn(&self) -> impl Fn() -> O + Send + Sync + Clone + Copy + 'static + use<'a, O> {
+            let f = self.clone();
+            move || f.read_value().run(())
+        }
     }
 
-    impl<'a, T: 'static, P1: 'static> ToFnOne<'a, T, P1>
+    impl<'a, O: 'static, T1: 'static> ToFnT1<'a, O, T1> for StoredValue<Box<dyn FnRun<O, (T1, )> + 'static>, LocalStorage> {
+        fn to_fn(&self) -> impl Fn(T1) -> O  + 'static + use<'a, O, T1> {
+            let f = self.clone();
+            move |t1: T1| f.read_value().run((t1, ))
+        }
+    }
+
+    pub trait ToFnT1<'a, T: 'static, P1> {
+        fn to_fn(
+            &self,
+        ) -> impl Fn(P1) -> T + 'static + use<'a, Self, T, P1>;
+        // ) -> impl Fn(P1) -> T + Send + Sync + Clone + Copy + 'static + use<'a, Self, T, P1>;
+    }
+
+    impl<'a, T: 'static, P1: 'static> ToFnT1<'a, T, P1>
         for StoredValue<Box<dyn Fn(P1) -> T + Sync + Send + 'static>>
     {
         fn to_fn(
@@ -813,33 +911,33 @@ pub mod mutation_observer {
             Self::default()
         }
 
-        pub fn set_child_list(mut self, value: bool) -> Self {
-            self.child_list = value;
+        pub fn set_child_list(mut self) -> Self {
+            self.child_list = true;
             self
         }
 
-        pub fn set_attributes(mut self, value: bool) -> Self {
-            self.attributes = value;
+        pub fn set_attributes(mut self) -> Self {
+            self.attributes = true;
             self
         }
 
-        pub fn subtree(mut self, value: bool) -> Self {
-            self.subtree = value;
+        pub fn subtree(mut self) -> Self {
+            self.subtree = true;
             self
         }
 
-        pub fn character_data(mut self, value: bool) -> Self {
-            self.character_data = value;
+        pub fn character_data(mut self) -> Self {
+            self.character_data = true;
             self
         }
 
-        pub fn attribute_old_value(mut self, value: bool) -> Self {
-            self.attribute_old_value = value;
+        pub fn attribute_old_value(mut self) -> Self {
+            self.attribute_old_value = true;
             self
         }
 
-        pub fn character_data_old_value(mut self, value: bool) -> Self {
-            self.character_data_old_value = value;
+        pub fn character_data_old_value(mut self) -> Self {
+            self.character_data_old_value = true;
             self
         }
     }
@@ -1294,7 +1392,6 @@ pub mod file {
 }
 
 pub mod dropzone {
-
 
     use std::{cell::RefCell, fmt::Display, future::Future, rc::Rc};
 
