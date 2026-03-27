@@ -42,31 +42,41 @@ pub fn Page() -> impl IntoView {
     let location = use_location();
 
     // let rw_signal_tree = RwSignalTree::<String, Vec<UserPostComment>>::new_root();
+
+    // let infinite_fn = InfiniteScrollFn::new(move |v| {
+    //     debug!("boopboopbaap");
+    // });
+    //
+    // Effect::new(move || {
+    //     let Some(elm) = comment_container_ref.get() else {
+    //         return;
+    //     };
+    //
+    //     (infinite_fn.on.to_fn())(elm.into());
+    // });
+
     let comment_container_ref = NodeRef::<html::Div>::new();
-
-    let infinite_fn = InfiniteScrollFn::new(move |v| {
-        debug!("boopboopbaap");
-    });
-
-    Effect::new(move || {
-        let Some(elm) = comment_container_ref.get() else {
-            return;
-        };
-
-        (infinite_fn.on.to_fn())(elm.into());
-    });
-
     let comment_input_ref = NodeRef::<html::Textarea>::new();
-
     let comment_basic = CommentsBaisc::new();
+    let post_comment = move |e: SubmitEvent| {
+        e.prevent_default();
+        comment_basic.post.run();
+    };
     Effect::new(move || {
         trace!("comments basic start");
-        let (Some(elm), Some(post_id)) = (comment_container_ref.get(), param_post.get()) else {
+        let (Some(post_id), Some(comment_input)) = (param_post.get(), comment_input_ref.get())
+        else {
             return;
         };
 
         trace!("comments basic observe");
-        comment_basic.observe_only(elm, post_id, String::new(), 10);
+        comment_basic.observe_only(
+            comment_input,
+            comment_container_ref,
+            post_id,
+            String::new(),
+            50,
+        );
     });
 
     // let post_comments = use_post_comment(
@@ -296,10 +306,10 @@ pub fn Page() -> impl IntoView {
                             </div>
                         </div>
                         // <form class=move || format!("flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 {}", if global_state.is_logged_in().unwrap_or_default()  { "" } else { "hidden" }) on:submit=post_comments.on_comment.to_fn() >
-                        <form class=move || format!("flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 {}", if global_state.is_logged_in().unwrap_or_default()  { "" } else { "hidden" })  >
+                        <form class=move || format!("flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 {}", if global_state.is_logged_in().unwrap_or_default()  { "" } else { "hidden" })  on:submit=post_comment>
                             <textarea placeholder="Comment" node_ref=comment_input_ref class="focus:outline-none! appearance-none border-none resize text-[1.1rem]" id="story" name="story" rows="5" cols="30" ></textarea>
                             <ul class="text-base08 list-disc ml-[1rem]">
-                                // {move || post_comments.err_post.get().map(|v| v.trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view()) }
+                                {move || comment_basic.err_post.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                             </ul>
                             <div class="flex justify-between place-items-center">
                                 <p>"0/2000"</p>

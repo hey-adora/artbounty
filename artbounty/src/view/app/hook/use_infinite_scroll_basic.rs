@@ -61,7 +61,9 @@ where
             trace!("infinite basic callback");
             let callback = callback.clone();
             async move {
-                let mut v = scroll_items.write();
+                let Some(mut v) = scroll_items.try_write() else {
+                    return;
+                };
                 callback(&mut *v, a).await;
             }
         });
