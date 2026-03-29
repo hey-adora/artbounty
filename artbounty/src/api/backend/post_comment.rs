@@ -69,6 +69,7 @@ pub async fn get_post_comment(
         limit,
         time_range,
         order,
+        flatten,
     } = req
     else {
         return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
@@ -83,7 +84,7 @@ pub async fn get_post_comment(
             time,
             post_key.clone(),
             comment_key.clone(),
-            false,
+            flatten,
             limit,
             time_range,
             order,
@@ -168,7 +169,7 @@ mod tests {
             self.set_time(server_time).await;
             let result = self
                 .api
-                .get_post_comment(post_key, comment_key, limit, time_range, order)
+                .get_post_comment(post_key, comment_key, limit, time_range, order, false)
                 .send_native_with_token(auth_token)
                 .await;
 

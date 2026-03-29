@@ -427,6 +427,7 @@ pub enum ServerReq {
         limit: usize,
         time_range: TimeRange,
         order: Order,
+        flatten: bool,
     },
     PostId {
         post_id: String,
@@ -1529,7 +1530,12 @@ pub trait Api {
         )
     }
     // post comment
-    fn add_post_comment(&self, post_key: impl Into<String>, comment_key: Option<String>, text: impl Into<String>) -> ApiReq {
+    fn add_post_comment(
+        &self,
+        post_key: impl Into<String>,
+        comment_key: Option<String>,
+        text: impl Into<String>,
+    ) -> ApiReq {
         self.into_req(
             crate::path::PATH_API_POST_COMMENT_ADD,
             ServerReq::AddPostComment {
@@ -1547,6 +1553,7 @@ pub trait Api {
         limit: usize,
         time_range: TimeRange,
         order: Order,
+        flatten: bool,
     ) -> ApiReq {
         self.into_req(
             crate::path::PATH_API_POST_COMMENT_GET,
@@ -1556,6 +1563,7 @@ pub trait Api {
                 limit,
                 time_range,
                 order,
+                flatten,
             },
         )
     }

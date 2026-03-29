@@ -87,10 +87,9 @@ impl InfiniteScrollFn {
             trace!("infinite scroll fn running ON {html}");
             mutation.observe_only(
                 target,
-                MutationObserverOptions::new()
-                    .subtree()
-                    .character_data()
-                    .set_child_list(),
+                MutationObserverOptions::new().set_child_list(),
+                // .subtree()
+                // .character_data()
             );
         };
 
