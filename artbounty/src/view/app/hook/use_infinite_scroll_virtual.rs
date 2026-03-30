@@ -480,8 +480,8 @@ where
 
         let options = MutationObserverInit::new();
         options.set_child_list(true);
-        options.set_character_data(true);
-        options.set_subtree(true);
+        // options.set_character_data(true);
+        // options.set_subtree(true);
 
         let _ = new_mutation_observer
             .observe_with_options(&infinite_scroll_elm, &options)

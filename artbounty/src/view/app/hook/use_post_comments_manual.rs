@@ -18,6 +18,7 @@ use web_sys::{Element, HtmlElement, HtmlTextAreaElement, MutationObserver, Mutat
 
 #[derive(Clone, Copy)]
 pub struct CommentsManual {
+    pub reply_editor_show: RwSignal<bool, LocalStorage>,
     pub finished: RwSignal<bool, LocalStorage>,
     pub items: RwSignal<Vec<UserPostComment>, LocalStorage>,
     pub err_post: RwSignal<String, LocalStorage>,
@@ -43,6 +44,7 @@ impl CommentsManual {
         let comment_key = StoredValue::new_local(String::new());
         let fetch_count = StoredValue::new_local(50_usize);
         let flatten = StoredValue::new_local(false);
+        let reply_editor_show = RwSignal::new_local(false);
         let input_elm = StoredValue::new_local(None::<HtmlTextAreaElement>);
         let items =
             parent_items.unwrap_or_else(|| RwSignal::new_local(Vec::<UserPostComment>::new()));
@@ -118,6 +120,7 @@ impl CommentsManual {
                     }
                     trace!("comments basic extended");
                     items.extend(comments);
+                    // reply_editor_show.set(false);
                 }
                 Ok(err) => {
                     let err = format!("post comments basic: unexpected res: {err:?}");
@@ -174,6 +177,7 @@ impl CommentsManual {
                     } else {
                         items.insert(0, comment);
                     }
+                    reply_editor_show.set(false);
                 }
                 Ok(err) => {
                     let err = format!("post comments basic: unexpected res: {err:?}");
@@ -212,6 +216,7 @@ impl CommentsManual {
         };
 
         Self {
+            reply_editor_show,
             err_post,
             items,
             finished,

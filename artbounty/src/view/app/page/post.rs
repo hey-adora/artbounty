@@ -55,6 +55,16 @@ pub fn Page() -> impl IntoView {
     //
     //     (infinite_fn.on.to_fn())(elm.into());
     // });
+    let virt_comment_input_ref = NodeRef::<html::Textarea>::new();
+    let virt_comment_container_ref = NodeRef::<html::Div>::new();
+    let post_comments = use_post_comment(
+        false,
+        10,
+        virt_comment_container_ref,
+        virt_comment_input_ref,
+        param_post,
+        None::<String>,
+    );
 
     let comment_container_ref = NodeRef::<html::Div>::new();
     let comment_input_ref = NodeRef::<html::Textarea>::new();
@@ -83,14 +93,6 @@ pub fn Page() -> impl IntoView {
         );
     });
 
-    let post_comments = use_post_comment(
-        false,
-        10,
-        comment_container_ref,
-        comment_input_ref,
-        param_post,
-        None::<String>,
-    );
     // let post_comment_views = move || {
     //     let time_now = global_state.get_time_ns();
     //
@@ -252,7 +254,6 @@ pub fn Page() -> impl IntoView {
                 .collect_view()
     };
 
-
     view! {
         <main node_ref=main_ref class="relative font-hi grid grid-rows-[auto_1fr] h-screen text-base05">
             <Nav/>
@@ -261,10 +262,23 @@ pub fn Page() -> impl IntoView {
                 "Not Found"
             </div>
 
-            <div class="absolute w-[100dvw] h-[100dvh]">
-                "hello"
-
-            </div>
+            // <div class="z-20 fixed bg-base00 w-[100dvw] h-[100dvh] grid grid-rows-1">
+            //     <div node_ref=virt_comment_container_ref class=" flex flex-col gap-2 relative overflow-y-scroll">
+            //         <For
+            //             each=move || post_comments.data.get()
+            //             key=|state| state.key.clone()
+            //             let(data)
+            //         >
+            //             {
+            //                 view!{
+            //                     <PostCommentElm comment=data parent_items=None param_post max_depth=2 parent_depth=0 />
+            //                 }.into_any()
+            //             }
+            //         </For>
+            //         // { post_comment_views }
+            //     </div>
+            //
+            // </div>
 
             <div class=move || format!("flex flex-col lg:grid grid-cols-[2fr_1fr] grid-cols-[2fr_1fr] lg:max-h-[calc(100vh-3rem)] gap-2 px-2 md:gap-6 md:px-6 {}", if not_found.get() {"hidden"} else {"flex"})>
                 <div class="lg:hidden h-[50vh] flex justify-center place-items-center bg-base02" >
@@ -388,7 +402,7 @@ pub fn PostCommentElm(
     let comment_input_ref = NodeRef::<html::Textarea>::new();
     let flatten = current_depth >= max_depth;
     let reply_render_comments = current_depth <= max_depth;
-    let reply_btn_shown = RwSignal::new(false);
+    // let reply_btn_shown = RwSignal::new(false);
     let replies_shown = RwSignal::new(false);
 
     let comments_manual = CommentsManual::new(
@@ -404,7 +418,16 @@ pub fn PostCommentElm(
         trace!("comments manual posting 0");
         comments_manual.post();
         trace!("comments manual posting");
-        reply_btn_shown.update(|v| *v = !*v)
+        // reply_btn_shown.update(|v| *v = !*v)
+    };
+    let toggle_btn = move |_| {
+        comments_manual.reply_editor_show.update(|v| *v = !*v);
+        let show = comments_manual.reply_editor_show.get_untracked();
+        if !show {
+            return;
+        }
+        replies_shown.set(true);
+        comments_manual.fetch_btm();
     };
     let toggle_replies = move |_| {
         trace!("KILL ME YOU FUCK");
@@ -417,9 +440,9 @@ pub fn PostCommentElm(
         trace!("KILL ME YOU FUCK 3 {show}");
         comments_manual.fetch_btm();
     };
-    let fetch_comment_btm = move |_| {
-        comments_manual.fetch_btm();
-    };
+    // let fetch_comment_btm = move |_| {
+    //     comments_manual.fetch_btm();
+    // };
 
     Effect::new(move || {
         trace!("comments manual start");
@@ -461,17 +484,17 @@ pub fn PostCommentElm(
                             </Show>
                         </button>
                     </Show>
-                    <button on:click=move |_| reply_btn_shown.update(|v| *v = !*v ) type="submit" class=move || format!("mb-4  rounded-full font-semibold text-[1rem] font-medium px-[0.8rem] py-[0.2rem] w-[5rem]  {}", if reply_btn_shown.get() { "text-base05 bg-base01 hover:bg-base02" } else { "text-base01 bg-base0D hover:bg-base05" })>
-                        <Show when=move || reply_btn_shown.get() fallback=|| "Reply">
+                    <button on:click=toggle_btn type="submit" class=move || format!("mb-4  rounded-full font-semibold text-[1rem] font-medium px-[0.8rem] py-[0.2rem] w-[5rem]  {}", if comments_manual.reply_editor_show.get() { "text-base05 bg-base01 hover:bg-base02" } else { "text-base01 bg-base0D hover:bg-base05" })>
+                        <Show when=move || comments_manual.reply_editor_show.get() fallback=|| "Reply">
                             <SVGArrowDown class="size-6 mx-auto"/>
                         </Show>
                     </button>
                 </div>
                 <div>
                     // <form class=move || format!("mb-4 flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 w-full {}", if global_state.is_logged_in().unwrap_or_default() || !global_state.acc_pending() { "" } else { "hidden" }) on:submit=post_comments.on_comment.to_fn() >
-                    <Show when=move || reply_btn_shown.get()>
+                    <Show when=move || comments_manual.reply_editor_show.get()>
                         <div class=move || format!("mb-4 flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 w-full {}", if global_state.is_logged_in().unwrap_or_default() || !global_state.acc_pending() { "" } else { "hidden" })  >
-                            <textarea placeholder="Comment" node_ref=comment_input_ref class="focus:outline-none! appearance-none border-none resize text-[1.1rem] w-full" id="story" name="story" rows="5"  ></textarea>
+                            <textarea placeholder="Comment" node_ref=comment_input_ref class="focus:outline-none! appearance-none border-none resize text-[1.1rem] w-full" id="story" name="story" rows="2"  ></textarea>
                             // <ul class="text-base08 list-disc ml-[1rem]">
                             //     {move || post_comments.err_post.get().map(|v| v.trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view()) }
                             // </ul>on:submit=post_comment
@@ -486,7 +509,8 @@ pub fn PostCommentElm(
                             </div>
                         </div>
                     </Show>
-                    <Show when=move || reply_render_comments && (replies_shown.get() || reply_btn_shown.get())>
+                    // <Show when=move || reply_render_comments && (replies_shown.get() || comments_manual.reply_editor_show.get())>
+                    <Show when=move || (reply_render_comments && replies_shown.get()) || (reply_render_comments && comments_manual.reply_editor_show.get())>
                         <div node_ref=comment_container_ref class="0h-[20rem] 0overflow-y-scroll">
                             <For
                                 each=move || comments_manual.items.get()
@@ -499,7 +523,7 @@ pub fn PostCommentElm(
                                     }.into_any()
                                 }
                             </For>
-                            <button on:click=fetch_comment_btm class=move || format!("px-4 py-2 bg-base01 rounded-xl text-center text-base05 font-[1.2rem] w-full {}", if comments_manual.finished.get() {"hidden"} else {""})>
+                            <button on:click=move |_| comments_manual.fetch_btm.run() class=move || format!("px-4 py-2 bg-base01 rounded-xl text-center text-base05 font-[1.2rem] w-full {}", if comments_manual.finished.get() {"hidden"} else {""})>
                                 "load more"
                             </button>
                         </div>

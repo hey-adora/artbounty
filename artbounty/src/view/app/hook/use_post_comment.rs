@@ -15,6 +15,7 @@ pub trait SizedIntoView: IntoView + Sized {}
 
 #[derive(Clone, Copy)]
 pub struct PostComment {
+    pub reply_editor_show: RwSignal<bool, LocalStorage>,
     pub err_post: RwQuery<String>,
     pub data: RwSignal<Vec<UserPostComment>, LocalStorage>,
     pub on_comment: StoredValue<Box<dyn Fn(SubmitEvent) + Sync + Send + 'static>>,
@@ -50,6 +51,7 @@ where
     let api = ApiWeb::new();
 
     let err_post = RwQuery::<String>::new(PostCommentFields::ErrPost.to_string());
+    let reply_editor_show = RwSignal::new_local(false);
 
     let infinite_fn = move |stage: InfiniteStage<UserPostComment>| {
         let comment_key = comment_key.clone();
@@ -121,6 +123,7 @@ where
 
             let datas = match result {
                 Ok(ServerRes::Comment(comment)) => {
+                    reply_editor_show.set(false);
                     let Some(text_input) = text_area_ref.get_untracked() else {
                         return InfiniteMerge::None;
                     };
@@ -131,6 +134,7 @@ where
                     InfiniteMerge::Top { data: comments }
                 }
                 Ok(ServerRes::Comments(comments)) => {
+                    // reply_editor_show.set(false);
                     if is_top {
                         InfiniteMerge::Top {
                             data: comments.into_iter().rev().collect(),
@@ -176,6 +180,7 @@ where
 
     PostComment {
         err_post,
+        reply_editor_show,
         data: infinte.data,
         on_comment: StoredValue::new(Box::new(on_comment)),
     }

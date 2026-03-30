@@ -20,6 +20,7 @@ use web_sys::{Element, HtmlElement, HtmlTextAreaElement, MutationObserver, Mutat
 
 #[derive(Copy, Clone)]
 pub struct CommentsBaisc {
+    pub reply_editor_show: RwSignal<bool, LocalStorage>,
     pub err_post: RwSignal<String, LocalStorage>,
     pub items: RwSignal<Vec<UserPostComment>, LocalStorage>,
     pub observer: StoredValue<
@@ -53,6 +54,7 @@ impl CommentsBaisc {
         };
 
         Self {
+            reply_editor_show: comments_manual.reply_editor_show,
             err_post: comments_manual.err_post,
             items: comments_manual.items,
             observer: StoredValue::new_local(Box::new(observer)),
