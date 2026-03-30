@@ -9,10 +9,10 @@ rustflags = [
     "target-feature=+aes,+sse2",
     "-Z",
     "share-generics=y",
-    "-Z",
-    "threads=4",
-    # "-C",
-    # "prefer-dynamic",
+    # "-Z",
+    # "threads=4",
+    "-C",
+    "prefer-dynamic",
     "--cfg",
     "erase_components",
 ]
@@ -59,9 +59,9 @@ debug = "none"
 strip = "none"
 
 [profile.dev.package."*"]
-opt-level = 0
+opt-level = "z"
 codegen-backend = "llvm"
 
 [profile.dev.package.gxhash]
-opt-level = 0
+opt-level = "z"
 codegen-backend = "llvm"

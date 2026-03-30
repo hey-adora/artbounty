@@ -83,14 +83,14 @@ pub fn Page() -> impl IntoView {
         );
     });
 
-    // let post_comments = use_post_comment(
-    //     false,
-    //     10,
-    //     comment_container_ref,
-    //     comment_input_ref,
-    //     param_post,
-    //     None::<String>,
-    // );
+    let post_comments = use_post_comment(
+        false,
+        10,
+        comment_container_ref,
+        comment_input_ref,
+        param_post,
+        None::<String>,
+    );
     // let post_comment_views = move || {
     //     let time_now = global_state.get_time_ns();
     //
@@ -252,12 +252,18 @@ pub fn Page() -> impl IntoView {
                 .collect_view()
     };
 
+
     view! {
-        <main node_ref=main_ref class="font-hi grid grid-rows-[auto_1fr] h-screen text-base05">
+        <main node_ref=main_ref class="relative font-hi grid grid-rows-[auto_1fr] h-screen text-base05">
             <Nav/>
 
             <div class=move || format!("place-items-center text-[1.5rem] {}", if not_found.get() {"grid"} else {"hidden"})>
                 "Not Found"
+            </div>
+
+            <div class="absolute w-[100dvw] h-[100dvh]">
+                "hello"
+
             </div>
 
             <div class=move || format!("flex flex-col lg:grid grid-cols-[2fr_1fr] grid-cols-[2fr_1fr] lg:max-h-[calc(100vh-3rem)] gap-2 px-2 md:gap-6 md:px-6 {}", if not_found.get() {"hidden"} else {"flex"})>
