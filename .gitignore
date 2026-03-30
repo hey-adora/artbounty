@@ -23,7 +23,7 @@ target2
 test2
 .vscode
 cache
-db
+db00
 remote_db
 remote_db2
 remote_db_mut

@@ -9,7 +9,7 @@ secret = "wowza"
 invite_exp_ns = 1800000000000
 
 [db]
-path = "db"
+path = "db00"
 site_root = "target/site"
 site_pkg_dir = "pkg"
 tailwind_input_file = "style/tailwind.css"
