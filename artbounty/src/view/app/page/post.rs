@@ -57,14 +57,14 @@ pub fn Page() -> impl IntoView {
     // });
     let virt_comment_input_ref = NodeRef::<html::Textarea>::new();
     let virt_comment_container_ref = NodeRef::<html::Div>::new();
-    let post_comments = use_post_comment(
-        false,
-        10,
-        virt_comment_container_ref,
-        virt_comment_input_ref,
-        param_post,
-        None::<String>,
-    );
+    // let post_comments = use_post_comment(
+    //     false,
+    //     10,
+    //     virt_comment_container_ref,
+    //     virt_comment_input_ref,
+    //     param_post,
+    //     None::<String>,
+    // );
 
     let comment_container_ref = NodeRef::<html::Div>::new();
     let comment_input_ref = NodeRef::<html::Textarea>::new();
@@ -463,6 +463,9 @@ pub fn PostCommentElm(
     // };
 
     Effect::new(move || {
+        if !reply_render_comments {
+            return;
+        }
         trace!("comments manual start");
         let (Some(post_id),) = (
             param_post.get(),
@@ -552,8 +555,8 @@ pub fn PostCommentElm(
 
                 <div class="flex flex-col w-full">
                     // <Show when=move || reply_render_comments && (replies_shown.get() || comments_manual.reply_editor_show.get())>
-                    <Show when=show_replies_fn>
-                        <div node_ref=comment_container_ref class="0h-[20rem] 0overflow-y-scroll">
+                    <Show when=move || reply_render_comments>
+                        <div node_ref=comment_container_ref class=move || format!("0h-[20rem] 0overflow-y-scroll {} ", if show_replies_fn() {""} else {"hidden"} )>
                             <For
                                 each=move || comments_manual.items.get()
                                 key=|state| state.key.clone()
