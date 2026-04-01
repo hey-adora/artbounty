@@ -49,6 +49,12 @@ impl CommentsManual {
         let items =
             parent_items.unwrap_or_else(|| RwSignal::new_local(Vec::<UserPostComment>::new()));
 
+        on_cleanup(move || {
+            items.update(move |v| {
+                v.clear();
+            });
+        });
+
         let fetch_btm = FutureFn::new(move || async move {
             let (post_id, comment_key) = {
                 let post_id = post_key.get_value();
