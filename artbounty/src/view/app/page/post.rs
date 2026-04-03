@@ -3,6 +3,7 @@ use crate::api::{Api, ApiWeb, Server404Err, ServerErr};
 use crate::path::{PATH_LOGIN, link_home, link_img, link_user};
 use crate::view::app::GlobalState;
 use crate::view::app::components::nav::Nav;
+use crate::view::app::hook::use_event_listener::EventListener;
 use crate::view::app::hook::use_infinite_scroll_fn::InfiniteScrollFn;
 use crate::view::app::hook::use_infinite_scroll_virtual::{
     InfiniteStage, use_infinite_scroll_virtual,
@@ -13,11 +14,11 @@ use crate::view::app::hook::use_post_comments_manual::CommentsManual;
 use crate::view::app::hook::use_post_like::{self, PostLikeStage, use_post_like};
 use crate::view::toolbox::prelude::*;
 use leptos::{Params, task::spawn_local};
-use leptos::{html, prelude::*};
+use leptos::{ev, html, prelude::*};
 use leptos_router::hooks::{use_location, use_params};
 use leptos_router::params::Params;
 use tracing::{debug, error, trace};
-use web_sys::SubmitEvent;
+use web_sys::{Event, SubmitEvent};
 
 #[derive(Params, PartialEq, Clone)]
 pub struct PostParams {
@@ -411,17 +412,24 @@ pub fn PostCommentElm(
     let current_depth = parent_depth + 1;
     let global_state = expect_context::<GlobalState>();
     let comment_container_ref = NodeRef::<html::Div>::new();
+    let comment_edit_ref = NodeRef::<html::Textarea>::new();
     let comment_input_ref = NodeRef::<html::Textarea>::new();
     let flatten = current_depth >= max_depth;
     let reply_render_comments = current_depth <= max_depth;
     // let reply_btn_shown = RwSignal::new(false);
     let replies_shown = RwSignal::new(false);
+    // let replies_count = RwSignal::new(comment.replies_count);
     // let is_last = {
     //     let key = comment.key.clone();
     //     move || {
     //         parent_items.with(|v| v.map(|v| v.))
     //     }
     // };
+
+    let comment_edit_event = EventListener::new(ev::change, |a| {
+
+        //
+    });
 
     let comments_manual = CommentsManual::new(
         if current_depth > max_depth {
@@ -463,9 +471,9 @@ pub fn PostCommentElm(
     // };
 
     Effect::new(move || {
-        if !reply_render_comments {
-            return;
-        }
+        // if !reply_render_comments {
+        //     return;
+        // }
         trace!("comments manual start");
         let (Some(post_id),) = (
             param_post.get(),
@@ -506,16 +514,27 @@ pub fn PostCommentElm(
                         <SVGTrash class="size-6 ml-auto"/>
                     </div>
 
-                    <div class=" mb-2 text-[1.1rem] break-all"> {comment.text} </div>
-                    <div class="flex gap-2 place-items-center">
-                        <Show when=move || reply_render_comments>
+
+                    <textarea node_ref=comment_edit_ref class=" text-[1.1rem] break-all focus:outline-none! appearance-none border-none resize text-[1.1rem] w-full" rows="1" wrap="hard"  >{comment.text}</textarea>
+                    // <div class=" mb-2 text-[1.1rem] break-all"> {comment.text} </div>
+                    <div class="mb-2 flex gap-2 place-items-center">
+                        <Show when=move || reply_render_comments >
                             // <button on:click=toggle_replies type="submit" class=move || format!("group  gap-1 flex place-items-center rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] py-[0.2rem]  {}", if replies_shown.get() { "text-base05 bg-base01 hover:bg-base03" } else { "text-base05 bg-base01 hover:bg-base05 hover:text-base01" })>
-                            <button on:click=toggle_replies type="submit" class=move || format!("group  gap-1 flex place-items-center rounded-full font-semibold text-[0.8rem] font-medium ")>
-                                <Show when=move || replies_shown.get() fallback={|| view!{<div class="0group-hover:bg-base01 size-3 bg-base05 aspect-square rounded mx-auto"/>}}>
-                                    <SVGTriangle class="size-3 mx-auto"/>
-                                </Show>
-                                "500 replies"
-                            </button>
+                            <Show when=move || {(comments_manual.reply_count.get() + comment.replies_count) > 0} fallback=move || view!{
+                                <p class=move || format!("group text-base03 gap-1 flex place-items-center rounded-full font-semibold text-[0.8rem] font-medium ")>
+                                    <div class="0group-hover:bg-base01 size-3 bg-base03 aspect-square rounded mx-auto"/>
+                                    "no replies"
+                                </p>
+
+                            }>
+                                <button on:click=toggle_replies class=move || format!("group  gap-1 flex place-items-center rounded-full font-semibold text-[0.8rem] font-medium ")>
+                                    <Show when=move || replies_shown.get() fallback={|| view!{<div class="0group-hover:bg-base01 size-3 bg-base05 aspect-square rounded mx-auto"/>}}>
+                                        <SVGTriangle class="size-3 mx-auto"/>
+                                    </Show>
+                                    {move || (comments_manual.reply_count.get() + comment.replies_count)}
+                                    " replies"
+                                </button>
+                            </Show>
                         </Show>
                         <button on:click=toggle_btn type="submit" class=move || format!("  rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] py-[0.2rem] w-[5rem]  {}", if comments_manual.reply_editor_show.get() { "text-base05 bg-base01 hover:bg-base03" } else { "text-base05 bg-base01 hover:bg-base05 hover:text-base01" })>
                             <Show when=move || comments_manual.reply_editor_show.get() fallback=|| "Reply">
@@ -525,7 +544,7 @@ pub fn PostCommentElm(
                     </div>
                     <Show when=move || comments_manual.reply_editor_show.get()>
                         <div class=move || format!("mb-4 flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 w-full {}", if global_state.is_logged_in().unwrap_or_default() || !global_state.acc_pending() { "" } else { "hidden" })  >
-                            <textarea placeholder="Comment" node_ref=comment_input_ref class="focus:outline-none! appearance-none border-none resize text-[1.1rem] w-full" id="story" name="story" rows="2"  ></textarea>
+                            <textarea placeholder="Comment" node_ref=comment_input_ref class="focus:outline-none! appearance-none border-none resize text-[1.1rem] w-full" rows="2" wrap="hard"  ></textarea>
                             // <ul class="text-base08 list-disc ml-[1rem]">
                             //     {move || post_comments.err_post.get().map(|v| v.trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view()) }
                             // </ul>on:submit=post_comment
@@ -542,7 +561,7 @@ pub fn PostCommentElm(
                     </Show>
                 </div>
             </div>
-            <div class="flex w-full">
+            <div class="grid grid-rows-[100%] grid-cols-[auto_1fr] w-full">
                 <Show when=show_line>
                     <div class="relative w-[3.2rem] h-full flex justify-center shrink-0">
                         <div class="w-[1.7rem] h-[1.61rem] border-base05 border-l-[0.2rem] border-b-[0.2rem] rounded-bl-[2rem] ml-auto box-border shrink-0"></div>

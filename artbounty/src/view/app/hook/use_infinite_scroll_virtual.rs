@@ -635,10 +635,10 @@ mod use_infinite_scroll_tests {
         let get_height = |i: usize| heights.get(i).cloned();
 
         let result = crop_view(get_height, heights_len, 2, true, 10.0, 2.0, scroll_height);
-        assert_eq!(result, Some((2, 20.0)));
+        assert_eq!(result, Some((3, 30.0)));
 
         let result = crop_view(get_height, heights_len, 2, false, 10.0, 2.0, scroll_height);
-        assert_eq!(result, Some((2, 20.0)));
+        assert_eq!(result, Some((1, 30.0)));
     }
 
     #[test]

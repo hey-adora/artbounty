@@ -23,6 +23,7 @@ pub struct DBPostComment {
     pub id: RecordId,
     pub user: DBUser,
     pub post: RecordId,
+    pub replies_count: usize,
     pub parent: Vec<RecordId>,
     pub text: String,
     pub modified_at: u128,
@@ -45,24 +46,26 @@ impl<C: Connection> Db<C> {
         let post_id = post_id.into();
         let parent_id = post_comment_reply.map(|v| create_post_comment_id(v));
         let q = r#"
+                 LET $parent = SELECT id, parent, replies_count FROM ONLY $parent_id;
                  LET $post = SELECT id FROM ONLY $post_id;
+                 BEGIN TRANSACTION;
+                 if $parent {
+                     UPDATE $parent.id SET replies_count = $parent.replies_count + 1;
+                 };
                  CREATE post_comment SET
-                    user = $user_id,
+                    user = (SELECT id FROM ONLY $user_id).id,
                     post = $post.id,
-                    parent = if $parent_id {
-                        LET $post = SELECT id, parent FROM ONLY $parent_id;
-                        if $post {
-                            if $post.parent { $post.parent } else { [] } + [$post.id]
-                        } else {
-                            []
-                        }
+                    parent = if $parent {
+                        if $parent.parent { $parent.parent } else { [] } + [$parent.id]
                     } else {
                         []
                     },
+                    replies_count = 0,
                     text = $comment_text,
                     modified_at = $time,
                     created_at = $time
                  RETURN *, user.*;
+                 COMMIT TRANSACTION;
                 "#;
         trace!("about to run {q}");
         self.db
@@ -82,7 +85,26 @@ impl<C: Connection> Db<C> {
                 }
                 err => err.into(),
             })
-            .and_then_take_expect(1)
+            .and_then_take_expect(4)
+    }
+
+    pub async fn get_post_comment(
+        &self,
+        comment_key: impl Into<RecordIdKey>,
+    ) -> Result<DBPostComment, DB404Err> {
+        let comment_id = create_post_comment_id(comment_key.into());
+        let q = format!(
+            "
+            SELECT *, user.* FROM $comment_id;
+        "
+        );
+        trace!("about to run {q}");
+        self.db
+            .query(q)
+            .bind(("comment_id", comment_id))
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_or(0, DB404Err::NotFound)
     }
 
     pub async fn get_post_comments(
@@ -127,7 +149,6 @@ impl<C: Connection> Db<C> {
         // q_computed.push_str(q_parent);
         // let q_comupted = q_computed.trim();
 
-
         let q = format!(
             "
             SELECT *, user.* FROM post_comment WHERE
@@ -157,7 +178,21 @@ impl<C: Connection> Db<C> {
         comment_id: impl Into<RecordIdKey>,
     ) -> Result<(), surrealdb::Error> {
         let comment_id = create_post_comment_id(comment_id.into());
-        let q = "DELETE post_comment WHERE (parent.find($comment_id) OR id == $comment_id) AND user = $user_id";
+        let q = "
+            LET $comment = SELECT id, parent, replies_count FROM ONLY $comment_id;
+            LET $last = $comment.parent.last();
+            LET $parent = SELECT id, replies_count FROM ONLY $last;
+            LET $comment_user = SELECT id FROM ONLY $user_id;
+            BEGIN TRANSACTION;
+            if !$comment_user.id {
+                THROW \"user not found\";
+            };
+            if $parent.replies_count > 0 {
+                UPDATE $parent.id SET replies_count = $parent.replies_count - 1;
+            };
+            DELETE post_comment WHERE (parent.find($comment_id) OR id == $comment_id) AND user = $user_id;
+            COMMIT TRANSACTION;
+            ";
         trace!("about to run {q} with input $comment_id: {comment_id:?}, $user_id: {user_id:?}");
         self.db
             .query(q)
@@ -182,8 +217,8 @@ mod tests {
     use crate::{
         api::{ChangeUsernameErr, Order, ServerRes, TimeRange},
         db::{
-            AddUserErr, DB404Err, DBChangeUsernameErr, DBPostLikeErr, DBSentEmailReason,
-            DBUserPostFile, Db, DBEmailIsTakenErr, post_like::create_post_like_id,
+            AddUserErr, DB404Err, DBChangeUsernameErr, DBEmailIsTakenErr, DBPostLikeErr,
+            DBSentEmailReason, DBUserPostFile, Db, create_user_id, post_like::create_post_like_id,
         },
         init_test_log,
     };
@@ -459,6 +494,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn db_post_comment_test_reply_count() {
+        init_test_log();
+
+        crate::init_test_log();
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate(0).await.unwrap();
+
+        let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
+        let post = db
+            .add_post(0, "hey1", "title", "description", 0, vec![])
+            .await
+            .unwrap();
+
+        let post0 = db
+            .add_post_comment(0, user.id.clone(), post.id.key.clone(), None, "wow1")
+            .await
+            .unwrap();
+
+        let post1 = db
+            .add_post_comment(
+                1,
+                user.id.clone(),
+                post.id.key.clone(),
+                Some(post0.id.key.to_sql()),
+                "wow2",
+            )
+            .await
+            .unwrap();
+
+        let post2 = db
+            .add_post_comment(
+                1,
+                create_user_id("invalid"),
+                post.id.key.clone(),
+                Some(post0.id.key.to_sql()),
+                "wow3",
+            )
+            .await;
+
+        assert!(post2.is_err());
+
+        let post0_2 = db.get_post_comment(post0.id.key.clone()).await.unwrap();
+
+        assert_eq!(post0.replies_count, 0);
+        assert_eq!(post0_2.replies_count, 1);
+
+        db.delete_post_comment(create_user_id("invalid"), post1.id.key.clone())
+            .await;
+
+        let post0_2 = db.get_post_comment(post0.id.key.clone()).await.unwrap();
+        assert_eq!(post0_2.replies_count, 1);
+
+        db.delete_post_comment(user.id.clone(), post1.id.key.clone())
+            .await
+            .unwrap();
+
+        let post0_2 = db.get_post_comment(post0.id.key.clone()).await.unwrap();
+        assert_eq!(post0_2.replies_count, 0);
+    }
+
+    #[tokio::test]
     async fn db_post_comment_test_one() {
         init_test_log();
 
@@ -472,15 +568,18 @@ mod tests {
             .await
             .unwrap();
 
-        db.add_post_comment(0, user.id.clone(), post.id.key.clone(), None, "wow1")
+        let post0 = db
+            .add_post_comment(0, user.id.clone(), post.id.key.clone(), None, "wow1")
             .await
             .unwrap();
 
-        db.add_post_comment(1, user.id.clone(), post.id.key.clone(), None, "wow2")
+        let post1 = db
+            .add_post_comment(1, user.id.clone(), post.id.key.clone(), None, "wow2")
             .await
             .unwrap();
 
-        db.add_post_comment(2, user.id.clone(), post.id.key.clone(), None, "wow3")
+        let post2 = db
+            .add_post_comment(2, user.id.clone(), post.id.key.clone(), None, "wow3")
             .await
             .unwrap();
 
@@ -548,6 +647,8 @@ mod tests {
             .await
             .unwrap();
 
+        assert_eq!(post_comment.id, post_reply.parent[0].clone());
+
         let post_reply2 = db
             .add_post_comment(
                 4,
@@ -558,6 +659,17 @@ mod tests {
             )
             .await
             .unwrap();
+
+        assert_eq!(post_reply.id, post_reply2.parent[0].clone());
+
+        let post_reply = db
+            .get_post_comment(post_reply2.id.key.to_sql())
+            .await
+            .unwrap();
+        assert_eq!(
+            post_reply.parent,
+            [post_comment.id.clone(), post_reply.id.clone()]
+        );
 
         let comments = db
             .get_post_comments(
@@ -587,7 +699,6 @@ mod tests {
             .unwrap();
         assert!(comment_replies.len() == 1);
         assert!(comment_replies[0].text == "wowza");
-
 
         let comment_replies = db
             .get_post_comments(

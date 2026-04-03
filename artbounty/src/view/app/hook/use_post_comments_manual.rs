@@ -19,6 +19,7 @@ use web_sys::{Element, HtmlElement, HtmlTextAreaElement, MutationObserver, Mutat
 #[derive(Clone, Copy)]
 pub struct CommentsManual {
     pub reply_editor_show: RwSignal<bool, LocalStorage>,
+    pub reply_count: RwSignal<usize, LocalStorage>,
     pub finished: RwSignal<bool, LocalStorage>,
     pub items: RwSignal<Vec<UserPostComment>, LocalStorage>,
     pub err_post: RwSignal<String, LocalStorage>,
@@ -45,6 +46,7 @@ impl CommentsManual {
         let fetch_count = StoredValue::new_local(50_usize);
         let flatten = StoredValue::new_local(false);
         let reply_editor_show = RwSignal::new_local(false);
+        let reply_count = RwSignal::new_local(0);
         let input_elm = StoredValue::new_local(None::<HtmlTextAreaElement>);
         let items =
             parent_items.unwrap_or_else(|| RwSignal::new_local(Vec::<UserPostComment>::new()));
@@ -143,6 +145,7 @@ impl CommentsManual {
         });
 
         let post_run = FutureFn::new(move || async move {
+            trace!("running post_run");
             err_post.update(|err| {
                 err.clear();
             });
@@ -150,6 +153,7 @@ impl CommentsManual {
             let (post_key, comment_key, time, text, post_elm) = {
                 let post_key = post_key.get_value();
                 if post_key.is_empty() {
+                    trace!("no post key");
                     return;
                 }
 
@@ -185,6 +189,7 @@ impl CommentsManual {
                         items.insert(0, comment);
                     }
                     reply_editor_show.set(false);
+                    reply_count.update(|v| *v += 1 );
                 }
                 Ok(err) => {
                     let err = format!("post comments basic: unexpected res: {err:?}");
@@ -224,6 +229,7 @@ impl CommentsManual {
 
         Self {
             reply_editor_show,
+            reply_count,
             err_post,
             items,
             finished,

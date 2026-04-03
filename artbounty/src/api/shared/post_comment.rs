@@ -16,6 +16,7 @@ pub struct UserPostComment {
     pub post_key: String,
     pub parent_key: Vec<String>,
     pub text: String,
+    pub replies_count: usize,
     pub modified_at: u128,
     pub created_at: u128,
 }
@@ -71,6 +72,7 @@ impl From<crate::db::post_comment::DBPostComment> for UserPostComment {
             post_key: value.post.key.to_sql(),
             parent_key: value.parent.into_iter().map(|v| v.key.to_sql()).collect(),
             text: value.text,
+            replies_count: value.replies_count,
             modified_at: value.modified_at,
             created_at: value.created_at,
         }

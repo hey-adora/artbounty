@@ -776,6 +776,7 @@ pub mod migration {
                     DEFINE FIELD user ON TABLE post_comment TYPE record<user>;
                     DEFINE FIELD post ON TABLE post_comment TYPE record<post>;
                     DEFINE FIELD parent ON TABLE post_comment TYPE array<record<post_comment>>;
+                    DEFINE FIELD replies_count ON TABLE post_comment TYPE number;
                     -- DEFINE FIELD children ON TABLE post_comment TYPE option<record<post_comment>>;
                     DEFINE FIELD text ON TABLE post_comment TYPE string;
                     DEFINE FIELD modified_at ON TABLE post_comment TYPE number;
