@@ -270,6 +270,7 @@ checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 name = "artbounty"
 version = "0.1.0"
 dependencies = [
+ "any_spawner",
  "anyhow",
  "argon2",
  "axum",
@@ -280,6 +281,7 @@ dependencies = [
  "futures",
  "gxhash",
  "http",
+ "hydration_context",
  "image",
  "leptos",
  "leptos_axum",
@@ -6635,6 +6637,21 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+
+[[package]]
+name = "tmp_wasm"
+version = "0.1.0"
+dependencies = [
+ "any_spawner",
+ "artbounty",
+ "hydration_context",
+ "leptos",
+ "leptos_meta",
+ "leptos_router",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
 
 [[package]]
 name = "tokio"

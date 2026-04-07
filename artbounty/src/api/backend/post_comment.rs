@@ -110,7 +110,7 @@ pub async fn delete_post_comment(
 ) -> Result<ServerRes, ServerErr> {
     type ResErr = Server404Err;
     //
-    let ServerReq::PostId { post_id } = req else {
+    let ServerReq::CommentId { comment_id } = req else {
         return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
             "delete_post_comment expected PostId, received: {req:?}"
         ))));
@@ -118,7 +118,7 @@ pub async fn delete_post_comment(
     let time = app.time().await;
 
     app.db
-        .delete_post_comment(db_user.id.clone(), post_id.clone())
+        .delete_post_comment(db_user.id.clone(), comment_id.clone())
         .await
         .map_err(|err| ServerErr::DbErr)?;
 

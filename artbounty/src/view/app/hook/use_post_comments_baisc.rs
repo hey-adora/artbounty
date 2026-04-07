@@ -5,7 +5,7 @@ use crate::{
             use_future::FutureFn,
             use_infinite_scroll_basic::InfiniteBasic,
             use_infinite_scroll_fn::{InfiniteItem, InfiniteScrollFn},
-            use_post_comments_manual::CommentsManual,
+            use_post_comments_manual::{CommentKind, CommentsApi},
         },
         toolbox::prelude::*,
     },
@@ -21,6 +21,7 @@ use web_sys::{Element, HtmlElement, HtmlTextAreaElement, MutationObserver, Mutat
 #[derive(Copy, Clone)]
 pub struct CommentsBaisc {
     pub reply_editor_show: RwSignal<bool, LocalStorage>,
+    pub comments_manual: CommentsApi,
     pub err_post: RwSignal<String, LocalStorage>,
     pub items: RwSignal<Vec<UserPostComment>, LocalStorage>,
     pub observer: StoredValue<
@@ -34,7 +35,7 @@ impl CommentsBaisc {
     pub fn new() -> Self {
         // let api = ApiWeb::new();
 
-        let comments_manual = CommentsManual::new(None, false);
+        let comments_manual = CommentsApi::new(CommentKind::Root);
 
         // let async_callback = async move |a: &mut Vec<UserPostComment>, b: Option<InfiniteItem>| {
         //     comments_manual.fetch_btm();
@@ -44,7 +45,7 @@ impl CommentsBaisc {
         });
 
         let observer = move |(post_elm, container_elm, post_id, comment_key, count)| {
-            comments_manual.observe_only(Some(post_elm), post_id, comment_key, count, false);
+            comments_manual.observe_only(Some(post_elm), post_id, count, false);
             infinite_fn.observe_only(container_elm);
             comments_manual.fetch_btm();
         };
@@ -54,6 +55,7 @@ impl CommentsBaisc {
         };
 
         Self {
+            comments_manual,
             reply_editor_show: comments_manual.reply_editor_show,
             err_post: comments_manual.err_post,
             items: comments_manual.items,

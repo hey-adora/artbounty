@@ -1568,11 +1568,11 @@ pub trait Api {
         )
     }
 
-    fn delete_post_comment(&self, comment_id: impl Into<String>) -> ApiReq {
+    fn delete_post_comment(&self, comment_key: impl Into<String>) -> ApiReq {
         self.into_req(
             crate::path::PATH_API_POST_COMMENT_DELETE,
             ServerReq::CommentId {
-                comment_id: comment_id.into(),
+                comment_id: comment_key.into(),
             },
         )
     }
@@ -2023,13 +2023,23 @@ impl ApiReq {
 #[cfg(test)]
 pub struct ApiTest {
     pub server: axum_test::TestServer,
+
+    // this was added as optional to not break existing tests
+    pub pre_load_token: String,
 }
 
 #[cfg(test)]
 impl ApiTest {
     pub fn new(server: axum_test::TestServer) -> Self {
-        Self { server }
+        Self {
+            server,
+            pre_load_token: String::new(),
+        }
     }
+
+    // pub fn set_token(&mut self, token: String) {
+    //     self.pre_load_token = token;
+    // }
 }
 
 #[cfg(test)]
@@ -2037,7 +2047,27 @@ impl Api for ApiTest {
     fn provide_builder(&self, path: impl AsRef<str>) -> RequestBuilder {
         let path = path.as_ref();
         let url = format!("{}{path}", crate::path::PATH_API);
-        self.server.reqwest_post(&url)
+        // self.server.reqwest_post(&url)
+        let mut req = self.server.reqwest_post(&url);
+        if !self.pre_load_token.is_empty() {
+            req = req.header(http::header::COOKIE, self.pre_load_token.clone());
+        }
+
+        req
+    }
+}
+
+#[cfg(test)]
+impl Api for &ApiTest {
+    fn provide_builder(&self, path: impl AsRef<str>) -> RequestBuilder {
+        let path = path.as_ref();
+        let url = format!("{}{path}", crate::path::PATH_API);
+        let mut req = self.server.reqwest_post(&url);
+        if !self.pre_load_token.is_empty() {
+            req = req.header(http::header::COOKIE, self.pre_load_token.clone());
+        }
+
+        req
     }
 }
 

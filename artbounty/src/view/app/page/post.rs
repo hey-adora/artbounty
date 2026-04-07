@@ -10,7 +10,7 @@ use crate::view::app::hook::use_infinite_scroll_virtual::{
 };
 use crate::view::app::hook::use_post_comment::use_post_comment;
 use crate::view::app::hook::use_post_comments_baisc::CommentsBaisc;
-use crate::view::app::hook::use_post_comments_manual::CommentsManual;
+use crate::view::app::hook::use_post_comments_manual::{CommentKind, CommentsApi};
 use crate::view::app::hook::use_post_like::{self, PostLikeStage, use_post_like};
 use crate::view::toolbox::prelude::*;
 use leptos::{Params, task::spawn_local};
@@ -349,10 +349,10 @@ pub fn Page() -> impl IntoView {
                                 let(data)
                             >
                                 {
-                                    let key = data.key.clone();
-                                    let is_last = comment_basic.items.with(|v| v.last().map(|v| v.key == key).unwrap_or_default());
+                                    // let key = data.key.clone();
+                                    // let is_last = || comment_basic.items.with(|v| v.last().map(|v| v.key == key).unwrap_or_default());
                                     view!{
-                                        <PostCommentElm is_last=is_last comment=data parent_items=None param_post max_depth=2 parent_depth=0 />
+                                        <PostCommentElm comment=data parent=comment_basic.comments_manual param_post max_depth=2 parent_depth=0 />
                                     }.into_any()
                                 }
                             </For>
@@ -394,12 +394,12 @@ pub fn SVGTriangle(#[prop(optional, into)] class: String) -> impl IntoView {
 
 #[component]
 pub fn PostCommentElm(
-    parent_items: Option<RwSignal<Vec<UserPostComment>, LocalStorage>>,
+    parent: CommentsApi,
     comment: UserPostComment,
     param_post: Memo<Option<String>>,
     max_depth: usize,
     parent_depth: usize,
-    is_last: bool,
+    // is_last: bool,
     // comment_key: Option<String>,
 ) -> impl IntoView {
     // let a = Some(true);
@@ -412,7 +412,7 @@ pub fn PostCommentElm(
     let current_depth = parent_depth + 1;
     let global_state = expect_context::<GlobalState>();
     let comment_container_ref = NodeRef::<html::Div>::new();
-    let comment_edit_ref = NodeRef::<html::Textarea>::new();
+    let comment_edit_ref = NodeRef::new();
     let comment_input_ref = NodeRef::<html::Textarea>::new();
     let flatten = current_depth >= max_depth;
     let reply_render_comments = current_depth <= max_depth;
@@ -427,24 +427,45 @@ pub fn PostCommentElm(
     // };
 
     let comment_edit_event = EventListener::new(ev::change, |a| {
+        trace!("omg is it working edit magic");
 
         //
     });
+    Effect::new(move || {
+        let Some(elm) = comment_edit_ref.get() else {
+            return;
+        };
+        comment_edit_event.add(elm);
+    });
 
-    let comments_manual = CommentsManual::new(
-        if current_depth > max_depth {
-            parent_items
-        } else {
-            None
-        },
-        true,
-    );
+    let comments_manual = CommentsApi::new(if current_depth == 0 {
+        CommentKind::Comment {
+            parent,
+            comment: comment.clone(),
+        }
+    } else if current_depth > max_depth {
+        CommentKind::Reply {
+            parent,
+            comment: comment.clone(),
+        }
+    } else {
+        CommentKind::Flat {
+            parent,
+            comment: comment.clone(),
+        }
+    });
     let post_comment = move |_| {
         // e.prevent_default();
         trace!("comments manual posting 0");
         comments_manual.post();
         trace!("comments manual posting");
         // reply_btn_shown.update(|v| *v = !*v)
+    };
+    let delete_comment = {
+        let comment_key = comment.key.clone();
+        move |_| {
+            comments_manual.delete.run(comment_key.clone());
+        }
     };
     let toggle_btn = move |_| {
         comments_manual.reply_editor_show.update(|v| *v = !*v);
@@ -483,18 +504,17 @@ pub fn PostCommentElm(
         };
 
         trace!("comments manual observe depth({current_depth})");
-        comments_manual.observe_only(
-            comment_input_ref.get(),
-            post_id,
-            comment.key.clone(),
-            10,
-            flatten,
-        );
+        comments_manual.observe_only(comment_input_ref.get(), post_id, 10, flatten);
         // comments_manual.fetch_btm();
     });
 
-    let show_replies_fn = move || (reply_render_comments && replies_shown.get()) || (reply_render_comments && comments_manual.reply_editor_show.get());
-    let show_line = move || current_depth > 0 && comments_manual.items.with(|v| v.len() > 0) && show_replies_fn();
+    let show_replies_fn = move || {
+        (reply_render_comments && replies_shown.get())
+            || (reply_render_comments && comments_manual.reply_editor_show.get())
+    };
+    let show_line = move || {
+        current_depth > 0 && comments_manual.items.with(|v| v.len() > 0) && show_replies_fn()
+    };
 
     view! {
 
@@ -503,24 +523,26 @@ pub fn PostCommentElm(
             <div class="grid grid-cols-[auto_1fr] grid-rows-[100%] gap-4">
                 <div class="w-[3.2rem] h-full grid grid-rows-[auto_100%] items-start place-items-center shrink-0">
                     <p class="text-[1rem] rounded-full h-[3.2rem] w-[3.2rem] shrink-0 bg-base05"></p>
-                    <Show when={move || !is_last || show_replies_fn() }>
+                    <Show when={move || !comments_manual.is_last.run() || show_replies_fn() }>
                         <div class="w-[0.2rem] h-[calc(100%-3.2rem)] bg-base05 shrink-0"></div>
                     </Show>
                 </div>
-                <div class="flex flex-col w-full ">
-                    <div class="flex gap-2 place-items-center ">
+                <div class="flex flex-col w-full group">
+                    <div class="flex gap-2 place-items-start ">
                         <div class="text-[1.2rem]"> {comment.user.username} </div>
                         <div class="text-[1rem] text-base03"> {ns_to_str(global_state.get_time_ns().saturating_sub(comment.created_at))}" ago"</div>
-                        <SVGTrash class="size-6 ml-auto"/>
+                        <button on:click=delete_comment>
+                            <SVGTrash class="size-6 text-base08 ml-auto hidden group-hover:flex"/>
+                        </button>
                     </div>
 
 
-                    <textarea node_ref=comment_edit_ref class=" text-[1.1rem] break-all focus:outline-none! appearance-none border-none resize text-[1.1rem] w-full" rows="1" wrap="hard"  >{comment.text}</textarea>
+                    <span contenteditable node_ref=comment_edit_ref class=" text-[1.1rem] break-all focus:outline-none! appearance-none border-none resize text-[1.1rem] w-full" >{comment.text}</span>
                     // <div class=" mb-2 text-[1.1rem] break-all"> {comment.text} </div>
                     <div class="mb-2 flex gap-2 place-items-center">
                         <Show when=move || reply_render_comments >
                             // <button on:click=toggle_replies type="submit" class=move || format!("group  gap-1 flex place-items-center rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] py-[0.2rem]  {}", if replies_shown.get() { "text-base05 bg-base01 hover:bg-base03" } else { "text-base05 bg-base01 hover:bg-base05 hover:text-base01" })>
-                            <Show when=move || {(comments_manual.reply_count.get() + comment.replies_count) > 0} fallback=move || view!{
+                            <Show when=move || {comments_manual.reply_count.get() > 0} fallback=move || view!{
                                 <p class=move || format!("group text-base03 gap-1 flex place-items-center rounded-full font-semibold text-[0.8rem] font-medium ")>
                                     <div class="0group-hover:bg-base01 size-3 bg-base03 aspect-square rounded mx-auto"/>
                                     "no replies"
@@ -531,16 +553,18 @@ pub fn PostCommentElm(
                                     <Show when=move || replies_shown.get() fallback={|| view!{<div class="0group-hover:bg-base01 size-3 bg-base05 aspect-square rounded mx-auto"/>}}>
                                         <SVGTriangle class="size-3 mx-auto"/>
                                     </Show>
-                                    {move || (comments_manual.reply_count.get() + comment.replies_count)}
+                                    {move || comments_manual.reply_count.get()}
                                     " replies"
                                 </button>
                             </Show>
                         </Show>
-                        <button on:click=toggle_btn type="submit" class=move || format!("  rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] py-[0.2rem] w-[5rem]  {}", if comments_manual.reply_editor_show.get() { "text-base05 bg-base01 hover:bg-base03" } else { "text-base05 bg-base01 hover:bg-base05 hover:text-base01" })>
-                            <Show when=move || comments_manual.reply_editor_show.get() fallback=|| "Reply">
-                                <SVGArrowDown class="size-4 mx-auto"/>
-                            </Show>
-                        </button>
+                        <Show when=move || global_state.is_logged_in().unwrap_or_default()>
+                            <button on:click=toggle_btn type="submit" class=move || format!("  rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] py-[0.2rem] w-[5rem]  {}", if comments_manual.reply_editor_show.get() { "text-base05 bg-base01 hover:bg-base03" } else { "text-base05 bg-base01 hover:bg-base05 hover:text-base01" })>
+                                <Show when=move || comments_manual.reply_editor_show.get() fallback=|| "Reply">
+                                    <SVGArrowDown class="size-4 mx-auto"/>
+                                </Show>
+                            </button>
+                        </Show>
                     </div>
                     <Show when=move || comments_manual.reply_editor_show.get()>
                         <div class=move || format!("mb-4 flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 w-full {}", if global_state.is_logged_in().unwrap_or_default() || !global_state.acc_pending() { "" } else { "hidden" })  >
@@ -565,7 +589,7 @@ pub fn PostCommentElm(
                 <Show when=show_line>
                     <div class="relative w-[3.2rem] h-full flex justify-center shrink-0">
                         <div class="w-[1.7rem] h-[1.61rem] border-base05 border-l-[0.2rem] border-b-[0.2rem] rounded-bl-[2rem] ml-auto box-border shrink-0"></div>
-                        <Show when=move || { !is_last }>
+                        <Show when=move || { !comments_manual.is_last.run() }>
                             <div class="absolute w-[0.2rem] h-full bg-base05 shrink-0"></div>
                         </Show>
                     </div>
@@ -582,10 +606,10 @@ pub fn PostCommentElm(
                                 let(data)
                             >
                                 {
-                                    let key = data.key.clone();
-                                    let is_last = comments_manual.items.with(|v| v.last().map(|v| v.key == key).unwrap_or_default());
+                                    // let key = data.key.clone();
+                                    // let is_last = comments_manual.items.with(|v| v.last().map(|v| v.key == key).unwrap_or_default());
                                     view!{
-                                        <PostCommentElm is_last=is_last parent_items={Some(comments_manual.items)} comment=data param_post max_depth=max_depth parent_depth=current_depth />
+                                        <PostCommentElm parent=comments_manual comment=data param_post max_depth=max_depth parent_depth=current_depth />
                                     }.into_any()
                                 }
                             </For>

@@ -1,8 +1,15 @@
 [workspace]
 resolver = "2"
-members = ["artbounty", "artbounty-seed"]
+members = ["artbounty", "artbounty-seed", "tmp_wasm"]
 
 [workspace.dependencies]
+# chromiumoxide = "0.9.1"
+leptos = { version = "0.8.17", features = [] }
+leptos_router = { version = "0.8.12" }
+leptos_axum = { version = "0.8.8" }
+leptos_meta = { version = "0.8.6" }
+hydration_context = { version = "0.3.0" }
+any_spawner = { version = "0.3.0" }
 strum = { version = "0.27.1", features = ["strum_macros", "derive"] }
 artbounty = { path = "artbounty" }
 little_exif = "0.6.14"
@@ -30,24 +37,6 @@ surrealdb = { git = "https://github.com/hey-adora/surrealdb", features = [
     "kv-mem",
 ] }
 console_error_panic_hook = "0.1.7" # dyn
-leptos = {
-    # path = "/home/hey/github/leptos2/leptos",
-    version = "0.8.17", 
-    features = [] 
-}
-leptos_router = { 
-    # path = "/home/hey/github/leptos2/router",
-
-    version = "0.8.12" 
-    }
-leptos_axum = { 
-    # path = "/home/hey/github/leptos2/integrations/axum",
-    version = "0.8.8"
-    }
-leptos_meta = {
-    # path = "/home/hey/github/leptos2/meta",
-    version = "0.8.6"
-    }
 rkyv = { version = "0.8.10", features = ["unaligned"] }
 server_fn = { version = "0.8.2", features = [] }
 tracing = "0.1.41"
