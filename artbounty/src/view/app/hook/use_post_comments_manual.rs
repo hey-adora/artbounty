@@ -16,11 +16,38 @@ use tracing::{error, trace, warn};
 use wasm_bindgen::JsCast;
 use web_sys::{Element, HtmlElement, HtmlTextAreaElement, MutationObserver, MutationRecord};
 
+#[derive(Default, Clone, strum::Display, strum::EnumIs)]
+pub enum CommentKind2 {
+    #[default]
+    Root,
+    Comment {
+        comment: UserPostComment,
+    },
+    Flat {
+        // parent: CommentsApi,
+        comment: UserPostComment,
+    },
+    None,
+    // Comment {
+    //     parent: CommentsApi,
+    //     comment: UserPostComment,
+    // },
+    // Reply {
+    //     parent: CommentsApi,
+    //     comment: UserPostComment,
+    // },
+    // Flat {
+    //     parent: CommentsApi,
+    //     comment: UserPostComment,
+    // },
+}
+
 #[derive(Clone, Copy)]
 pub struct CommentsApi2<API: Api> {
     pub items: RwSignal<Vec<UserPostComment>, LocalStorage>,
     pub finished: RwSignal<bool, LocalStorage>,
     pub post_key: StoredValue<String, LocalStorage>,
+    pub kind: StoredValue<CommentKind2, LocalStorage>,
     pub fetch_count: usize,
     api: API,
 }
@@ -29,19 +56,82 @@ impl<API> CommentsApi2<API>
 where
     API: Api,
 {
-    pub fn new(api: API, fetch_count: usize) -> Self {
+    pub fn new(api: API, fetch_count: usize, kind: CommentKind2) -> Self {
         Self {
             items: RwSignal::new_local(Vec::new()),
             finished: RwSignal::new_local(false),
             post_key: StoredValue::new_local(String::new()),
+            kind: StoredValue::new_local(kind),
             fetch_count,
             api,
         }
     }
 
-    pub async fn fetch_btm(&self) {
+    async fn fetch_replies(&self, comment_key: String, flatten: bool) {
         let post_key = self.post_key.get_value();
         if post_key.is_empty() {
+            warn!("post key not found");
+            return;
+        }
+        let fetch_count = self.fetch_count;
+        let finished = self.finished;
+        let last_item = self.items.with_untracked(|v| v.last().cloned());
+        let order = Order::OneTwoThree;
+        let time_range = if let Some(last_item) = last_item {
+            TimeRange::More(last_item.created_at)
+        } else {
+            let time = time_now_ns();
+            TimeRange::LessOrEqual(time)
+        };
+
+        let result = self
+            .api
+            .get_post_comment(
+                post_key,
+                Some(comment_key),
+                fetch_count,
+                time_range,
+                order,
+                flatten,
+            )
+            .send_native()
+            .await;
+
+        match result {
+            Ok(ServerRes::Comments(comments)) => {
+                let len = comments.len();
+                trace!(
+                    "comments manual (len){len} < (fetch_count){fetch_count} = {}",
+                    len < fetch_count
+                );
+                if len == fetch_count {
+                    finished.set(false);
+                } else if !finished.get_untracked() && len < fetch_count {
+                    finished.set(true);
+                }
+                if len > 0 {
+                    self.items.update(|v| {
+                        trace!("comments manual before {v:#?}");
+                        v.extend(comments);
+                        trace!("comments manual after {v:#?}");
+                    });
+                }
+            }
+            Ok(err) => {
+                let err = format!("post comments basic: unexpected res: {err:?}");
+                error!(err);
+            }
+            Err(err) => {
+                let err = format!("post comments basic: {err}");
+                error!(err);
+            }
+        };
+    }
+
+    async fn fetch_comments(&self) {
+        let post_key = self.post_key.get_value();
+        if post_key.is_empty() {
+            warn!("post key not found");
             return;
         }
         let fetch_count = self.fetch_count;
@@ -75,7 +165,9 @@ where
                 }
                 if len > 0 {
                     self.items.update(|v| {
+                        trace!("updating comment vec before {v:#?}");
                         v.extend(comments);
+                        trace!("updating comment vec after {v:#?}");
                     });
                     // return Some(comments);
                 }
@@ -89,6 +181,24 @@ where
                 error!(err);
             }
         };
+    }
+
+    pub async fn fetch(&self) {
+        let kind = self.kind.get_value();
+        match kind {
+            CommentKind2::Root => {
+                self.fetch_comments().await;
+            }
+            CommentKind2::Comment { comment } => {
+                self.fetch_replies(comment.key.clone(), false).await;
+            }
+            CommentKind2::Flat { comment } => {
+                self.fetch_replies(comment.key.clone(), true).await;
+            }
+            CommentKind2::None => {
+                //
+            },
+        }
     }
 }
 
@@ -851,7 +961,9 @@ pub mod tests {
     use crate::{
         api::{shared::post_comment::UserPostComment, tests::ApiTestApp},
         view::{
-            app::hook::use_post_comments_manual::{CommentKind, CommentsApi, CommentsApi2},
+            app::hook::use_post_comments_manual::{
+                CommentKind, CommentKind2, CommentsApi, CommentsApi2,
+            },
             logger,
             toolbox::prelude::*,
         },
@@ -865,64 +977,315 @@ pub mod tests {
     use crate::init_test_log;
     //
 
-    #[tokio::test]
-    pub async fn kill_them_all() {
-        init_test_log();
-        let owner = Owner::new_root(Some(Arc::new(HydrateSharedContext::new())));
-        let mut app = ApiTestApp::new(10).await;
-
-        let auth_token = app
-            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
-            .await
+    #[test]
+    pub fn kill_them_all() {
+        let mut rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .enable_io()
+            .build()
             .unwrap();
+        rt.block_on(async {
+            println!("hello");
+            init_test_log();
+            let owner = Owner::new_root(Some(Arc::new(HydrateSharedContext::new())));
+            let mut app = ApiTestApp::new(10).await;
 
-        let post = app.add_post(0, &auth_token).await.unwrap();
+            let auth_token = app
+                .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+                .await
+                .unwrap();
 
-        let comment0 = app
-            .add_post_comment(0, &auth_token, post.id.clone(), None, "wowza".to_string())
-            .await
-            .unwrap();
+            app.api.pre_load_token = auth_token.clone();
 
-        let comment1 = app
-            .add_post_comment(1, &auth_token, post.id.clone(), None, "wowza2".to_string())
-            .await
-            .unwrap();
+            let post = app.add_post(0, &auth_token).await.unwrap();
 
-        let comment2 = app
-            .add_post_comment(2, &auth_token, post.id.clone(), None, "wowza2".to_string())
-            .await
-            .unwrap();
+            let comment0 = app
+                .add_post_comment(0, &auth_token, post.id.clone(), None, "wowza".to_string())
+                .await
+                .unwrap();
 
-        let comment3 = app
-            .add_post_comment(3, &auth_token, post.id.clone(), None, "wowza2".to_string())
-            .await
-            .unwrap();
+            let mut time = 0_u128;
+            let mut get_time = move || {
+                time += 1;
+                time
+            };
 
-        app.api.pre_load_token = auth_token;
+            let comment0_reply0 = app
+                .add_post_comment(
+                    get_time(),
+                    &auth_token,
+                    post.id.clone(),
+                    Some(comment0.key.clone()),
+                    "comment0_reply0".to_string(),
+                )
+                .await
+                .unwrap();
 
-        let hook = CommentsApi2::new(&app.api, 2);
-        hook.post_key.set_value(post.id.clone());
+            let comment0_reply0_reply0 = app
+                .add_post_comment(
+                    get_time(),
+                    &auth_token,
+                    post.id.clone(),
+                    Some(comment0_reply0.key.clone()),
+                    "comment0_reply0_reply0".to_string(),
+                )
+                .await
+                .unwrap();
 
-        hook.fetch_btm().await;
+            let comment0_reply0_times_3 = app
+                .add_post_comment(
+                    get_time(),
+                    &auth_token,
+                    post.id.clone(),
+                    Some(comment0_reply0_reply0.key.clone()),
+                    "comment0_reply0_times_3".to_string(),
+                )
+                .await
+                .unwrap();
 
-        let items = hook.items.get();
-        assert_eq!(items.len(), 2);
-        assert_eq!(items[0], comment3);
-        assert_eq!(items[1], comment2);
+            let comment0_reply0_times_4 = app
+                .add_post_comment(
+                    get_time(),
+                    &auth_token,
+                    post.id.clone(),
+                    Some(comment0_reply0_times_3.key.clone()),
+                    "comment0_reply0_times_4".to_string(),
+                )
+                .await
+                .unwrap();
 
-        hook.fetch_btm().await;
+            let comment0_reply0_times_5 = app
+                .add_post_comment(
+                    get_time(),
+                    &auth_token,
+                    post.id.clone(),
+                    Some(comment0_reply0_times_4.key.clone()),
+                    "comment0_reply0_times_5".to_string(),
+                )
+                .await
+                .unwrap();
 
-        let items = hook.items.get();
-        assert_eq!(items.len(), 4);
-        assert_eq!(items[0], comment3);
-        assert_eq!(items[1], comment2);
-        assert_eq!(items[2], comment1);
-        assert_eq!(items[3], comment0);
+            let comment0_reply0_times_6 = app
+                .add_post_comment(
+                    get_time(),
+                    &auth_token,
+                    post.id.clone(),
+                    Some(comment0_reply0_times_5.key.clone()),
+                    "comment0_reply0_times_6".to_string(),
+                )
+                .await
+                .unwrap();
 
-        // let (mut browser, mut handler) =
-        // Browser::launch(BrowserConfig::builder().with_head().build().unwrap())
-        //     .await
-        //     .unwrap();
+            let comment0_reply0_reply1 = app
+                .add_post_comment(
+                    get_time(),
+                    &auth_token,
+                    post.id.clone(),
+                    Some(comment0_reply0.key.clone()),
+                    "comment0_reply0_reply1".to_string(),
+                )
+                .await
+                .unwrap();
+
+            let comment0_reply0_reply2 = app
+                .add_post_comment(
+                    get_time(),
+                    &auth_token,
+                    post.id.clone(),
+                    Some(comment0_reply0.key.clone()),
+                    "comment0_reply0_reply2".to_string(),
+                )
+                .await
+                .unwrap();
+
+            let comment0_reply0_reply3 = app
+                .add_post_comment(
+                    get_time(),
+                    &auth_token,
+                    post.id.clone(),
+                    Some(comment0_reply0.key.clone()),
+                    "comment0_reply0_reply3".to_string(),
+                )
+                .await
+                .unwrap();
+
+            let comment0_reply1 = app
+                .add_post_comment(
+                    get_time(),
+                    &auth_token,
+                    post.id.clone(),
+                    Some(comment0.key.clone()),
+                    "comment0_reply1".to_string(),
+                )
+                .await
+                .unwrap();
+
+            let comment0_reply2 = app
+                .add_post_comment(
+                    get_time(),
+                    &auth_token,
+                    post.id.clone(),
+                    Some(comment0.key.clone()),
+                    "comment0_reply2".to_string(),
+                )
+                .await
+                .unwrap();
+
+            let comment0_reply3 = app
+                .add_post_comment(
+                    get_time(),
+                    &auth_token,
+                    post.id.clone(),
+                    Some(comment0.key.clone()),
+                    "comment0_reply3".to_string(),
+                )
+                .await
+                .unwrap();
+
+            let comment1 = app
+                .add_post_comment(get_time(), &auth_token, post.id.clone(), None, "comment1".to_string())
+                .await
+                .unwrap();
+
+            let comment2 = app
+                .add_post_comment(get_time(), &auth_token, post.id.clone(), None, "comment2".to_string())
+                .await
+                .unwrap();
+
+            let comment3 = app
+                .add_post_comment(get_time(), &auth_token, post.id.clone(), None, "comment3".to_string())
+                .await
+                .unwrap();
+
+            let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
+            hook_root.post_key.set_value(post.id.clone());
+
+            hook_root.fetch().await;
+
+            let post_comments = hook_root.items.get_untracked();
+            assert_eq!(post_comments.len(), 2);
+            assert_eq!(post_comments[0], comment3);
+            assert_eq!(post_comments[1], comment2);
+
+            hook_root.fetch().await;
+
+            let post_comments = hook_root.items.get_untracked();
+            assert_eq!(post_comments.len(), 4);
+            assert_eq!(post_comments[0], comment3);
+            assert_eq!(post_comments[1], comment2);
+            assert_eq!(post_comments[2], comment1);
+            assert_eq!(post_comments[3].key, comment0.key);
+
+            let comment4 = app
+                .add_post_comment(4, &auth_token, post.id.clone(), None, "comment4".to_string())
+                .await
+                .unwrap();
+
+            hook_root.fetch().await;
+
+            let post_comments = hook_root.items.get_untracked();
+            assert_eq!(post_comments.len(), 4);
+            assert_eq!(post_comments[0], comment3);
+            assert_eq!(post_comments[1], comment2);
+            assert_eq!(post_comments[2], comment1);
+            assert_eq!(post_comments[3].key, comment0.key);
+
+            let hook_comment = CommentsApi2::new(
+                &app.api,
+                2,
+                CommentKind2::Comment {
+                    comment: comment0.clone(),
+                },
+            );
+            hook_comment.post_key.set_value(post.id.clone());
+
+            hook_comment.fetch().await;
+            let comment0_replies = hook_comment.items.get_untracked();
+
+            assert_eq!(comment0_replies.len(), 2);
+            assert_eq!(comment0_replies[0].key, comment0_reply0.key);
+            assert_eq!(comment0_replies[0].replies_count, 4);
+            assert_eq!(comment0_replies[1], comment0_reply1);
+
+            hook_comment.fetch().await;
+            let comment0_replies = hook_comment.items.get_untracked();
+
+            assert_eq!(comment0_replies.len(), 4);
+            assert_eq!(comment0_replies[0].key, comment0_reply0.key);
+            assert_eq!(comment0_replies[0].replies_count, 4);
+            assert_eq!(comment0_replies[1], comment0_reply1);
+            assert_eq!(comment0_replies[2], comment0_reply2);
+            assert_eq!(comment0_replies[3], comment0_reply3);
+
+            let hook_reply = CommentsApi2::new(
+                &app.api,
+                2,
+                CommentKind2::Comment {
+                    comment: comment0_reply0.clone(),
+                },
+            );
+            hook_reply.post_key.set_value(post.id.clone());
+
+            // trace!("yo yo yo yo did u run or no");
+            hook_reply.fetch().await;
+            let comment0_reply0_replies = hook_reply.items.get_untracked();
+            // trace!("WHAT THE F*CK: {comment0_reply0_replies:#?}");
+            // hook_reply.items.update(|v| {
+            //     trace!("WHAT THE F*CK 2: {v:#?}");
+            // });
+
+            assert_eq!(comment0_reply0_replies.len(), 2);
+            assert_eq!(comment0_reply0_replies[0].key, comment0_reply0_reply0.key);
+            assert_eq!(comment0_reply0_replies[0].replies_count, 1);
+            assert_eq!(comment0_reply0_replies[1], comment0_reply0_reply1);
+
+            hook_reply.fetch().await;
+            let comment0_reply0_replies = hook_reply.items.get_untracked();
+
+            assert_eq!(comment0_reply0_replies.len(), 4);
+            assert_eq!(comment0_reply0_replies[0].key, comment0_reply0_reply0.key);
+            assert_eq!(comment0_reply0_replies[0].replies_count, 1);
+            assert_eq!(comment0_reply0_replies[1], comment0_reply0_reply1);
+            assert_eq!(comment0_reply0_replies[2], comment0_reply0_reply2);
+            assert_eq!(comment0_reply0_replies[3], comment0_reply0_reply3);
+
+            let hook_flat = CommentsApi2::new(
+                &app.api,
+                2,
+                CommentKind2::Flat {
+                    comment: comment0_reply0_reply0.clone(),
+                },
+            );
+            hook_flat.post_key.set_value(post.id.clone());
+
+            hook_flat.fetch().await;
+            let comment0_reply0_reply0_replies = hook_flat.items.get_untracked();
+
+            assert_eq!(comment0_reply0_reply0_replies.len(), 2);
+            assert_eq!(comment0_reply0_reply0_replies[0].key, comment0_reply0_times_3.key);
+            assert_eq!(comment0_reply0_reply0_replies[1].key, comment0_reply0_times_4.key);
+
+            hook_flat.fetch().await;
+            let comment0_reply0_reply0_replies = hook_flat.items.get_untracked();
+
+            assert_eq!(comment0_reply0_reply0_replies.len(), 4);
+            assert_eq!(comment0_reply0_reply0_replies[0].key, comment0_reply0_times_3.key);
+            assert_eq!(comment0_reply0_reply0_replies[1].key, comment0_reply0_times_4.key);
+            assert_eq!(comment0_reply0_reply0_replies[2].key, comment0_reply0_times_5.key);
+            assert_eq!(comment0_reply0_reply0_replies[3].key, comment0_reply0_times_6.key);
+            assert_eq!(hook_flat.finished.get_untracked(), false);
+
+            hook_flat.fetch().await;
+            let comment0_reply0_reply0_replies = hook_flat.items.get_untracked();
+
+            assert_eq!(comment0_reply0_reply0_replies.len(), 4);
+            assert_eq!(hook_flat.finished.get_untracked(), true);
+
+            // let (mut browser, mut handler) =
+            // Browser::launch(BrowserConfig::builder().with_head().build().unwrap())
+            //     .await
+            //     .unwrap();
+        });
     }
 
     // #[tokio::test]

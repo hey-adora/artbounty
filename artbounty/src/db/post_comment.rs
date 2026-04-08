@@ -540,8 +540,9 @@ mod tests {
         assert_eq!(post0.replies_count, 0);
         assert_eq!(post0_2.replies_count, 1);
 
-        db.delete_post_comment(create_user_id("invalid"), post1.id.key.clone())
+        let result = db.delete_post_comment(create_user_id("invalid"), post1.id.key.clone())
             .await;
+        assert!(result.is_err());
 
         let post0_2 = db.get_post_comment(post0.id.key.clone()).await.unwrap();
         assert_eq!(post0_2.replies_count, 1);
