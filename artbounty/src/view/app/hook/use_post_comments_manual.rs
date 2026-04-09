@@ -21,32 +21,42 @@ pub enum CommentKind2 {
     #[default]
     Root,
     Comment {
+        parent: RwSignal<Vec<UserPostComment>, LocalStorage>,
         comment: UserPostComment,
     },
     Flat {
-        // parent: CommentsApi,
+        parent: RwSignal<Vec<UserPostComment>, LocalStorage>,
         comment: UserPostComment,
     },
-    None,
-    // Comment {
-    //     parent: CommentsApi,
-    //     comment: UserPostComment,
-    // },
-    // Reply {
-    //     parent: CommentsApi,
-    //     comment: UserPostComment,
-    // },
-    // Flat {
-    //     parent: CommentsApi,
-    //     comment: UserPostComment,
-    // },
+    None {
+        parent: RwSignal<Vec<UserPostComment>, LocalStorage>,
+        comment: UserPostComment,
+    }, // Comment {
+       //     parent: CommentsApi,
+       //     comment: UserPostComment,
+       // },
+       // Reply {
+       //     parent: CommentsApi,
+       //     comment: UserPostComment,
+       // },
+       // Flat {
+       //     parent: CommentsApi,
+       //     comment: UserPostComment,
+       // },
 }
 
 #[derive(Clone, Copy)]
 pub struct CommentsApi2<API: Api> {
+    // ui
     pub items: RwSignal<Vec<UserPostComment>, LocalStorage>,
     pub finished: RwSignal<bool, LocalStorage>,
+    pub show_editor: RwSignal<bool, LocalStorage>,
+    // pub is_last: RwSignal<bool, LocalStorage>,
+    // pub is_last: StoredValue<Box<dyn Fn() -> bool + 'static>, LocalStorage>,
+    pub err_post: RwSignal<String, LocalStorage>,
+    // params
     pub post_key: StoredValue<String, LocalStorage>,
+    // pub input_elm: StoredValue::;
     pub kind: StoredValue<CommentKind2, LocalStorage>,
     pub fetch_count: usize,
     api: API,
@@ -58,8 +68,13 @@ where
 {
     pub fn new(api: API, fetch_count: usize, kind: CommentKind2) -> Self {
         Self {
+            // ui
             items: RwSignal::new_local(Vec::new()),
             finished: RwSignal::new_local(false),
+            // is_last: RwSignal::new_local(false),
+            show_editor: RwSignal::new_local(false),
+            err_post: RwSignal::new_local(String::new()),
+            // params
             post_key: StoredValue::new_local(String::new()),
             kind: StoredValue::new_local(kind),
             fetch_count,
@@ -104,11 +119,15 @@ where
                     "comments manual (len){len} < (fetch_count){fetch_count} = {}",
                     len < fetch_count
                 );
+
                 if len == fetch_count {
                     finished.set(false);
                 } else if !finished.get_untracked() && len < fetch_count {
                     finished.set(true);
                 }
+
+                // self.is_last.
+
                 if len > 0 {
                     self.items.update(|v| {
                         trace!("comments manual before {v:#?}");
@@ -183,22 +202,94 @@ where
         };
     }
 
-    pub async fn fetch(&self) {
+    pub async fn fetch(self) {
         let kind = self.kind.get_value();
         match kind {
             CommentKind2::Root => {
                 self.fetch_comments().await;
             }
-            CommentKind2::Comment { comment } => {
+            CommentKind2::Comment { parent, comment } => {
                 self.fetch_replies(comment.key.clone(), false).await;
             }
-            CommentKind2::Flat { comment } => {
+            CommentKind2::Flat { parent, comment } => {
                 self.fetch_replies(comment.key.clone(), true).await;
             }
-            CommentKind2::None => {
+            CommentKind2::None { parent, comment } => {
+                warn!("not implemented");
                 //
-            },
+            }
         }
+    }
+
+    async fn post_comment(&self, text: impl Into<String>) {
+        let post_key = self.post_key.get_value();
+
+        let result = self
+            .api
+            .add_post_comment(post_key, None, text)
+            .send_native()
+            .await;
+
+        match result {
+            Ok(ServerRes::Comment(comment)) => {
+                comments_local.update(|v| v.insert(0, comment));
+                reply_editor_show.set(false);
+                // reply_count.update(|v| *v += 1);
+            }
+            Ok(err) => {
+                let err = format!("post comments basic: unexpected res: {err:?}");
+                error!(err);
+                err_post.set(err);
+            }
+            Err(err) => {
+                let err = format!("post comments basic: {err}");
+                error!(err);
+                err_post.set(err);
+            }
+        };
+    }
+
+    async fn post_reply(&self, text: impl Into<String>, comment_key: impl Into<String>) {
+        let post_key = self.post_key.get_value();
+
+        let result = self
+            .api
+            .add_post_comment(post_key, Some(comment_key.into()), text)
+            .send_native()
+            .await;
+    }
+
+    pub async fn post(self, text: impl Into<String>) {
+        let post_key = self.post_key.get_value();
+        let kind = self.kind.get_value();
+
+        match kind {
+            CommentKind2::Root => {
+                self.post_comment(text).await;
+            }
+            CommentKind2::Comment { parent, comment }
+            | CommentKind2::Flat { parent, comment }
+            | CommentKind2::None { parent, comment } => {
+                self.post_reply(text, comment.key).await;
+            }
+        }
+    }
+
+    pub fn is_last(&self) -> bool {
+        let kind = self.kind.get_value();
+        match kind {
+            CommentKind2::Root => false,
+            CommentKind2::Comment { parent, comment }
+            | CommentKind2::Flat { parent, comment }
+            | CommentKind2::None { parent, comment } => parent
+                .with(|v| v.last().map(|v| v.key.clone()))
+                .map(|v| v == comment.key)
+                .unwrap_or_default(),
+        }
+    }
+
+    pub fn observe_only(&self, post_key: impl Into<String>) {
+        self.post_key.set_value(post_key.into());
     }
 }
 
@@ -1143,17 +1234,35 @@ pub mod tests {
                 .unwrap();
 
             let comment1 = app
-                .add_post_comment(get_time(), &auth_token, post.id.clone(), None, "comment1".to_string())
+                .add_post_comment(
+                    get_time(),
+                    &auth_token,
+                    post.id.clone(),
+                    None,
+                    "comment1".to_string(),
+                )
                 .await
                 .unwrap();
 
             let comment2 = app
-                .add_post_comment(get_time(), &auth_token, post.id.clone(), None, "comment2".to_string())
+                .add_post_comment(
+                    get_time(),
+                    &auth_token,
+                    post.id.clone(),
+                    None,
+                    "comment2".to_string(),
+                )
                 .await
                 .unwrap();
 
             let comment3 = app
-                .add_post_comment(get_time(), &auth_token, post.id.clone(), None, "comment3".to_string())
+                .add_post_comment(
+                    get_time(),
+                    &auth_token,
+                    post.id.clone(),
+                    None,
+                    "comment3".to_string(),
+                )
                 .await
                 .unwrap();
 
@@ -1177,7 +1286,13 @@ pub mod tests {
             assert_eq!(post_comments[3].key, comment0.key);
 
             let comment4 = app
-                .add_post_comment(4, &auth_token, post.id.clone(), None, "comment4".to_string())
+                .add_post_comment(
+                    4,
+                    &auth_token,
+                    post.id.clone(),
+                    None,
+                    "comment4".to_string(),
+                )
                 .await
                 .unwrap();
 
@@ -1194,6 +1309,7 @@ pub mod tests {
                 &app.api,
                 2,
                 CommentKind2::Comment {
+                    parent: hook_root.items,
                     comment: comment0.clone(),
                 },
             );
@@ -1221,6 +1337,7 @@ pub mod tests {
                 &app.api,
                 2,
                 CommentKind2::Comment {
+                    parent: hook_comment.items,
                     comment: comment0_reply0.clone(),
                 },
             );
@@ -1253,6 +1370,7 @@ pub mod tests {
                 &app.api,
                 2,
                 CommentKind2::Flat {
+                    parent: hook_reply.items,
                     comment: comment0_reply0_reply0.clone(),
                 },
             );
@@ -1262,17 +1380,35 @@ pub mod tests {
             let comment0_reply0_reply0_replies = hook_flat.items.get_untracked();
 
             assert_eq!(comment0_reply0_reply0_replies.len(), 2);
-            assert_eq!(comment0_reply0_reply0_replies[0].key, comment0_reply0_times_3.key);
-            assert_eq!(comment0_reply0_reply0_replies[1].key, comment0_reply0_times_4.key);
+            assert_eq!(
+                comment0_reply0_reply0_replies[0].key,
+                comment0_reply0_times_3.key
+            );
+            assert_eq!(
+                comment0_reply0_reply0_replies[1].key,
+                comment0_reply0_times_4.key
+            );
 
             hook_flat.fetch().await;
             let comment0_reply0_reply0_replies = hook_flat.items.get_untracked();
 
             assert_eq!(comment0_reply0_reply0_replies.len(), 4);
-            assert_eq!(comment0_reply0_reply0_replies[0].key, comment0_reply0_times_3.key);
-            assert_eq!(comment0_reply0_reply0_replies[1].key, comment0_reply0_times_4.key);
-            assert_eq!(comment0_reply0_reply0_replies[2].key, comment0_reply0_times_5.key);
-            assert_eq!(comment0_reply0_reply0_replies[3].key, comment0_reply0_times_6.key);
+            assert_eq!(
+                comment0_reply0_reply0_replies[0].key,
+                comment0_reply0_times_3.key
+            );
+            assert_eq!(
+                comment0_reply0_reply0_replies[1].key,
+                comment0_reply0_times_4.key
+            );
+            assert_eq!(
+                comment0_reply0_reply0_replies[2].key,
+                comment0_reply0_times_5.key
+            );
+            assert_eq!(
+                comment0_reply0_reply0_replies[3].key,
+                comment0_reply0_times_6.key
+            );
             assert_eq!(hook_flat.finished.get_untracked(), false);
 
             hook_flat.fetch().await;
