@@ -450,7 +450,7 @@ pub fn PostCommentElm(
         api,
         10,
         if current_depth < max_depth {
-            CommentKind2::Comment {
+            CommentKind2::Reply {
                 parent,
                 comment: comment.clone(),
             }

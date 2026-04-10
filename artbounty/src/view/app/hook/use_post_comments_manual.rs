@@ -1,5 +1,7 @@
 use crate::{
-    api::{Api, ApiWeb, Order, ServerRes, TimeRange, shared::post_comment::UserPostComment},
+    api::{
+        Api, ApiWeb, Order, ServerErr, ServerRes, TimeRange, shared::post_comment::UserPostComment,
+    },
     view::{
         app::hook::{
             use_future::FutureFn, use_infinite_scroll_basic::InfiniteBasic,
@@ -20,7 +22,11 @@ use web_sys::{Element, HtmlElement, HtmlTextAreaElement, MutationObserver, Mutat
 pub enum CommentKind2 {
     #[default]
     Root,
-    Comment {
+    // Comment {
+    //     parent: RwSignal<Vec<UserPostComment>, LocalStorage>,
+    //     comment: UserPostComment,
+    // },
+    Reply {
         parent: RwSignal<Vec<UserPostComment>, LocalStorage>,
         comment: UserPostComment,
     },
@@ -208,7 +214,10 @@ where
             CommentKind2::Root => {
                 self.fetch_comments().await;
             }
-            CommentKind2::Comment { parent, comment } => {
+            // CommentKind2::Comment { parent, comment } => {
+            //     self.fetch_replies(comment.key.clone(), false).await;
+            // }
+            CommentKind2::Reply { parent, comment } => {
                 self.fetch_replies(comment.key.clone(), false).await;
             }
             CommentKind2::Flat { parent, comment } => {
@@ -221,8 +230,67 @@ where
         }
     }
 
-    async fn post_comment(&self, text: impl Into<String>) {
+    fn handle_post_result(&self, result: Result<ServerRes, ServerErr>) -> Option<UserPostComment> {
+        match result {
+            Ok(ServerRes::Comment(comment)) => {
+                self.show_editor.set(false);
+                return Some(comment);
+                // self.items.update(|v| {
+                //     v.insert(0, comment);
+                // });
+                // // comments_local.update(|v| v.insert(0, comment));
+                // self.show_editor.set(false);
+                // reply_count.update(|v| *v += 1);
+            }
+            Ok(err) => {
+                let err = format!("post comments basic: unexpected res: {err:?}");
+                error!(err);
+                self.err_post.set(err);
+            }
+            Err(err) => {
+                let err = format!("post comments basic: {err}");
+                error!(err);
+                self.err_post.set(err);
+            }
+        };
+        None
+    }
+
+    // async fn post_reply(&self, text: impl Into<String>, comment_key: impl Into<String>) {
+    //     let post_key = self.post_key.get_value();
+    //
+    //     let result = self
+    //         .api
+    //         .add_post_comment(post_key, Some(comment_key.into()), text)
+    //         .send_native()
+    //         .await;
+    //
+    //     let Some(comment) = self.handle_post_result(result) else {
+    //         return;
+    //     };
+    //
+    //     self.items.update(|v| {
+    //         v.push(comment);
+    //     });
+    // }
+    // let Some(comment) = self.handle_post_result(result) else {
+    //     return;
+    // };
+    //
+    // self.items.update(|v| {
+    //     v.insert(0, comment);
+    // });
+    // self.items.update(|v| {
+    //     v.push(comment);
+    // });
+
+    async fn post_comment(&self, text: impl Into<String>) -> Option<UserPostComment> {
         let post_key = self.post_key.get_value();
+
+        if post_key.is_empty() {
+            error!("trying to post reply without setting post key");
+            return None;
+        }
 
         let result = self
             .api
@@ -230,47 +298,68 @@ where
             .send_native()
             .await;
 
-        match result {
-            Ok(ServerRes::Comment(comment)) => {
-                comments_local.update(|v| v.insert(0, comment));
-                reply_editor_show.set(false);
-                // reply_count.update(|v| *v += 1);
-            }
-            Ok(err) => {
-                let err = format!("post comments basic: unexpected res: {err:?}");
-                error!(err);
-                err_post.set(err);
-            }
-            Err(err) => {
-                let err = format!("post comments basic: {err}");
-                error!(err);
-                err_post.set(err);
-            }
-        };
+        self.handle_post_result(result)
     }
 
-    async fn post_reply(&self, text: impl Into<String>, comment_key: impl Into<String>) {
+    async fn post_reply(
+        &self,
+        text: impl Into<String>,
+        comment_key: impl Into<String>,
+    ) -> Option<UserPostComment> {
         let post_key = self.post_key.get_value();
+
+        if post_key.is_empty() {
+            error!("trying to post reply without setting post key");
+            return None;
+        }
 
         let result = self
             .api
             .add_post_comment(post_key, Some(comment_key.into()), text)
             .send_native()
             .await;
+
+        self.handle_post_result(result)
     }
 
     pub async fn post(self, text: impl Into<String>) {
-        let post_key = self.post_key.get_value();
+        // let post_key = self.post_key.get_value();
         let kind = self.kind.get_value();
 
         match kind {
             CommentKind2::Root => {
-                self.post_comment(text).await;
+                let Some(comment) = self.post_comment(text).await else {
+                    error!("failed to post");
+                    return;
+                };
+                self.items.update(|v| {
+                    if v.is_empty() {
+                        v.push(comment);
+                        return;
+                    }
+                    v.insert(0, comment);
+                });
             }
-            CommentKind2::Comment { parent, comment }
-            | CommentKind2::Flat { parent, comment }
-            | CommentKind2::None { parent, comment } => {
-                self.post_reply(text, comment.key).await;
+            // CommentKind2::Comment { parent, comment }
+            CommentKind2::Reply { parent, comment } | CommentKind2::Flat { parent, comment } => {
+                let Some(comment) = self.post_reply(text, comment.key).await else {
+                    error!("failed to post");
+                    return;
+                };
+
+                self.items.update(|v| {
+                    v.push(comment);
+                });
+            }
+            CommentKind2::None { parent, comment } => {
+                let Some(comment) = self.post_reply(text, comment.key).await else {
+                    error!("failed to post");
+                    return;
+                };
+
+                parent.update(|v| {
+                    v.push(comment);
+                });
             }
         }
     }
@@ -279,7 +368,8 @@ where
         let kind = self.kind.get_value();
         match kind {
             CommentKind2::Root => false,
-            CommentKind2::Comment { parent, comment }
+            // CommentKind2::Comment { parent, comment }
+            CommentKind2::Reply { parent, comment }
             | CommentKind2::Flat { parent, comment }
             | CommentKind2::None { parent, comment } => parent
                 .with(|v| v.last().map(|v| v.key.clone()))
@@ -1061,15 +1151,180 @@ pub mod tests {
     };
     use hydration_context::HydrateSharedContext;
     use leptos::prelude::*;
+    use surrealdb::types::ToSql;
     use std::sync::Arc;
     use tokio::process::Command;
     use tracing::{debug, trace};
 
     use crate::init_test_log;
     //
+    #[tokio::test]
+    pub async fn hook_comments_api_post() {
+        println!("hello");
+        init_test_log();
+        let owner = Owner::new_root(Some(Arc::new(HydrateSharedContext::new())));
+        let mut app = ApiTestApp::new(10).await;
+
+        let mut time = 0_u128;
+        let mut t = move || {
+            time += 1;
+            time
+        };
+
+        let auth_token = app
+            .register(t(), "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+
+        app.api.pre_load_token = auth_token.clone();
+
+        let post = app.add_post(t(), &auth_token).await.unwrap();
+
+        let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
+        hook_root.observe_only(post.id.clone());
+
+        (app.set_time(t()).await, hook_root.post("c0").await);
+        (app.set_time(t()).await, hook_root.post("c1").await);
+        (app.set_time(t()).await, hook_root.post("c2").await);
+        (app.set_time(t()).await, hook_root.post("c3").await);
+
+        let c0 = hook_root.items.with_untracked(|v| v[3].clone());
+        let hook_reply = CommentsApi2::new(
+            &app.api,
+            2,
+            CommentKind2::Reply {
+                parent: hook_root.items,
+                comment: c0.clone(),
+            },
+        );
+        hook_reply.observe_only(post.id.clone());
+
+        (app.set_time(t()).await, hook_reply.post("c0_r0x1").await);
+        (app.set_time(t()).await, hook_reply.post("c0_r1x1").await);
+        (app.set_time(t()).await, hook_reply.post("c0_r2x1").await);
+        (app.set_time(t()).await, hook_reply.post("c0_r3x1").await);
+
+        let c0_r0x1 = hook_reply.items.with_untracked(|v| v[0].clone());
+        let hook_flat = CommentsApi2::new(
+            &app.api,
+            2,
+            CommentKind2::Flat {
+                parent: hook_reply.items,
+                comment: c0_r0x1.clone(),
+            },
+        );
+        hook_flat.observe_only(post.id.clone());
+
+        (app.set_time(t()).await, hook_flat.post("c0_r0x2").await);
+        (app.set_time(t()).await, hook_flat.post("c0_r1x2").await);
+        (app.set_time(t()).await, hook_flat.post("c0_r2x2").await);
+        (app.set_time(t()).await, hook_flat.post("c0_r3x2").await);
+
+        let c0_r0x2 = hook_flat.items.with_untracked(|v| v[3].clone());
+        let hook_none = CommentsApi2::new(
+            &app.api,
+            2,
+            CommentKind2::None {
+                parent: hook_flat.items,
+                comment: c0_r0x2.clone(),
+            },
+        );
+        hook_none.observe_only(post.id.clone());
+
+        (app.set_time(t()).await, hook_none.post("c0_r0x3").await);
+        (app.set_time(t()).await, hook_none.post("c0_r1x3").await);
+        (app.set_time(t()).await, hook_none.post("c0_r2x3").await);
+        (app.set_time(t()).await, hook_none.post("c0_r3x3").await);
+
+        let items_root = hook_root.items.get_untracked();
+
+        assert_eq!(items_root.len(), 4);
+        assert_eq!(items_root[0].text, "c3");
+        assert_eq!(items_root[3].text, "c0");
+
+        let items_reply = hook_reply.items.get_untracked();
+
+        assert_eq!(items_reply.len(), 4);
+        assert_eq!(items_reply[0].text, "c0_r0x1");
+        assert_eq!(items_reply[3].text, "c0_r3x1");
+
+        let items_flat = hook_flat.items.get_untracked();
+
+        assert_eq!(items_flat.len(), 8);
+        assert_eq!(items_flat[0].text, "c0_r0x2");
+        assert_eq!(items_flat[7].text, "c0_r3x3");
+
+        let items_none = hook_none.items.get_untracked();
+
+        assert_eq!(items_none.len(), 0);
+
+        // get
+        
+        let all_comments = app.state.db.get_post_comments_all().await.unwrap();
+        let mut output = String::new();
+        for comment in all_comments {
+            let line = format!("{} - {} - {} - {:?}\n", comment.id.key.to_sql(), comment.text, comment.created_at, comment.parent);
+            output.push_str(&line);
+
+        }
+        trace!("all comments \n{output}");
+        // trace!("all comments {all_comments:#?}");
+        // panic!("wtf");
+
+        let hook_root = CommentsApi2::new(&app.api, 4, CommentKind2::Root);
+        hook_root.observe_only(post.id.clone());
+        hook_root.fetch().await;
+        let items_root = hook_root.items.get_untracked();
+
+        assert_eq!(items_root.len(), 4);
+        assert_eq!(items_root[0].text, "c3");
+        assert_eq!(items_root[3].text, "c0");
+
+        let c0 = items_root[3].clone();
+        let hook_reply = CommentsApi2::new(
+            &app.api,
+            4,
+            CommentKind2::Reply {
+                parent: hook_root.items,
+                comment: c0.clone(),
+            },
+        );
+        hook_reply.observe_only(post.id.clone());
+        hook_reply.fetch().await;
+        let items_reply = hook_reply.items.get_untracked();
+
+
+        assert_eq!(items_reply.len(), 4);
+        assert_eq!(items_reply[0].text, "c0_r0x1");
+        assert_eq!(items_reply[3].text, "c0_r3x1");
+
+        let c0_r0x1 = items_reply[0].clone();
+        let hook_flat = CommentsApi2::new(
+            &app.api,
+            4,
+            CommentKind2::Flat {
+                parent: hook_reply.items,
+                comment: c0_r0x1.clone(),
+            },
+        );
+        hook_flat.observe_only(post.id.clone());
+        hook_flat.fetch().await;
+        let items_flat = hook_flat.items.get_untracked();
+
+        assert_eq!(items_flat.len(), 4);
+        assert_eq!(items_flat[0].text, "c0_r0x2");
+        assert_eq!(items_flat[3].text, "c0_r3x2");
+
+        hook_flat.fetch().await;
+        let items_flat = hook_flat.items.get_untracked();
+
+        assert_eq!(items_flat.len(), 8);
+        assert_eq!(items_flat[0].text, "c0_r0x2");
+        assert_eq!(items_flat[7].text, "c0_r3x3");
+    }
 
     #[test]
-    pub fn kill_them_all() {
+    pub fn hook_comments_api_get() {
         let mut rt = tokio::runtime::Builder::new_current_thread()
             .enable_time()
             .enable_io()
@@ -1089,6 +1344,12 @@ pub mod tests {
             app.api.pre_load_token = auth_token.clone();
 
             let post = app.add_post(0, &auth_token).await.unwrap();
+
+            let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
+            hook_root.post_key.set_value(post.id.clone());
+
+            // (app.set_time(0).await, hook_root.post("comment0").await);
+            // let comment0 = hook_root.items.with_untracked(|v| v[0].clone());
 
             let comment0 = app
                 .add_post_comment(0, &auth_token, post.id.clone(), None, "wowza".to_string())
@@ -1266,9 +1527,6 @@ pub mod tests {
                 .await
                 .unwrap();
 
-            let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
-            hook_root.post_key.set_value(post.id.clone());
-
             hook_root.fetch().await;
 
             let post_comments = hook_root.items.get_untracked();
@@ -1308,7 +1566,7 @@ pub mod tests {
             let hook_comment = CommentsApi2::new(
                 &app.api,
                 2,
-                CommentKind2::Comment {
+                CommentKind2::Reply {
                     parent: hook_root.items,
                     comment: comment0.clone(),
                 },
@@ -1336,7 +1594,7 @@ pub mod tests {
             let hook_reply = CommentsApi2::new(
                 &app.api,
                 2,
-                CommentKind2::Comment {
+                CommentKind2::Reply {
                     parent: hook_comment.items,
                     comment: comment0_reply0.clone(),
                 },

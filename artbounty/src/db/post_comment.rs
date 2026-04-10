@@ -88,6 +88,20 @@ impl<C: Connection> Db<C> {
             .and_then_take_expect(4)
     }
 
+    pub async fn get_post_comments_all(&self) -> Result<Vec<DBPostComment>, DB404Err> {
+        let q = format!(
+            "
+            SELECT *, user.* FROM post_comment ORDER BY created_at ASC;
+        "
+        );
+        trace!("about to run {q}");
+        self.db
+            .query(q)
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_all(0)
+    }
+
     pub async fn get_post_comment(
         &self,
         comment_key: impl Into<RecordIdKey>,
@@ -95,7 +109,7 @@ impl<C: Connection> Db<C> {
         let comment_id = create_post_comment_id(comment_key.into());
         let q = format!(
             "
-            SELECT *, user.* FROM $comment_id;
+            SELECT *, user.* FROM ONLY $comment_id;
         "
         );
         trace!("about to run {q}");
@@ -540,7 +554,8 @@ mod tests {
         assert_eq!(post0.replies_count, 0);
         assert_eq!(post0_2.replies_count, 1);
 
-        let result = db.delete_post_comment(create_user_id("invalid"), post1.id.key.clone())
+        let result = db
+            .delete_post_comment(create_user_id("invalid"), post1.id.key.clone())
             .await;
         assert!(result.is_err());
 
