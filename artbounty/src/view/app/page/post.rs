@@ -77,7 +77,19 @@ pub fn Page() -> impl IntoView {
     let comment_basic = CommentsBaisc::new(api, spawner);
     let post_comment = move |e: SubmitEvent| {
         e.prevent_default();
-        comment_basic.post.run();
+        let Some(input_elm) = comment_input_ref.get() else {
+            return;
+        };
+        spawner.spawn(async move {
+            let text = input_elm.value();
+            comment_basic.comments_manual.post(text).await;
+            let post_err = comment_basic.err_post.get_untracked();
+            if !post_err.is_empty() {
+                return;
+            }
+            input_elm.set_value("");
+        });
+        // comment_basic.post.run();
     };
     Effect::new(move || {
         trace!("comments basic start");
@@ -347,21 +359,29 @@ pub fn Page() -> impl IntoView {
                             </div>
                         </form>
 
-                        <div node_ref=comment_container_ref class=" flex flex-col relative 0h-[20rem] 0overflow-y-scroll">
-                            <For
-                                each=move || comment_basic.items.get()
-                                key=|state| state.key.clone()
-                                let(data)
-                            >
-                                {
-                                    // let key = data.key.clone();
-                                    // let is_last = || comment_basic.items.with(|v| v.last().map(|v| v.key == key).unwrap_or_default());
-                                    view!{
-                                        <PostCommentElm parent=comment_basic.items comment=data param_post max_depth=2 parent_depth=0 />
-                                    }.into_any()
-                                }
-                            </For>
-                            // { post_comment_views }
+                        <div class="flex flex-col gap-2">
+                            <div node_ref=comment_container_ref class=" flex flex-col relative 0h-[20rem] 0overflow-y-scroll">
+                                <For
+                                    each=move || comment_basic.items.get()
+                                    key=|state| state.key.clone()
+                                    let(data)
+                                >
+                                    {
+                                        view!{
+                                            <PostCommentElm
+                                                parent_items=comment_basic.items
+                                                parent_reply_count=comment_basic.replies_count
+                                                comment=data
+                                                param_post
+                                                max_depth=2
+                                                parent_depth=0 />
+                                        }.into_any()
+                                    }
+                                </For>
+                            </div>
+                            <ul class="ml-[1rem] text-base08 list-disc">
+                                {move || comment_basic.comments_manual.err_fetch.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                            </ul>
                         </div>
                     </div>
                 </div>
@@ -399,7 +419,8 @@ pub fn SVGTriangle(#[prop(optional, into)] class: String) -> impl IntoView {
 
 #[component]
 pub fn PostCommentElm(
-    parent: RwSignal<Vec<UserPostComment>, LocalStorage>,
+    parent_items: RwSignal<Vec<UserPostComment>, LocalStorage>,
+    parent_reply_count: RwSignal<usize, LocalStorage>,
     comment: UserPostComment,
     param_post: Memo<Option<String>>,
     max_depth: usize,
@@ -424,7 +445,7 @@ pub fn PostCommentElm(
     // let reply_btn_shown = RwSignal::new(false);
     let replies_shown = RwSignal::new(false);
     let api = ApiWeb::new();
-    let replies_count = RwSignal::new(comment.replies_count);
+    // let replies_count = RwSignal::new(comment.replies_count);
     // let is_last = {
     //     let key = comment.key.clone();
     //     move || {
@@ -451,33 +472,48 @@ pub fn PostCommentElm(
         10,
         if current_depth < max_depth {
             CommentKind2::Reply {
-                parent,
+                parent_items: parent_items,
+                parent_replies_count: parent_reply_count,
                 comment: comment.clone(),
             }
         } else if current_depth == max_depth {
             CommentKind2::Flat {
-                parent,
+                parent_items: parent_items,
+                parent_replies_count: parent_reply_count,
                 comment: comment.clone(),
             }
         } else {
             CommentKind2::None {
-                parent,
+                parent_items: parent_items,
+                parent_replies_count: parent_reply_count,
                 comment: comment.clone(),
             }
         },
     );
     let post_comment = move |_| {
+        let Some(input_elm) = comment_input_ref.get() else {
+            return;
+        };
+        spawner.spawn(async move {
+            let text = input_elm.value();
+            comments_manual.post(text).await;
+            let post_err = comments_manual.err_post.get_untracked();
+            if !post_err.is_empty() {
+                return;
+            }
+            input_elm.set_value("");
+        });
         // e.prevent_default();
-        trace!("comments manual posting 0");
+        // trace!("comments manual posting 0");
         // comments_manual.post();
-        trace!("comments manual posting");
+        // trace!("comments manual posting");
         // reply_btn_shown.update(|v| *v = !*v)
     };
-    let delete_comment = {
-        let comment_key = comment.key.clone();
-        move |_| {
-            // comments_manual.delete.run(comment_key.clone());
-        }
+    let delete_comment = move |_| {
+        spawner.spawn(comments_manual.delete());
+    };
+    let fetch_comments = move || {
+        spawner.spawn(comments_manual.fetch());
     };
     let toggle_btn = move |_| {
         comments_manual.show_editor.update(|v| *v = !*v);
@@ -543,19 +579,22 @@ pub fn PostCommentElm(
                 <div class="flex flex-col w-full group">
                     <div class="flex gap-2 place-items-start ">
                         <div class="text-[1.2rem]"> {comment.user.username} </div>
-                        <div class="text-[1rem] text-base03"> {ns_to_str(global_state.get_time_ns().saturating_sub(comment.created_at))}" ago"</div>
-                        <button on:click=delete_comment>
-                            <SVGTrash class="size-6 text-base08 ml-auto hidden group-hover:flex"/>
+                        <div class="text-[1rem] text-base03"> {move || ns_to_str(global_state.get_time_ns().saturating_sub(comment.created_at))}" ago"</div>
+                        <button on:click=delete_comment class="ml-auto">
+                            <SVGTrash class="size-6 text-base08 hidden group-hover:flex"/>
                         </button>
                     </div>
 
 
-                    <span contenteditable node_ref=comment_edit_ref class=" text-[1.1rem] break-all focus:outline-none! appearance-none border-none resize text-[1.1rem] w-full" >{comment.text}</span>
+                    <span contenteditable node_ref=comment_edit_ref class=" text-[1.1rem] break-all focus:outline-none! appearance-none border-none resize w-full" >{comment.text}</span>
+                    <ul class="ml-[1rem] text-base08 list-disc">
+                        {move || comments_manual.err_delete.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                    </ul>
                     // <div class=" mb-2 text-[1.1rem] break-all"> {comment.text} </div>
                     <div class="mb-2 flex gap-2 place-items-center">
                         <Show when=move || reply_render_comments >
                             // <button on:click=toggle_replies type="submit" class=move || format!("group  gap-1 flex place-items-center rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] py-[0.2rem]  {}", if replies_shown.get() { "text-base05 bg-base01 hover:bg-base03" } else { "text-base05 bg-base01 hover:bg-base05 hover:text-base01" })>
-                            <Show when=move || {replies_count.get() > 0} fallback=move || view!{
+                            <Show when=move || {comments_manual.replies_count.get() > 0} fallback=move || view!{
                                 <p class=move || format!("group text-base03 gap-1 flex place-items-center rounded-full font-semibold text-[0.8rem] font-medium ")>
                                     <div class="0group-hover:bg-base01 size-3 bg-base03 aspect-square rounded mx-auto"/>
                                     "no replies"
@@ -563,11 +602,15 @@ pub fn PostCommentElm(
 
                             }>
                                 <button on:click=toggle_replies class=move || format!("group  gap-1 flex place-items-center rounded-full font-semibold text-[0.8rem] font-medium ")>
-                                    <Show when=move || replies_shown.get() fallback={|| view!{<div class="0group-hover:bg-base01 size-3 bg-base05 aspect-square rounded mx-auto"/>}}>
+                                    <Show when=move || replies_shown.get() fallback={|| view!{
+                                        <div class="0group-hover:bg-base01 size-3 bg-base05 aspect-square rounded mx-auto"/>
+                                    }}>
                                         <SVGTriangle class="size-3 mx-auto"/>
                                     </Show>
-                                    {move || replies_count.get() }
-                                    " replies"
+                                    <Show when=move || !comments_manual.kind.with_value(|v| v.is_flat()) fallback={|| "replies"}>
+                                        {move || comments_manual.replies_count.get() }
+                                        " replies"
+                                    </Show>
                                 </button>
                             </Show>
                         </Show>
@@ -622,13 +665,20 @@ pub fn PostCommentElm(
                                     // let key = data.key.clone();
                                     // let is_last = comments_manual.items.with(|v| v.last().map(|v| v.key == key).unwrap_or_default());
                                     view!{
-                                        <PostCommentElm parent=comments_manual.items comment=data param_post max_depth=max_depth parent_depth=current_depth />
+                                        <PostCommentElm
+                                            parent_items=comments_manual.items
+                                            parent_reply_count=comments_manual.replies_count
+                                            comment=data
+                                            param_post max_depth=max_depth parent_depth=current_depth />
                                     }.into_any()
                                 }
                             </For>
-                            <button on:click=move |_| { comments_manual.fetch(); } class=move || format!("px-4 py-2 bg-base01 rounded-xl text-center text-base05 font-[1.2rem] w-full {}", if comments_manual.finished.get() {"hidden"} else {""})>
+                            <button on:click=move |_| { fetch_comments(); } class=move || format!("px-4 py-2 bg-base01 rounded-xl text-center text-base05 font-[1.2rem] w-full {}", if comments_manual.finished.get() {"hidden"} else {""})>
                                 "load more"
                             </button>
+                            <ul class="text-base08 list-disc">
+                                {move || comments_manual.err_fetch.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                            </ul>
                         </div>
                         // { post_comment_views }
                     </Show>

@@ -27,15 +27,18 @@ pub enum CommentKind2 {
     //     comment: UserPostComment,
     // },
     Reply {
-        parent: RwSignal<Vec<UserPostComment>, LocalStorage>,
+        parent_items: RwSignal<Vec<UserPostComment>, LocalStorage>,
+        parent_replies_count: RwSignal<usize, LocalStorage>,
         comment: UserPostComment,
     },
     Flat {
-        parent: RwSignal<Vec<UserPostComment>, LocalStorage>,
+        parent_items: RwSignal<Vec<UserPostComment>, LocalStorage>,
+        parent_replies_count: RwSignal<usize, LocalStorage>,
         comment: UserPostComment,
     },
     None {
-        parent: RwSignal<Vec<UserPostComment>, LocalStorage>,
+        parent_items: RwSignal<Vec<UserPostComment>, LocalStorage>,
+        parent_replies_count: RwSignal<usize, LocalStorage>,
         comment: UserPostComment,
     }, // Comment {
        //     parent: CommentsApi,
@@ -56,10 +59,14 @@ pub struct CommentsApi2<API: Api> {
     // ui
     pub items: RwSignal<Vec<UserPostComment>, LocalStorage>,
     pub finished: RwSignal<bool, LocalStorage>,
+    pub replies_count: RwSignal<usize, LocalStorage>,
     pub show_editor: RwSignal<bool, LocalStorage>,
     // pub is_last: RwSignal<bool, LocalStorage>,
     // pub is_last: StoredValue<Box<dyn Fn() -> bool + 'static>, LocalStorage>,
     pub err_post: RwSignal<String, LocalStorage>,
+    pub err_fetch: RwSignal<String, LocalStorage>,
+    pub err_delete: RwSignal<String, LocalStorage>,
+
     // params
     pub post_key: StoredValue<String, LocalStorage>,
     // pub input_elm: StoredValue::;
@@ -73,19 +80,67 @@ where
     API: Api,
 {
     pub fn new(api: API, fetch_count: usize, kind: CommentKind2) -> Self {
+        let replies_count = match &kind {
+            CommentKind2::Root => 0,
+            CommentKind2::Flat { comment, .. }
+            | CommentKind2::None { comment, .. }
+            | CommentKind2::Reply { comment, .. } => comment.replies_count,
+        };
         Self {
             // ui
             items: RwSignal::new_local(Vec::new()),
             finished: RwSignal::new_local(false),
+            replies_count: RwSignal::new_local(replies_count),
             // is_last: RwSignal::new_local(false),
             show_editor: RwSignal::new_local(false),
             err_post: RwSignal::new_local(String::new()),
+            err_fetch: RwSignal::new_local(String::new()),
+            err_delete: RwSignal::new_local(String::new()),
             // params
             post_key: StoredValue::new_local(String::new()),
             kind: StoredValue::new_local(kind),
             fetch_count,
             api,
         }
+    }
+
+    fn handle_fetch_result(&self, result: Result<ServerRes, ServerErr>) {
+        let fetch_count = self.fetch_count;
+        let finished = self.finished;
+
+        match result {
+            Ok(ServerRes::Comments(comments)) => {
+                let len = comments.len();
+                trace!(
+                    "comments manual (len){len} < (fetch_count){fetch_count} = {}",
+                    len < fetch_count
+                );
+
+                if len == fetch_count {
+                    finished.set(false);
+                } else if !finished.get_untracked() && len < fetch_count {
+                    finished.set(true);
+                }
+
+                if len > 0 {
+                    self.items.update(|v| {
+                        trace!("comments manual before {v:#?}");
+                        v.extend(comments);
+                        trace!("comments manual after {v:#?}");
+                    });
+                }
+            }
+            Ok(err) => {
+                let err = format!("post comments basic: unexpected res: {err:?}");
+                error!(err);
+                self.err_fetch.set(err);
+            }
+            Err(err) => {
+                let err = format!("post comments basic: {err}");
+                error!(err);
+                self.err_fetch.set(err);
+            }
+        };
     }
 
     async fn fetch_replies(&self, comment_key: String, flatten: bool) {
@@ -118,39 +173,7 @@ where
             .send_native()
             .await;
 
-        match result {
-            Ok(ServerRes::Comments(comments)) => {
-                let len = comments.len();
-                trace!(
-                    "comments manual (len){len} < (fetch_count){fetch_count} = {}",
-                    len < fetch_count
-                );
-
-                if len == fetch_count {
-                    finished.set(false);
-                } else if !finished.get_untracked() && len < fetch_count {
-                    finished.set(true);
-                }
-
-                // self.is_last.
-
-                if len > 0 {
-                    self.items.update(|v| {
-                        trace!("comments manual before {v:#?}");
-                        v.extend(comments);
-                        trace!("comments manual after {v:#?}");
-                    });
-                }
-            }
-            Ok(err) => {
-                let err = format!("post comments basic: unexpected res: {err:?}");
-                error!(err);
-            }
-            Err(err) => {
-                let err = format!("post comments basic: {err}");
-                error!(err);
-            }
-        };
+        self.handle_fetch_result(result);
     }
 
     async fn fetch_comments(&self) {
@@ -176,39 +199,11 @@ where
             .send_native()
             .await;
 
-        match result {
-            Ok(ServerRes::Comments(comments)) => {
-                let len = comments.len();
-                trace!(
-                    "comments manual (len){len} < (fetch_count){fetch_count} = {}",
-                    len < fetch_count
-                );
-                if len == fetch_count {
-                    finished.set(false);
-                } else if !finished.get_untracked() && len < fetch_count {
-                    finished.set(true);
-                }
-                if len > 0 {
-                    self.items.update(|v| {
-                        trace!("updating comment vec before {v:#?}");
-                        v.extend(comments);
-                        trace!("updating comment vec after {v:#?}");
-                    });
-                    // return Some(comments);
-                }
-            }
-            Ok(err) => {
-                let err = format!("post comments basic: unexpected res: {err:?}");
-                error!(err);
-            }
-            Err(err) => {
-                let err = format!("post comments basic: {err}");
-                error!(err);
-            }
-        };
+        self.handle_fetch_result(result);
     }
 
     pub async fn fetch(self) {
+        self.err_fetch.update(|v| v.clear());
         let kind = self.kind.get_value();
         match kind {
             CommentKind2::Root => {
@@ -217,13 +212,13 @@ where
             // CommentKind2::Comment { parent, comment } => {
             //     self.fetch_replies(comment.key.clone(), false).await;
             // }
-            CommentKind2::Reply { parent, comment } => {
+            CommentKind2::Reply { comment, .. } => {
                 self.fetch_replies(comment.key.clone(), false).await;
             }
-            CommentKind2::Flat { parent, comment } => {
+            CommentKind2::Flat { comment, .. } => {
                 self.fetch_replies(comment.key.clone(), true).await;
             }
-            CommentKind2::None { parent, comment } => {
+            CommentKind2::None { comment, .. } => {
                 warn!("not implemented");
                 //
             }
@@ -234,13 +229,13 @@ where
         match result {
             Ok(ServerRes::Comment(comment)) => {
                 self.show_editor.set(false);
+                self.replies_count.update(|v| *v += 1);
                 return Some(comment);
                 // self.items.update(|v| {
                 //     v.insert(0, comment);
                 // });
                 // // comments_local.update(|v| v.insert(0, comment));
                 // self.show_editor.set(false);
-                // reply_count.update(|v| *v += 1);
             }
             Ok(err) => {
                 let err = format!("post comments basic: unexpected res: {err:?}");
@@ -255,34 +250,6 @@ where
         };
         None
     }
-
-    // async fn post_reply(&self, text: impl Into<String>, comment_key: impl Into<String>) {
-    //     let post_key = self.post_key.get_value();
-    //
-    //     let result = self
-    //         .api
-    //         .add_post_comment(post_key, Some(comment_key.into()), text)
-    //         .send_native()
-    //         .await;
-    //
-    //     let Some(comment) = self.handle_post_result(result) else {
-    //         return;
-    //     };
-    //
-    //     self.items.update(|v| {
-    //         v.push(comment);
-    //     });
-    // }
-    // let Some(comment) = self.handle_post_result(result) else {
-    //     return;
-    // };
-    //
-    // self.items.update(|v| {
-    //     v.insert(0, comment);
-    // });
-    // self.items.update(|v| {
-    //     v.push(comment);
-    // });
 
     async fn post_comment(&self, text: impl Into<String>) -> Option<UserPostComment> {
         let post_key = self.post_key.get_value();
@@ -322,8 +289,69 @@ where
         self.handle_post_result(result)
     }
 
+    pub async fn delete(self) {
+        self.err_delete.update(|v| v.clear());
+        match self.kind.get_value() {
+            CommentKind2::Root => {
+                return;
+            }
+            CommentKind2::Flat {
+                parent_items: parent,
+                comment,
+                parent_replies_count,
+            }
+            | CommentKind2::Reply {
+                parent_items: parent,
+                comment,
+                parent_replies_count,
+            }
+            | CommentKind2::None {
+                parent_items: parent,
+                comment,
+                parent_replies_count,
+            } => {
+                let result = self
+                    .api
+                    .delete_post_comment(comment.key.clone())
+                    .send_native()
+                    .await;
+
+                match result {
+                    Ok(ServerRes::Ok) => {
+                        // if let Some(parent) = parent {
+                        parent.update(|v| {
+                            let Some(pos) = v.iter().position(|v| v.key == comment.key) else {
+                                return;
+                            };
+                            v.remove(pos);
+                        });
+
+                        // // because the FLAT comment kind in UI doesnt display replies count
+                        // let is_not_none = self.kind.with_value(|v| !v.is_none());
+                        // if is_not_none {
+                        // }
+                        parent_replies_count.update(|v: &mut usize| {
+                            *v = v.saturating_sub(1);
+                        });
+                    }
+                    Ok(err) => {
+                        let err = format!("post comments basic: unexpected res: {err:?}");
+                        error!(err);
+                        self.err_delete.set(err);
+                    }
+                    Err(err) => {
+                        let err = format!("post comments basic: {err}");
+                        error!(err);
+                        self.err_delete.set(err);
+                    }
+                };
+            }
+        }
+    }
+
     pub async fn post(self, text: impl Into<String>) {
         // let post_key = self.post_key.get_value();
+        self.err_post.update(|v| v.clear());
         let kind = self.kind.get_value();
 
         match kind {
@@ -341,7 +369,16 @@ where
                 });
             }
             // CommentKind2::Comment { parent, comment }
-            CommentKind2::Reply { parent, comment } | CommentKind2::Flat { parent, comment } => {
+            CommentKind2::Reply {
+                parent_items: parent,
+                comment,
+                ..
+            }
+            | CommentKind2::Flat {
+                parent_items: parent,
+                comment,
+                ..
+            } => {
                 let Some(comment) = self.post_reply(text, comment.key).await else {
                     error!("failed to post");
                     return;
@@ -351,7 +388,11 @@ where
                     v.push(comment);
                 });
             }
-            CommentKind2::None { parent, comment } => {
+            CommentKind2::None {
+                parent_items: parent,
+                comment,
+                ..
+            } => {
                 let Some(comment) = self.post_reply(text, comment.key).await else {
                     error!("failed to post");
                     return;
@@ -369,9 +410,21 @@ where
         match kind {
             CommentKind2::Root => false,
             // CommentKind2::Comment { parent, comment }
-            CommentKind2::Reply { parent, comment }
-            | CommentKind2::Flat { parent, comment }
-            | CommentKind2::None { parent, comment } => parent
+            CommentKind2::Reply {
+                parent_items: parent,
+                comment,
+                ..
+            }
+            | CommentKind2::Flat {
+                parent_items: parent,
+                comment,
+                ..
+            }
+            | CommentKind2::None {
+                parent_items: parent,
+                comment,
+                ..
+            } => parent
                 .with(|v| v.last().map(|v| v.key.clone()))
                 .map(|v| v == comment.key)
                 .unwrap_or_default(),
@@ -1151,8 +1204,8 @@ pub mod tests {
     };
     use hydration_context::HydrateSharedContext;
     use leptos::prelude::*;
-    use surrealdb::types::ToSql;
     use std::sync::Arc;
+    use surrealdb::types::ToSql;
     use tokio::process::Command;
     use tracing::{debug, trace};
 
@@ -1193,7 +1246,8 @@ pub mod tests {
             &app.api,
             2,
             CommentKind2::Reply {
-                parent: hook_root.items,
+                parent_items: hook_root.items,
+                parent_replies_count: hook_root.replies_count,
                 comment: c0.clone(),
             },
         );
@@ -1209,7 +1263,8 @@ pub mod tests {
             &app.api,
             2,
             CommentKind2::Flat {
-                parent: hook_reply.items,
+                parent_items: hook_reply.items,
+                parent_replies_count: hook_reply.replies_count,
                 comment: c0_r0x1.clone(),
             },
         );
@@ -1225,7 +1280,8 @@ pub mod tests {
             &app.api,
             2,
             CommentKind2::None {
-                parent: hook_flat.items,
+                parent_items: hook_flat.items,
+                parent_replies_count: hook_flat.replies_count,
                 comment: c0_r0x2.clone(),
             },
         );
@@ -1259,13 +1315,18 @@ pub mod tests {
         assert_eq!(items_none.len(), 0);
 
         // get
-        
+
         let all_comments = app.state.db.get_post_comments_all().await.unwrap();
         let mut output = String::new();
         for comment in all_comments {
-            let line = format!("{} - {} - {} - {:?}\n", comment.id.key.to_sql(), comment.text, comment.created_at, comment.parent);
+            let line = format!(
+                "{} - {} - {} - {:?}\n",
+                comment.id.key.to_sql(),
+                comment.text,
+                comment.created_at,
+                comment.parent
+            );
             output.push_str(&line);
-
         }
         trace!("all comments \n{output}");
         // trace!("all comments {all_comments:#?}");
@@ -1285,14 +1346,14 @@ pub mod tests {
             &app.api,
             4,
             CommentKind2::Reply {
-                parent: hook_root.items,
+                parent_items: hook_root.items,
+                parent_replies_count: hook_root.replies_count,
                 comment: c0.clone(),
             },
         );
         hook_reply.observe_only(post.id.clone());
         hook_reply.fetch().await;
         let items_reply = hook_reply.items.get_untracked();
-
 
         assert_eq!(items_reply.len(), 4);
         assert_eq!(items_reply[0].text, "c0_r0x1");
@@ -1303,7 +1364,8 @@ pub mod tests {
             &app.api,
             4,
             CommentKind2::Flat {
-                parent: hook_reply.items,
+                parent_items: hook_reply.items,
+                parent_replies_count: hook_reply.replies_count,
                 comment: c0_r0x1.clone(),
             },
         );
@@ -1321,6 +1383,138 @@ pub mod tests {
         assert_eq!(items_flat.len(), 8);
         assert_eq!(items_flat[0].text, "c0_r0x2");
         assert_eq!(items_flat[7].text, "c0_r3x3");
+    }
+
+    #[tokio::test]
+    pub async fn hook_comments_api_delete() {
+        println!("hello");
+        init_test_log();
+        let owner = Owner::new_root(Some(Arc::new(HydrateSharedContext::new())));
+        let mut app = ApiTestApp::new(10).await;
+
+        let mut time = 0_u128;
+        let mut t = move || {
+            time += 1;
+            time
+        };
+
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+
+        app.api.pre_load_token = auth_token.clone();
+
+        let post = app.add_post(t(), &auth_token).await.unwrap();
+
+        let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
+        hook_root.observe_only(post.id.clone());
+
+        (app.set_time(t()).await, hook_root.post("c0").await);
+        (app.set_time(t()).await, hook_root.post("c1").await);
+
+        hook_root.delete().await;
+        let items_root = hook_root.items.get();
+        assert_eq!(items_root.len(), 2);
+
+        let c0 = hook_root.items.with_untracked(|v| v[1].clone());
+
+        let hook_reply = CommentsApi2::new(
+            &app.api,
+            2,
+            CommentKind2::Reply {
+                parent_items: hook_root.items,
+                parent_replies_count: hook_root.replies_count,
+                comment: c0,
+            },
+        );
+        hook_reply.observe_only(post.id.clone());
+
+        (app.set_time(t()).await, hook_reply.post("c0_r0x1").await);
+        (app.set_time(t()).await, hook_reply.post("c0_r1x1").await);
+
+        let items_reply = hook_reply.items.get();
+        assert_eq!(items_reply.len(), 2);
+
+        let c0_r0x1 = hook_reply.items.with_untracked(|v| v[0].clone());
+
+        let hook_flat = CommentsApi2::new(
+            &app.api,
+            2,
+            CommentKind2::Flat {
+                parent_items: hook_reply.items,
+                parent_replies_count: hook_reply.replies_count,
+                comment: c0_r0x1,
+            },
+        );
+        hook_flat.observe_only(post.id.clone());
+
+        (app.set_time(t()).await, hook_flat.post("c0_r0x2").await);
+        (app.set_time(t()).await, hook_flat.post("c0_r1x2").await);
+
+        let items_flat = hook_flat.items.get();
+        assert_eq!(items_flat.len(), 2);
+
+        let c0_r0x2 = hook_flat.items.with_untracked(|v| v[0].clone());
+
+        let hook_none = CommentsApi2::new(
+            &app.api,
+            2,
+            CommentKind2::None {
+                parent_items: hook_flat.items,
+                parent_replies_count: hook_flat.replies_count,
+                comment: c0_r0x2,
+            },
+        );
+        hook_none.observe_only(post.id.clone());
+
+        (app.set_time(t()).await, hook_none.post("c0_r0x3").await);
+        (app.set_time(t()).await, hook_none.post("c0_r1x3").await);
+
+        let items_flat = hook_flat.items.get();
+        assert_eq!(items_flat.len(), 4);
+
+        // let c0_r0x3 = hook_flat.items.with_untracked(|v| v[3].clone());
+        // let hook_none2 = CommentsApi2::new(
+        //     &app.api,
+        //     2,
+        //     CommentKind2::None {
+        //         parent_items: hook_flat.items,
+        //         parent_replies_count: hook_flat.replies_count,
+        //         comment: c0_r0x3,
+        //     },
+        // );
+        // hook_none2.observe_only(post.id.clone());
+        //
+        // (app.set_time(t()).await, hook_none2.post("c0_r0x4").await);
+        //
+        // let items_flat = hook_flat.items.get();
+        // assert_eq!(items_flat.len(), 5);
+
+        {
+            hook_none.delete().await;
+
+            let items_flat = hook_flat.items.get();
+            assert_eq!(items_flat.len(), 1);
+            assert_eq!(items_flat[0].text, "c0_r1x2");
+            assert_eq!(items_flat[2].text, "c0_r1x3");
+        }
+
+        {
+            hook_flat.delete().await;
+
+            let items_reply = hook_reply.items.get();
+            assert_eq!(items_reply.len(), 1);
+            assert_eq!(items_reply[0].text, "c0_r1x1");
+        }
+
+        {
+            hook_reply.delete().await;
+
+            let items_root = hook_root.items.get();
+            assert_eq!(items_root.len(), 1);
+            assert_eq!(items_root[0].text, "c1");
+        }
     }
 
     #[test]
@@ -1567,7 +1761,8 @@ pub mod tests {
                 &app.api,
                 2,
                 CommentKind2::Reply {
-                    parent: hook_root.items,
+                    parent_items: hook_root.items,
+                    parent_replies_count: hook_root.replies_count,
                     comment: comment0.clone(),
                 },
             );
@@ -1595,7 +1790,8 @@ pub mod tests {
                 &app.api,
                 2,
                 CommentKind2::Reply {
-                    parent: hook_comment.items,
+                    parent_items: hook_comment.items,
+                    parent_replies_count: hook_comment.replies_count,
                     comment: comment0_reply0.clone(),
                 },
             );
@@ -1628,7 +1824,8 @@ pub mod tests {
                 &app.api,
                 2,
                 CommentKind2::Flat {
-                    parent: hook_reply.items,
+                    parent_items: hook_reply.items,
+                    parent_replies_count: hook_reply.replies_count,
                     comment: comment0_reply0_reply0.clone(),
                 },
             );
@@ -1737,4 +1934,6 @@ pub mod tests {
 
         // trace!("hello {}", a.get_untracked());
     }
+
+    // TODO add error test
 }

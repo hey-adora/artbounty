@@ -22,6 +22,7 @@ use web_sys::{Element, HtmlElement, HtmlTextAreaElement, MutationObserver, Mutat
 #[derive(Copy, Clone)]
 pub struct CommentsBaisc<API: Api> {
     pub reply_editor_show: RwSignal<bool, LocalStorage>,
+    pub replies_count: RwSignal<usize, LocalStorage>,
     pub comments_manual: CommentsApi2<API>,
     pub err_post: RwSignal<String, LocalStorage>,
     pub items: RwSignal<Vec<UserPostComment>, LocalStorage>,
@@ -63,6 +64,7 @@ impl<API: Api + Clone + Copy + 'static> CommentsBaisc<API> {
             comments_manual,
             reply_editor_show: comments_manual.show_editor,
             err_post: comments_manual.err_post,
+            replies_count: comments_manual.replies_count,
             items: comments_manual.items,
             infinite_fn,
             spawner,
