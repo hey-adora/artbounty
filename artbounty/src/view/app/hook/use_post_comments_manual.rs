@@ -104,31 +104,51 @@ where
         }
     }
 
-    fn handle_fetch_result(&self, result: Result<ServerRes, ServerErr>) {
-        let fetch_count = self.fetch_count;
-        let finished = self.finished;
+    fn handle_fetch_result(&self, result: Result<ServerRes, ServerErr>) -> Vec<UserPostComment> {
+        // let fetch_count = self.fetch_count;
+        // let finished = self.finished;
 
         match result {
             Ok(ServerRes::Comments(comments)) => {
+                let fetch_count = self.fetch_count;
+                let finished = self.finished;
                 let len = comments.len();
-                trace!(
-                    "comments manual (len){len} < (fetch_count){fetch_count} = {}",
-                    len < fetch_count
-                );
+                let is_finished = finished.get_untracked();
 
-                if len == fetch_count {
+                if len == fetch_count && is_finished {
                     finished.set(false);
-                } else if !finished.get_untracked() && len < fetch_count {
+                } else if !is_finished && len < fetch_count {
                     finished.set(true);
                 }
 
-                if len > 0 {
-                    self.items.update(|v| {
-                        trace!("comments manual before {v:#?}");
-                        v.extend(comments);
-                        trace!("comments manual after {v:#?}");
-                    });
-                }
+                return comments;
+                // trace!(
+                //     "comments manual (len){len} < (fetch_count){fetch_count} = {}",
+                //     len < fetch_count
+                // );
+                //
+                // if len == fetch_count {
+                //     finished.set(false);
+                // } else if !finished.get_untracked() && len < fetch_count {
+                //     finished.set(true);
+                // }
+                //
+                // if len > 0 {
+                //     let replies_count = self.replies_count;
+                //     self.items.update(|v| {
+                //         trace!("comments manual before {v:#?}");
+                //         v.extend(comments);
+                //         let len = v.len();
+                //
+                //         trace!("replies count {} {}", replies_count.get_untracked(), len);
+                //         // panic!("stop");
+                //         if replies_count.get_untracked() < len {
+                //             replies_count.set(len);
+                //
+                //         }
+                //         trace!("comments manual after {v:#?}");
+                //     });
+                // }
             }
             Ok(err) => {
                 let err = format!("post comments basic: unexpected res: {err:?}");
@@ -141,13 +161,14 @@ where
                 self.err_fetch.set(err);
             }
         };
+        Vec::new()
     }
 
-    async fn fetch_replies(&self, comment_key: String, flatten: bool) {
+    async fn fetch_replies(&self, comment_key: String, flatten: bool) -> Vec<UserPostComment> {
         let post_key = self.post_key.get_value();
         if post_key.is_empty() {
             warn!("post key not found");
-            return;
+            return Vec::new();
         }
         let fetch_count = self.fetch_count;
         let finished = self.finished;
@@ -173,14 +194,14 @@ where
             .send_native()
             .await;
 
-        self.handle_fetch_result(result);
+        self.handle_fetch_result(result)
     }
 
-    async fn fetch_comments(&self) {
+    async fn fetch_comments(&self) -> Vec<UserPostComment> {
         let post_key = self.post_key.get_value();
         if post_key.is_empty() {
             warn!("post key not found");
-            return;
+            return Vec::new();
         }
         let fetch_count = self.fetch_count;
         let finished = self.finished;
@@ -199,7 +220,7 @@ where
             .send_native()
             .await;
 
-        self.handle_fetch_result(result);
+        self.handle_fetch_result(result)
     }
 
     pub async fn fetch(self) {
@@ -207,16 +228,55 @@ where
         let kind = self.kind.get_value();
         match kind {
             CommentKind2::Root => {
-                self.fetch_comments().await;
+                let comments = self.fetch_comments().await;
+                if comments.is_empty() {
+                    return;
+                }
+
+                self.items.update(|v| {
+                    trace!("comments manual before {v:#?}");
+                    v.extend(comments);
+                    trace!("comments manual after {v:#?}");
+                });
             }
-            // CommentKind2::Comment { parent, comment } => {
-            //     self.fetch_replies(comment.key.clone(), false).await;
-            // }
             CommentKind2::Reply { comment, .. } => {
-                self.fetch_replies(comment.key.clone(), false).await;
+                let comments = self.fetch_replies(comment.key.clone(), false).await;
+                if comments.is_empty() {
+                    return;
+                }
+
+                let replies_count = self.replies_count;
+                self.items.update(|v| {
+                    trace!("comments manual before {v:#?}");
+                    v.extend(comments);
+                    trace!("comments manual after {v:#?}");
+
+                    let len = v.len();
+                    trace!("replies count {} {}", replies_count.get_untracked(), len);
+                    if replies_count.get_untracked() < len {
+                        replies_count.set(len);
+                    }
+                });
             }
             CommentKind2::Flat { comment, .. } => {
-                self.fetch_replies(comment.key.clone(), true).await;
+                let comments = self.fetch_replies(comment.key.clone(), true).await;
+                if comments.is_empty() {
+                    return;
+                }
+
+                let replies_count = self.replies_count;
+
+                self.items.update(|v| {
+                    trace!("comments manual before {v:#?}");
+                    v.extend(comments);
+                    trace!("comments manual after {v:#?}");
+
+                    let len = v.len();
+                    trace!("replies count {} {}", replies_count.get_untracked(), len);
+                    if replies_count.get_untracked() < len {
+                        replies_count.set(len);
+                    }
+                });
             }
             CommentKind2::None { comment, .. } => {
                 warn!("not implemented");
@@ -229,7 +289,6 @@ where
         match result {
             Ok(ServerRes::Comment(comment)) => {
                 self.show_editor.set(false);
-                self.replies_count.update(|v| *v += 1);
                 return Some(comment);
                 // self.items.update(|v| {
                 //     v.insert(0, comment);
@@ -319,19 +378,29 @@ where
                 match result {
                     Ok(ServerRes::Ok) => {
                         // if let Some(parent) = parent {
+                        let len_before = parent.with_untracked(|v| v.len());
                         parent.update(|v| {
-                            let Some(pos) = v.iter().position(|v| v.key == comment.key) else {
-                                return;
-                            };
-                            v.remove(pos);
+                            *v = v
+                                .clone()
+                                .into_iter()
+                                .filter(|v| {
+                                    !(v.key == comment.key
+                                        || v.parent_key.iter().any(|v| *v == comment.key))
+                                })
+                                .collect::<Vec<UserPostComment>>();
+                            // let Some(pos) = v.iter().position(|v| v.key == comment.key) else {
+                            //     return;
+                            // };
+                            // v.remove(pos);
                         });
+                        let len_after = parent.with_untracked(|v| v.len());
+                        let removed = len_before.saturating_sub(len_after);
 
-                        // // because the FLAT comment kind in UI doesnt display replies count
                         // let is_not_none = self.kind.with_value(|v| !v.is_none());
                         // if is_not_none {
                         // }
                         parent_replies_count.update(|v: &mut usize| {
-                            *v = v.saturating_sub(1);
+                            *v = v.saturating_sub(removed);
                         });
                     }
                     Ok(err) => {
@@ -367,6 +436,7 @@ where
                     }
                     v.insert(0, comment);
                 });
+                // self.replies_count.update(|v| *v += 1);
             }
             // CommentKind2::Comment { parent, comment }
             CommentKind2::Reply {
@@ -387,11 +457,12 @@ where
                 self.items.update(|v| {
                     v.push(comment);
                 });
+                self.replies_count.update(|v| *v += 1);
             }
             CommentKind2::None {
                 parent_items: parent,
                 comment,
-                ..
+                parent_replies_count,
             } => {
                 let Some(comment) = self.post_reply(text, comment.key).await else {
                     error!("failed to post");
@@ -401,6 +472,7 @@ where
                 parent.update(|v| {
                     v.push(comment);
                 });
+                parent_replies_count.update(|v| *v += 1);
             }
         }
     }
@@ -1492,26 +1564,45 @@ pub mod tests {
         // assert_eq!(items_flat.len(), 5);
 
         {
+            let replies_count = hook_flat.replies_count.get_untracked();
+            assert_eq!(replies_count, 4);
+
             hook_none.delete().await;
 
-            let items_flat = hook_flat.items.get();
+            let items_flat = hook_flat.items.get_untracked();
+            let replies_count = hook_flat.replies_count.get_untracked();
+
+            assert_eq!(replies_count, 1);
             assert_eq!(items_flat.len(), 1);
             assert_eq!(items_flat[0].text, "c0_r1x2");
-            assert_eq!(items_flat[2].text, "c0_r1x3");
+
+            // assert_eq!(items_flat[2].text, "c0_r1x3");
         }
 
         {
+            let replies_count = hook_reply.replies_count.get_untracked();
+            assert_eq!(replies_count, 2);
+
             hook_flat.delete().await;
 
             let items_reply = hook_reply.items.get();
+            let replies_count = hook_reply.replies_count.get_untracked();
+
+            assert_eq!(replies_count, 1);
             assert_eq!(items_reply.len(), 1);
             assert_eq!(items_reply[0].text, "c0_r1x1");
         }
 
         {
+            let replies_count = hook_root.replies_count.get_untracked();
+            assert_eq!(replies_count, 0);
+
             hook_reply.delete().await;
 
             let items_root = hook_root.items.get();
+            let replies_count = hook_root.replies_count.get_untracked();
+
+            assert_eq!(replies_count, 0);
             assert_eq!(items_root.len(), 1);
             assert_eq!(items_root[0].text, "c1");
         }
@@ -1721,9 +1812,15 @@ pub mod tests {
                 .await
                 .unwrap();
 
+            let replies_count = hook_root.replies_count.get_untracked();
+            assert_eq!(replies_count, 0);
+
             hook_root.fetch().await;
 
             let post_comments = hook_root.items.get_untracked();
+            let replies_count = hook_root.replies_count.get_untracked();
+
+            assert_eq!(replies_count, 0);
             assert_eq!(post_comments.len(), 2);
             assert_eq!(post_comments[0], comment3);
             assert_eq!(post_comments[1], comment2);
@@ -1831,9 +1928,18 @@ pub mod tests {
             );
             hook_flat.post_key.set_value(post.id.clone());
 
-            hook_flat.fetch().await;
-            let comment0_reply0_reply0_replies = hook_flat.items.get_untracked();
+            trace!("comment0_reply0_reply0 {comment0_reply0_reply0:#?}");
 
+            let replies_count = hook_flat.replies_count.get_untracked();
+            assert_eq!(replies_count, 0);
+
+            hook_flat.fetch().await;
+
+            let comment0_reply0_reply0_replies = hook_flat.items.get_untracked();
+            let replies_count = hook_flat.replies_count.get_untracked();
+            trace!("comment0_reply0_reply0_replies {comment0_reply0_reply0_replies:#?}");
+
+            assert_eq!(replies_count, 2);
             assert_eq!(comment0_reply0_reply0_replies.len(), 2);
             assert_eq!(
                 comment0_reply0_reply0_replies[0].key,
@@ -1846,7 +1952,9 @@ pub mod tests {
 
             hook_flat.fetch().await;
             let comment0_reply0_reply0_replies = hook_flat.items.get_untracked();
+            let replies_count = hook_flat.replies_count.get_untracked();
 
+            assert_eq!(replies_count, 4);
             assert_eq!(comment0_reply0_reply0_replies.len(), 4);
             assert_eq!(
                 comment0_reply0_reply0_replies[0].key,

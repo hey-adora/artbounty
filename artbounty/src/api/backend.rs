@@ -28,7 +28,7 @@ use image::{ImageFormat, ImageReader};
 use little_exif::{filetype::FileExtension, metadata::Metadata};
 use std::time::Duration;
 use std::{io::Cursor, path::Path, str::FromStr};
-use surrealdb::types::RecordId;
+use surrealdb::types::{RecordId, ToSql};
 use tokio::fs;
 use tracing::{debug, error, info, trace};
 
@@ -71,6 +71,7 @@ pub async fn get_account(
     db_user: Extension<DBUser>,
 ) -> Result<ServerRes, ServerErr> {
     Ok(ServerRes::Acc {
+        key: db_user.id.key.to_sql(),
         username: db_user.username.clone(),
         email: db_user.email.clone(),
     })

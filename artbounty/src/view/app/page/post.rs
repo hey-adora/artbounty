@@ -445,6 +445,15 @@ pub fn PostCommentElm(
     // let reply_btn_shown = RwSignal::new(false);
     let replies_shown = RwSignal::new(false);
     let api = ApiWeb::new();
+    let is_owned_fn = {
+        let key = comment.user.key.clone();
+        move || {
+            global_state
+                .get_acc_id_tracked()
+                .map(|v| v == key)
+                .unwrap_or_default()
+        }
+    };
     // let replies_count = RwSignal::new(comment.replies_count);
     // let is_last = {
     //     let key = comment.key.clone();
@@ -580,9 +589,12 @@ pub fn PostCommentElm(
                     <div class="flex gap-2 place-items-start ">
                         <div class="text-[1.2rem]"> {comment.user.username} </div>
                         <div class="text-[1rem] text-base03"> {move || ns_to_str(global_state.get_time_ns().saturating_sub(comment.created_at))}" ago"</div>
-                        <button on:click=delete_comment class="ml-auto">
-                            <SVGTrash class="size-6 text-base08 hidden group-hover:flex"/>
-                        </button>
+
+                        <Show when=is_owned_fn >
+                            <button on:click=delete_comment class="ml-auto">
+                                <SVGTrash class="size-6 text-base08 hidden group-hover:flex"/>
+                            </button>
+                        </Show>
                     </div>
 
 

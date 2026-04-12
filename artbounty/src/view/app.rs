@@ -43,7 +43,10 @@ impl GlobalState {
     pub fn get_time_ns(&self) -> u128 {
         time_now_ns()
     }
-
+    pub fn get_acc_id_tracked(&self) -> Option<String> {
+        self.acc
+            .with(|acc| acc.as_ref().map(|acc| acc.key.clone()))
+    }
     pub fn get_email_tracked(&self) -> Option<String> {
         self.acc
             .with(|acc| acc.as_ref().map(|acc| acc.email.clone()))
@@ -94,9 +97,9 @@ impl GlobalState {
     }
     pub fn set_auth_from_res(&self, result: Result<ServerRes, ServerErr>) {
         match result {
-            Ok(ServerRes::Acc { username, email }) => {
+            Ok(ServerRes::Acc { username, email, key }) => {
                 info!("logged in as {username}");
-                let r = self.acc.try_set(Some(Acc { username, email }));
+                let r = self.acc.try_set(Some(Acc { username, email, key }));
                 if r.is_some() {
                     error!("global state acc was disposed somehow");
                 }
@@ -151,6 +154,7 @@ impl GlobalState {
 
 #[derive(Clone, Default, Debug)]
 pub struct Acc {
+    pub key: String,
     pub username: String,
     pub email: String,
 }

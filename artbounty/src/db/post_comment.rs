@@ -676,14 +676,34 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(post_reply.id, post_reply2.parent[0].clone());
+        assert_eq!(
+            post_reply2.parent,
+            [post_comment.id.clone(), post_reply.id.clone()]
+        );
+        assert_eq!(post_reply.id, post_reply2.parent[1].clone());
 
-        let post_reply = db
+        {
+            let all_comments = db.get_post_comments_all().await.unwrap();
+            let mut output = String::new();
+            for comment in all_comments {
+                let line = format!(
+                    "{} - {} - {} - {:?}\n",
+                    comment.id.key.to_sql(),
+                    comment.text,
+                    comment.created_at,
+                    comment.parent
+                );
+                output.push_str(&line);
+            }
+            trace!("all comments \n{output}");
+        }
+
+        let post_reply2 = db
             .get_post_comment(post_reply2.id.key.to_sql())
             .await
             .unwrap();
         assert_eq!(
-            post_reply.parent,
+            post_reply2.parent,
             [post_comment.id.clone(), post_reply.id.clone()]
         );
 

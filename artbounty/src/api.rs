@@ -548,6 +548,7 @@ pub enum ServerRes {
         username: String,
     },
     Acc {
+        key: String,
         username: String,
         email: String,
     },
@@ -984,6 +985,7 @@ pub enum EmailChangeErr {
     rkyv::Deserialize,
 )]
 pub struct User {
+    pub key: String,
     pub username: String,
     pub created_at: u128,
 }
@@ -991,7 +993,10 @@ pub struct User {
 #[cfg(feature = "ssr")]
 impl From<crate::db::DBUser> for User {
     fn from(value: crate::db::DBUser) -> Self {
+        use surrealdb::types::ToSql;
+
         Self {
+            key: value.id.key.to_sql(),
             username: value.username,
             created_at: value.created_at,
         }
@@ -2800,7 +2805,7 @@ pub mod tests {
                 .send_native_with_token(&auth_token)
                 .await;
             let matched = match result {
-                Ok(ServerRes::Acc { username, email }) => true,
+                Ok(ServerRes::Acc { username, email, key }) => true,
                 _ => false,
             };
 
