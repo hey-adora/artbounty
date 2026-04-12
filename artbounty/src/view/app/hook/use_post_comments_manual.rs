@@ -27,16 +27,19 @@ pub enum CommentKind2 {
     //     comment: UserPostComment,
     // },
     Reply {
+        parent_key: String,
         parent_items: RwSignal<Vec<UserPostComment>, LocalStorage>,
         parent_replies_count: RwSignal<usize, LocalStorage>,
         comment: UserPostComment,
     },
     Flat {
+        parent_key: String,
         parent_items: RwSignal<Vec<UserPostComment>, LocalStorage>,
         parent_replies_count: RwSignal<usize, LocalStorage>,
         comment: UserPostComment,
     },
     None {
+        parent_key: String,
         parent_items: RwSignal<Vec<UserPostComment>, LocalStorage>,
         parent_replies_count: RwSignal<usize, LocalStorage>,
         comment: UserPostComment,
@@ -66,6 +69,7 @@ pub struct CommentsApi2<API: Api> {
     pub err_post: RwSignal<String, LocalStorage>,
     pub err_fetch: RwSignal<String, LocalStorage>,
     pub err_delete: RwSignal<String, LocalStorage>,
+    // pub has_reply_bubble: bool,
 
     // params
     pub post_key: StoredValue<String, LocalStorage>,
@@ -82,15 +86,30 @@ where
     pub fn new(api: API, fetch_count: usize, kind: CommentKind2) -> Self {
         let replies_count = match &kind {
             CommentKind2::Root => 0,
-            CommentKind2::Flat { comment, .. }
-            | CommentKind2::None { comment, .. }
-            | CommentKind2::Reply { comment, .. } => comment.replies_count,
+            CommentKind2::Flat {
+                comment,
+                parent_key,
+                ..
+            }
+            | CommentKind2::None {
+                comment,
+                parent_key,
+                ..
+            }
+            | CommentKind2::Reply {
+                comment,
+                parent_key,
+                ..
+            } => comment.replies_count,
         };
+
+        // let has_reply_bubble = kind.is_none() && com;
         Self {
             // ui
             items: RwSignal::new_local(Vec::new()),
             finished: RwSignal::new_local(false),
             replies_count: RwSignal::new_local(replies_count),
+            // has_reply_bubble,
             // is_last: RwSignal::new_local(false),
             show_editor: RwSignal::new_local(false),
             err_post: RwSignal::new_local(String::new()),
@@ -358,16 +377,19 @@ where
                 parent_items: parent,
                 comment,
                 parent_replies_count,
+                ..
             }
             | CommentKind2::Reply {
                 parent_items: parent,
                 comment,
                 parent_replies_count,
+                ..
             }
             | CommentKind2::None {
                 parent_items: parent,
                 comment,
                 parent_replies_count,
+                ..
             } => {
                 let result = self
                     .api
@@ -463,6 +485,7 @@ where
                 parent_items: parent,
                 comment,
                 parent_replies_count,
+                ..
             } => {
                 let Some(comment) = self.post_reply(text, comment.key).await else {
                     error!("failed to post");
@@ -600,6 +623,7 @@ impl CommentsApi {
         };
         let input_elm = StoredValue::new_local(None::<HtmlTextAreaElement>);
         let comments_local = RwSignal::new_local(Vec::<UserPostComment>::new());
+
         // let items = if use_parent {
         //     parent
         //         .map(|v| v.items)
@@ -1307,6 +1331,7 @@ pub mod tests {
 
         let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
         hook_root.observe_only(post.id.clone());
+        // assert!(!hook_root.has_reply_bubble);
 
         (app.set_time(t()).await, hook_root.post("c0").await);
         (app.set_time(t()).await, hook_root.post("c1").await);
@@ -1318,12 +1343,14 @@ pub mod tests {
             &app.api,
             2,
             CommentKind2::Reply {
+                parent_key: String::new(),
                 parent_items: hook_root.items,
                 parent_replies_count: hook_root.replies_count,
                 comment: c0.clone(),
             },
         );
         hook_reply.observe_only(post.id.clone());
+        // assert!(!hook_reply.has_reply_bubble);
 
         (app.set_time(t()).await, hook_reply.post("c0_r0x1").await);
         (app.set_time(t()).await, hook_reply.post("c0_r1x1").await);
@@ -1335,12 +1362,14 @@ pub mod tests {
             &app.api,
             2,
             CommentKind2::Flat {
+                parent_key: c0.key.clone(),
                 parent_items: hook_reply.items,
                 parent_replies_count: hook_reply.replies_count,
                 comment: c0_r0x1.clone(),
             },
         );
         hook_flat.observe_only(post.id.clone());
+        // assert!(!hook_flat.has_reply_bubble);
 
         (app.set_time(t()).await, hook_flat.post("c0_r0x2").await);
         (app.set_time(t()).await, hook_flat.post("c0_r1x2").await);
@@ -1352,12 +1381,14 @@ pub mod tests {
             &app.api,
             2,
             CommentKind2::None {
+                parent_key: c0_r0x1.key.clone(),
                 parent_items: hook_flat.items,
                 parent_replies_count: hook_flat.replies_count,
                 comment: c0_r0x2.clone(),
             },
         );
         hook_none.observe_only(post.id.clone());
+        // assert!(!hook_none.has_reply_bubble);
 
         (app.set_time(t()).await, hook_none.post("c0_r0x3").await);
         (app.set_time(t()).await, hook_none.post("c0_r1x3").await);
@@ -1418,6 +1449,7 @@ pub mod tests {
             &app.api,
             4,
             CommentKind2::Reply {
+                parent_key: String::new(),
                 parent_items: hook_root.items,
                 parent_replies_count: hook_root.replies_count,
                 comment: c0.clone(),
@@ -1436,6 +1468,7 @@ pub mod tests {
             &app.api,
             4,
             CommentKind2::Flat {
+                parent_key: c0.key.clone(),
                 parent_items: hook_reply.items,
                 parent_replies_count: hook_reply.replies_count,
                 comment: c0_r0x1.clone(),
@@ -1495,9 +1528,10 @@ pub mod tests {
             &app.api,
             2,
             CommentKind2::Reply {
+                parent_key: String::new(),
                 parent_items: hook_root.items,
                 parent_replies_count: hook_root.replies_count,
-                comment: c0,
+                comment: c0.clone(),
             },
         );
         hook_reply.observe_only(post.id.clone());
@@ -1514,9 +1548,10 @@ pub mod tests {
             &app.api,
             2,
             CommentKind2::Flat {
+                parent_key: c0.key.clone(),
                 parent_items: hook_reply.items,
                 parent_replies_count: hook_reply.replies_count,
-                comment: c0_r0x1,
+                comment: c0_r0x1.clone(),
             },
         );
         hook_flat.observe_only(post.id.clone());
@@ -1533,6 +1568,7 @@ pub mod tests {
             &app.api,
             2,
             CommentKind2::None {
+                parent_key: c0_r0x1.key.clone(),
                 parent_items: hook_flat.items,
                 parent_replies_count: hook_flat.replies_count,
                 comment: c0_r0x2,
@@ -1858,6 +1894,7 @@ pub mod tests {
                 &app.api,
                 2,
                 CommentKind2::Reply {
+                    parent_key: String::new(),
                     parent_items: hook_root.items,
                     parent_replies_count: hook_root.replies_count,
                     comment: comment0.clone(),
@@ -1887,6 +1924,7 @@ pub mod tests {
                 &app.api,
                 2,
                 CommentKind2::Reply {
+                    parent_key: comment0.key.clone(),
                     parent_items: hook_comment.items,
                     parent_replies_count: hook_comment.replies_count,
                     comment: comment0_reply0.clone(),
@@ -1921,6 +1959,7 @@ pub mod tests {
                 &app.api,
                 2,
                 CommentKind2::Flat {
+                    parent_key: comment0_reply0.key.clone(),
                     parent_items: hook_reply.items,
                     parent_replies_count: hook_reply.replies_count,
                     comment: comment0_reply0_reply0.clone(),
