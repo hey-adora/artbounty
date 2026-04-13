@@ -564,21 +564,6 @@ pub fn PostCommentElm(
         current_depth > 0 && comments_manual.items.with(|v| v.len() > 0) && show_replies_fn()
     };
 
-    let bubble = Memo::new({
-        let comment_key = comment_key.clone();
-        let is_none = kind.is_none();
-        let last = comment.parent_key.last().cloned();
-        move |_| {
-            if !is_none {
-                return None;
-            }
-            let Some(last) = last.clone() else {
-                return None;
-            };
-            parent_items.with(|v| v.iter().find(|v| v.key == last).cloned())
-        }
-    });
-
     let bubble2 = Memo::new({
         let comment_key = comment_key.clone();
         let is_none = kind.is_none();
@@ -598,35 +583,72 @@ pub fn PostCommentElm(
         if !kind.is_none() {
             break 'f false;
         }
-        let Some(last) = comment.parent_key.last().cloned() else {
+        let Some(last) = comment.parent_key.last() else {
             break 'f false;
         };
-        // let comment_key = comment_key.clone();
-        last != parent_key
-        // last.map(move |v| v == comment_key);
-
-        // move || {
-        //
-        // }
+        *last != parent_key
     };
+
+    let bubble = 'f: {
+        if !is_bubble {
+            break 'f None;
+        }
+        // let last = comment.parent_key.last().cloned();
+        let Some(last) = comment.parent_key.last() else {
+            break 'f None;
+        };
+        parent_items.with(|v| v.iter().find(|v| v.key == *last).cloned())
+    };
+
+    // let bubble = Memo::new({
+    //     // let comment_key = comment_key.clone();
+    //     let is_none = kind.is_none();
+    //     let last = comment.parent_key.last().cloned();
+    //     move |_| {
+    //         if !is_none {
+    //             return None;
+    //         }
+    //         let Some(last) = last.clone() else {
+    //             return None;
+    //         };
+    //         parent_items.with(|v| v.iter().find(|v| v.key == last).cloned())
+    //     }
+    // });
 
     view! {
 
         // <div class="flex flex-col gap-4 px-2 py-1 " style:padding-left=format!("{:.3}rem", current_depth as f32 * 0.8) >
         <div class="flex flex-col "  >
             <div class="flex flex-col">
-                <Show when=move || is_bubble>
-                    "wowza"
-                    // <div>{move || bubble.with(|v| v.as_ref().map(|v| v.text.clone()).unwrap_or_default() ) }</div>
-                </Show>
+                // <Show when=move || is_bubble>
+                //     {bubble.clone().map(|v| v.text)}
+                //     // "wowza"
+                //     // <div>{move || bubble.with(|v| v.as_ref().map(|v| v.text.clone()).unwrap_or_default() ) }</div>
+                // </Show>
                 // <Show when={move || bubble.with(|v| v.is_some()) }>
                 //     <div>{move || bubble.with(|v| v.as_ref().map(|v| v.text.clone()).unwrap_or_default() ) }</div>
                 // </Show>
-                <div class="grid grid-cols-[auto_1fr] grid-rows-[100%] gap-4">
+                <Show when=move || is_bubble>
+
+                    
+                    <div class="flex gap-2 items-center">
+                        <div class="flex place-items-end h-[1.5rem] w-[3.2rem] shrink-0">
+                                // <div class="w-[0.2rem] h-full bg-base05 shrink-0"></div>
+                            <div class=" mb-[0.5rem] w-[1.7rem] h-[0.5rem] border-base05 border-l-[0.2rem] border-t-[0.2rem] rounded-tl-[2rem] ml-auto box-border shrink-0"></div>
+                        </div>
+                        <p class="ml-2 text-[1rem] rounded-full h-[1rem] w-[1rem] shrink-0 bg-base05"></p>
+                        <div>
+                            {bubble.clone().map(|v| v.text)}
+                        </div>
+                    </div>
+                    // "wowza"
+                    // <div>{move || bubble.with(|v| v.as_ref().map(|v| v.text.clone()).unwrap_or_default() ) }</div>
+                </Show>
+                <div class="grid grid-cols-[auto_1fr] grid-rows-[100%] gap-x-4">
                     <div class="w-[3.2rem] h-full grid grid-rows-[auto_100%] items-start place-items-center shrink-0">
                         <p class="text-[1rem] rounded-full h-[3.2rem] w-[3.2rem] shrink-0 bg-base05"></p>
                         <Show when={move || { !comments_manual.is_last() } || show_replies_fn() }>
-                            <div class="w-[0.2rem] h-[calc(100%-3.2rem)] bg-base05 shrink-0"></div>
+                            <div class="rounded w-[0.2rem] my-[0.5rem] h-[calc(100%-3.2rem-1rem)] bg-base05 shrink-0"></div>
                         </Show>
                     </div>
                     <div class="flex flex-col w-full group">
@@ -647,7 +669,7 @@ pub fn PostCommentElm(
                             {move || comments_manual.err_delete.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                         </ul>
                         // <div class=" mb-2 text-[1.1rem] break-all"> {comment.text} </div>
-                        <div class="mb-2 flex gap-2 place-items-center">
+                        <div class="mb-2 h-[1.6rem] flex gap-2 place-items-center">
                             <Show when=move || reply_render_comments >
                                 // <button on:click=toggle_replies type="submit" class=move || format!("group  gap-1 flex place-items-center rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] py-[0.2rem]  {}", if replies_shown.get() { "text-base05 bg-base01 hover:bg-base03" } else { "text-base05 bg-base01 hover:bg-base05 hover:text-base01" })>
                                 <Show when=move || {comments_manual.replies_count.get() > 0} fallback=move || view!{
