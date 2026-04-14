@@ -79,6 +79,9 @@ web-sys = { version = "0.3.91", features = [
     "FileList",
     "Crypto",
     "CssStyleDeclaration",
+    "ScrollIntoViewOptions",
+    "ScrollBehavior",
+    "ScrollLogicalPosition",
 ] }
 
 [[workspace.metadata.leptos]]

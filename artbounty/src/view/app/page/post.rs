@@ -21,8 +21,8 @@ use leptos::{Params, task::spawn_local};
 use leptos::{ev, html, prelude::*};
 use leptos_router::hooks::{use_location, use_params};
 use leptos_router::params::Params;
-use tracing::{debug, error, trace};
-use web_sys::{Event, SubmitEvent};
+use tracing::{warn, debug, error, trace};
+use web_sys::{Event, SubmitEvent, ScrollIntoViewOptions, ScrollBehavior, ScrollLogicalPosition};
 
 #[derive(Params, PartialEq, Clone)]
 pub struct PostParams {
@@ -360,7 +360,7 @@ pub fn Page() -> impl IntoView {
                         </form>
 
                         <div class="flex flex-col gap-2">
-                            <div node_ref=comment_container_ref class=" flex flex-col relative 0h-[20rem] 0overflow-y-scroll">
+                            <div node_ref=comment_container_ref class=" flex flex-col gap-2 relative 0h-[20rem] 0overflow-y-scroll">
                                 <For
                                     each=move || comment_basic.items.get()
                                     key=|state| state.key.clone()
@@ -380,9 +380,11 @@ pub fn Page() -> impl IntoView {
                                     }
                                 </For>
                             </div>
-                            <ul class="ml-[1rem] text-base08 list-disc">
-                                {move || comment_basic.comments_manual.err_fetch.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
-                            </ul>
+                            <Show when=move || comment_basic.comments_manual.err_fetch.with(|v| !v.is_empty()) >
+                                <ul class="ml-[1rem] text-base08 list-disc">
+                                    {move || comment_basic.comments_manual.err_fetch.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                </ul>
+                            </Show>
                         </div>
                     </div>
                 </div>
@@ -600,6 +602,29 @@ pub fn PostCommentElm(
         parent_items.with(|v| v.iter().find(|v| v.key == *last).cloned())
     };
 
+    let on_bubble_click = {
+        let bubble = bubble.clone();
+        let comment_key = comment_key.clone();
+        move || {
+            let Some(elm) = bubble.and_then(|v| document().get_element_by_id(&v.key)) else {
+                warn!("cant find element for bubble click {}", comment_key);
+                return;
+            };
+            let options = ScrollIntoViewOptions::new();
+            options.set_behavior(ScrollBehavior::Auto);
+            options.set_block(ScrollLogicalPosition::Center);
+            options.set_inline(ScrollLogicalPosition::Center);
+            elm.scroll_into_view_with_scroll_into_view_options(&options);
+            // elm.key;
+
+            //
+        }
+    };
+    let on_bubble_click_fn = move |_| {
+
+        (on_bubble_click.clone())();
+    };
+
     // let bubble = Memo::new({
     //     // let comment_key = comment_key.clone();
     //     let is_none = kind.is_none();
@@ -618,8 +643,8 @@ pub fn PostCommentElm(
     view! {
 
         // <div class="flex flex-col gap-4 px-2 py-1 " style:padding-left=format!("{:.3}rem", current_depth as f32 * 0.8) >
-        <div class="flex flex-col "  >
-            <div class="flex flex-col">
+        <div class=" flex flex-col "  >
+            <div id=comment.key.clone() class="rounded 0bg-base03 flex flex-col">
                 // <Show when=move || is_bubble>
                 //     {bubble.clone().map(|v| v.text)}
                 //     // "wowza"
@@ -629,29 +654,35 @@ pub fn PostCommentElm(
                 //     <div>{move || bubble.with(|v| v.as_ref().map(|v| v.text.clone()).unwrap_or_default() ) }</div>
                 // </Show>
                 <Show when=move || is_bubble>
-
-                    
-                    <div class="flex gap-2 items-center">
+                    // {
+                    //     // let on_bubble_click_fn = on_bubble_click_fn.clone();
+                    //     view!{
+                    //
+                    //    }
+                    //
+                    // }
+                    <button on:click=on_bubble_click_fn.clone() class="flex gap-2 items-center">
                         <div class="flex place-items-end h-[1.5rem] w-[3.2rem] shrink-0">
                                 // <div class="w-[0.2rem] h-full bg-base05 shrink-0"></div>
                             <div class=" mb-[0.5rem] w-[1.7rem] h-[0.5rem] border-base05 border-l-[0.2rem] border-t-[0.2rem] rounded-tl-[2rem] ml-auto box-border shrink-0"></div>
                         </div>
                         <p class="ml-2 text-[1rem] rounded-full h-[1rem] w-[1rem] shrink-0 bg-base05"></p>
                         <div>
-                            {bubble.clone().map(|v| v.text)}
+                            {bubble.clone().map(|v| v.text).unwrap_or_else(|| "failed to load msg".to_string())}
                         </div>
-                    </div>
+                    </button>
+
                     // "wowza"
                     // <div>{move || bubble.with(|v| v.as_ref().map(|v| v.text.clone()).unwrap_or_default() ) }</div>
                 </Show>
-                <div class="grid grid-cols-[auto_1fr] grid-rows-[100%] gap-x-4">
-                    <div class="w-[3.2rem] h-full grid grid-rows-[auto_100%] items-start place-items-center shrink-0">
+                <div class="grid grid-cols-[auto_1fr] grid-rows-[100%] ">
+                    <div class=" mb-[0.5rem] w-[3.2rem] h-full grid grid-rows-[auto_100%] items-start place-items-center shrink-0">
                         <p class="text-[1rem] rounded-full h-[3.2rem] w-[3.2rem] shrink-0 bg-base05"></p>
                         <Show when={move || { !comments_manual.is_last() } || show_replies_fn() }>
-                            <div class="rounded w-[0.2rem] my-[0.5rem] h-[calc(100%-3.2rem-1rem)] bg-base05 shrink-0"></div>
+                            <div class="rounded w-[0.2rem] mt-[0.5rem] h-[calc(100%-3.2rem-0.5rem)] bg-base05 shrink-0"></div>
                         </Show>
                     </div>
-                    <div class="flex flex-col w-full group">
+                    <div  class="pl-4  flex flex-col w-full group">
                         <div class="flex gap-2 place-items-start ">
                             <div class="text-[1.2rem]"> {comment.user.username} </div>
                             <div class="text-[1rem] text-base03"> {move || ns_to_str(global_state.get_time_ns().saturating_sub(comment.created_at))}" ago"</div>
@@ -669,7 +700,7 @@ pub fn PostCommentElm(
                             {move || comments_manual.err_delete.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                         </ul>
                         // <div class=" mb-2 text-[1.1rem] break-all"> {comment.text} </div>
-                        <div class="mb-2 h-[1.6rem] flex gap-2 place-items-center">
+                        <div class=" h-[1.6rem] flex gap-2 place-items-center">
                             <Show when=move || reply_render_comments >
                                 // <button on:click=toggle_replies type="submit" class=move || format!("group  gap-1 flex place-items-center rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] py-[0.2rem]  {}", if replies_shown.get() { "text-base05 bg-base01 hover:bg-base03" } else { "text-base05 bg-base01 hover:bg-base05 hover:text-base01" })>
                                 <Show when=move || {comments_manual.replies_count.get() > 0} fallback=move || view!{
@@ -701,7 +732,7 @@ pub fn PostCommentElm(
                             </Show>
                         </div>
                         <Show when=move || comments_manual.show_editor.get()>
-                            <div class=move || format!("mb-4 flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 w-full {}", if global_state.is_logged_in().unwrap_or_default() || !global_state.acc_pending() { "" } else { "hidden" })  >
+                            <div class=move || format!("flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 w-full {}", if global_state.is_logged_in().unwrap_or_default() || !global_state.acc_pending() { "" } else { "hidden" })  >
                                 <textarea placeholder="Comment" node_ref=comment_input_ref class="focus:outline-none! appearance-none border-none resize text-[1.1rem] w-full" rows="2" wrap="hard"  ></textarea>
                                 // <ul class="text-base08 list-disc ml-[1rem]">
                                 //     {move || post_comments.err_post.get().map(|v| v.trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view()) }
@@ -720,10 +751,10 @@ pub fn PostCommentElm(
                     </div>
                 </div>
             </div>
-            <div class="grid grid-rows-[100%] grid-cols-[auto_1fr] w-full">
+            <div class=move || format!("grid grid-rows-[100%] grid-cols-[auto_1fr] w-full {}", if reply_render_comments && show_replies_fn() {"pt-2"} else {""})>
                 <Show when=show_line>
-                    <div class="relative w-[3.2rem] h-full flex justify-center shrink-0">
-                        <div class="w-[1.7rem] h-[1.61rem] border-base05 border-l-[0.2rem] border-b-[0.2rem] rounded-bl-[2rem] ml-auto box-border shrink-0"></div>
+                    <div class="relative ml-[1.5rem] w-[1rem] h-full flex justify-sart shrink-0">
+                        <div class="w-[1rem] h-[1.61rem] border-base05 border-l-[0.2rem] border-b-[0.2rem] rounded-bl-[2rem] ml-auto box-border shrink-0"></div>
                         <Show when=move || { !comments_manual.is_last() }>
                             <div class="absolute w-[0.2rem] h-full bg-base05 shrink-0"></div>
                         </Show>
@@ -734,7 +765,7 @@ pub fn PostCommentElm(
                 <div class="flex flex-col w-full">
                     // <Show when=move || reply_render_comments && (replies_shown.get() || comments_manual.reply_editor_show.get())>
                     <Show when=move || reply_render_comments>
-                        <div node_ref=comment_container_ref class=move || format!("0h-[20rem] 0overflow-y-scroll {} ", if show_replies_fn() {""} else {"hidden"} )>
+                        <div node_ref=comment_container_ref class=move || format!("flex flex-col gap-2 0h-[20rem] 0overflow-y-scroll {} ", if show_replies_fn() {""} else {"hidden"} )>
                             {
                                 let comment_key = comment_key.clone();
 
@@ -763,9 +794,11 @@ pub fn PostCommentElm(
                             <button on:click=move |_| { fetch_comments(); } class=move || format!("px-4 py-2 bg-base01 rounded-xl text-center text-base05 font-[1.2rem] w-full {}", if comments_manual.finished.get() {"hidden"} else {""})>
                                 "load more"
                             </button>
-                            <ul class="text-base08 list-disc">
-                                {move || comments_manual.err_fetch.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
-                            </ul>
+                            <Show when=move || comments_manual.err_fetch.with(|v| !v.is_empty()) >
+                                <ul class="text-base08 list-disc">
+                                    {move || comments_manual.err_fetch.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                </ul>
+                            </Show>
                         </div>
                         // { post_comment_views }
                     </Show>
