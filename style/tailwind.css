@@ -8,6 +8,15 @@
   src: url("/atkinson_hyperlegible_next/atkinson_hyperlegible_next_vf-variable.woff2") format("woff2");
 }
 
+@keyframes glow {
+  /* from { */
+  /*   transform: translateX(0%); */
+  /* } */
+  to {
+    background-color: var(--color-base03);
+  }
+}
+
 @theme {
     --color-low-purple: #ffffff;
     --color-half-purple: #67398B;

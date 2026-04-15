@@ -4,6 +4,7 @@ pub mod prelude {
     pub use super::file::{self, GetFileStream, GetFiles, GetStreamChunk, PushChunkToVec};
     pub use super::intersection_observer::{self, AddIntersectionObserver, IntersectionOptions};
     pub use super::interval::{self};
+    pub use super::timeout::{set_timeout, SetTimeoutError};
     pub use super::leptos_helpers::{
         FnRun, FnRunT0, FnRunT1, Hidden, QueryField, QueryFn, QueryGetter, RwQuery, ToFnT0, ToFnT1,
         ToQueryField,
@@ -572,6 +573,44 @@ pub mod random {
 
     pub fn random_u32_ranged(min: u32, max: u32) -> u32 {
         (random_u32() + min) % max
+    }
+}
+
+pub mod timeout {
+    use std::time::Duration;
+
+    use wasm_bindgen::{JsCast, prelude::Closure};
+    use web_sys::window;
+
+    #[derive(thiserror::Error, Clone, Debug)]
+    pub enum SetTimeoutError {
+        #[error("failed to get Window object")]
+        GettingWindow,
+
+        #[error("failed to set timeout {0}")]
+        SettingTimeout(String),
+    }
+
+    pub fn set_timeout<F>(callback: F, duration: Duration) -> Result<i32, SetTimeoutError>
+    where
+        F: Fn() + Clone + 'static,
+    {
+        let closure = Closure::<dyn Fn()>::new(callback.clone()).into_js_value();
+        let ms = duration.as_millis() as i32;
+        let handle = window()
+            .ok_or(SetTimeoutError::GettingWindow)?
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                closure.as_ref().unchecked_ref(),
+                ms,
+            )
+            .map_err(|err| {
+                SetTimeoutError::SettingTimeout(
+                    err.as_string()
+                        .unwrap_or_else(|| String::from("uwknown error")),
+                )
+            })?;
+
+        Ok(handle)
     }
 }
 

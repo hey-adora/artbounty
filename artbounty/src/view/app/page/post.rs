@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::api::shared::post_comment::UserPostComment;
 use crate::api::{Api, ApiWeb, Server404Err, ServerErr};
 use crate::path::{PATH_LOGIN, link_home, link_img, link_user};
@@ -16,13 +18,13 @@ use crate::view::app::hook::use_post_comments_manual::{
 };
 use crate::view::app::hook::use_post_like::{self, PostLikeStage, use_post_like};
 use crate::view::app::hook::use_spawner::Spawner;
-use crate::view::toolbox::prelude::*;
+use crate::view::toolbox::prelude::{set_timeout, *};
 use leptos::{Params, task::spawn_local};
 use leptos::{ev, html, prelude::*};
 use leptos_router::hooks::{use_location, use_params};
 use leptos_router::params::Params;
-use tracing::{warn, debug, error, trace};
-use web_sys::{Event, SubmitEvent, ScrollIntoViewOptions, ScrollBehavior, ScrollLogicalPosition};
+use tracing::{debug, error, trace, warn};
+use web_sys::{Event, ScrollBehavior, ScrollIntoViewOptions, ScrollLogicalPosition, SubmitEvent};
 
 #[derive(Params, PartialEq, Clone)]
 pub struct PostParams {
@@ -615,13 +617,27 @@ pub fn PostCommentElm(
             options.set_block(ScrollLogicalPosition::Center);
             options.set_inline(ScrollLogicalPosition::Center);
             elm.scroll_into_view_with_scroll_into_view_options(&options);
+            let anim = "animate-[glow_1s_linear]";
+            let classes = elm.class_list();
+            let _ = classes.add_1(anim);
+            // elm.set_class_name(anim);
+            let result = set_timeout(
+                move || {
+                   let _ = classes.remove_1(anim);
+                },
+                Duration::from_secs(1),
+            );
+            if let Err(err) = result {
+                error!("{err}");
+            }
+            // classes.remove
+
             // elm.key;
 
             //
         }
     };
     let on_bubble_click_fn = move |_| {
-
         (on_bubble_click.clone())();
     };
 
@@ -644,7 +660,7 @@ pub fn PostCommentElm(
 
         // <div class="flex flex-col gap-4 px-2 py-1 " style:padding-left=format!("{:.3}rem", current_depth as f32 * 0.8) >
         <div class=" flex flex-col "  >
-            <div id=comment.key.clone() class="rounded 0bg-base03 flex flex-col">
+            <div id=comment.key.clone() class=" rounded 0bg-base03 flex flex-col">
                 // <Show when=move || is_bubble>
                 //     {bubble.clone().map(|v| v.text)}
                 //     // "wowza"
@@ -661,7 +677,7 @@ pub fn PostCommentElm(
                     //    }
                     //
                     // }
-                    <button on:click=on_bubble_click_fn.clone() class="flex gap-2 items-center">
+                    <button on:click=on_bubble_click_fn.clone() class="cursor-pointer flex gap-2 items-center">
                         <div class="flex place-items-end h-[1.5rem] w-[3.2rem] shrink-0">
                                 // <div class="w-[0.2rem] h-full bg-base05 shrink-0"></div>
                             <div class=" mb-[0.5rem] w-[1.7rem] h-[0.5rem] border-base05 border-l-[0.2rem] border-t-[0.2rem] rounded-tl-[2rem] ml-auto box-border shrink-0"></div>

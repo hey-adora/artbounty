@@ -27,6 +27,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <link rel="stylesheet" id="leptos" href="/pkg/artbounty_1.css" />
             </head>
             <body class="bg-base00">
+                // <span class="tailwidn_placeholder hidden animate-[glow_1s_linear]"/>
                 <App />
             </body>
         </html>
