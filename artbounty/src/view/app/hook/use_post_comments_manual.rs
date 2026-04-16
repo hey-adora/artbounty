@@ -71,6 +71,7 @@ pub struct CommentsApi2<API: Api> {
     pub err_post: RwSignal<String, LocalStorage>,
     pub err_fetch: RwSignal<String, LocalStorage>,
     pub err_delete: RwSignal<String, LocalStorage>,
+    pub err_update: RwSignal<String, LocalStorage>,
     // pub has_reply_bubble: bool,
 
     // params
@@ -119,6 +120,7 @@ where
             err_post: RwSignal::new_local(String::new()),
             err_fetch: RwSignal::new_local(String::new()),
             err_delete: RwSignal::new_local(String::new()),
+            err_update: RwSignal::new_local(String::new()),
             // params
             post_key: StoredValue::new_local(String::new()),
             kind: StoredValue::new_local(kind),
@@ -371,14 +373,14 @@ where
                 self.text.set(comment.text);
             }
             Ok(err) => {
-                let err = format!("post comments basic: unexpected res: {err:?}");
+                let err = format!("update comment unexpected res: {err:?}");
                 error!(err);
-                self.err_post.set(err);
+                self.err_update.set(err);
             }
             Err(err) => {
-                let err = format!("post comments basic: {err}");
+                let err = format!("update comment {err}");
                 error!(err);
-                self.err_post.set(err);
+                self.err_update.set(err);
             }
         };
     }

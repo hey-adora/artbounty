@@ -684,6 +684,7 @@ pub fn PostCommentElm(
 
         elm.set_text_content(Some(&txt));
 
+        comments_manual.err_update.update(|v| v.clear());
         comments_manual.edit_mode.set(false);
     };
 
@@ -751,30 +752,39 @@ pub fn PostCommentElm(
                             <div class="text-[1.2rem]"> {comment.user.username} </div>
                             <div class="text-[1rem] text-base03"> {move || ns_to_str(global_state.get_time_ns().saturating_sub(comment.created_at))}" ago"</div>
 
-                            <Show when=is_owned_fn >
-                                <button on:click=click_edit class=move || format!("text-center group-hover:block hidden ml-auto rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem]  {}", if comments_manual.edit_mode.get() { "hover:bg-base05 bg-base0D text-base01" } else { "text-base05 bg-base01 hover:bg-base05 hover:text-base01" })>
-                                    <Show when={move || comments_manual.edit_mode.get() } fallback={move || "Edit" }>
-                                        "Save"
+                            <Show when={move || is_owned_fn() || comments_manual.edit_mode.get()} >
+                                <div class=move || format!(" gap-2 ml-auto place-items-center {}", if comments_manual.edit_mode.get() {"flex"} else {"group-hover:flex hidden"} )>
+                                    <button on:click=click_edit class=move || format!("text-center   rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem]  {}", if comments_manual.edit_mode.get() { " hover:bg-base05 bg-base0D text-base01" } else { " text-base05 bg-base01 hover:bg-base05 hover:text-base01" })>
+                                        <Show when={move || comments_manual.edit_mode.get() } fallback={move || "Edit" }>
+                                            "Save"
+                                        </Show>
+                                    </button>
+                                    <Show when=move || comments_manual.edit_mode.get() >
+                                        <button on:click=click_cancel class=move || format!("text-center  rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem] text-base05 bg-base01 hover:bg-base05 hover:text-base01")>
+                                            "Cancel"
+                                        </button>
                                     </Show>
-                                </button>
-                                <Show when=move || comments_manual.edit_mode.get() >
-                                    <button on:click=click_cancel class=move || format!("text-center group-hover:block hidden rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem] text-base05 bg-base01 hover:bg-base05 hover:text-base01")>
-                                        "Cancel"
-                                    </button>
-                                </Show>
-                                <Show when=move || !comments_manual.edit_mode.get() >
-                                    <button on:click=delete_comment class="">
-                                        <SVGTrash class="size-6 text-base08 hidden group-hover:block"/>
-                                    </button>
-                                </Show>
+                                    <Show when=move || !comments_manual.edit_mode.get() >
+                                        <button on:click=delete_comment class="">
+                                            <SVGTrash class="size-[1.1rem] text-base08 "/>
+                                        </button>
+                                    </Show>
+                                </div>
                             </Show>
                         </div>
 
 
                         <div contenteditable={move || comments_manual.edit_mode.get()} node_ref=comment_edit_ref class={move || format!(" text-[1.1rem] break-all focus:outline-none! appearance-none border-none resize w-full rounded {}", if comments_manual.edit_mode.get() { "bg-base01 px-4 py-2" } else { "" })} >{move || comments_manual.text.get()}</div>
-                        <ul class="ml-[1rem] text-base08 list-disc">
-                            {move || comments_manual.err_delete.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
-                        </ul>
+                        <Show when=move || comments_manual.err_update.with(|v| !v.is_empty()) >
+                            <ul class="ml-[1rem] text-base08 list-disc">
+                                {move || comments_manual.err_update.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                            </ul>
+                        </Show>
+                        <Show when=move || comments_manual.err_delete.with(|v| !v.is_empty()) >
+                            <ul class="ml-[1rem] text-base08 list-disc">
+                                {move || comments_manual.err_delete.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                            </ul>
+                        </Show>
                         // <div class=" mb-2 text-[1.1rem] break-all"> {comment.text} </div>
                         <div class=" h-[1.6rem] flex gap-2 place-items-center">
                             <Show when=move || reply_render_comments >
