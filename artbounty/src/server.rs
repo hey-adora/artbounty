@@ -164,6 +164,10 @@ pub fn create_api_router(
         );
     let api_router_auth = Router::new()
         .route(
+            path::PATH_API_POST_COMMENT_UPDATE,
+            post(api::backend::post_comment::update_post_comment),
+        )
+        .route(
             path::PATH_API_POST_COMMENT_ADD,
             post(api::backend::post_comment::add_post_comment),
         )

@@ -16,6 +16,36 @@ use axum::extract::State;
 use http::header::COOKIE;
 use tracing::{debug, error, info, trace};
 
+pub async fn update_post_comment(
+    State(app): State<AppState>,
+    auth_token: Extension<AuthToken>,
+    db_user: Extension<DBUser>,
+    req: ServerReq,
+) -> Result<ServerRes, ServerErr> {
+    type ResErr = Server404Err;
+    //
+    let ServerReq::UpdatePostComment { comment_key, text } = req else {
+        return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
+            "update_post_comment expected UpdatePostComment, received: {req:?}"
+        ))));
+    };
+    let time = app.time().await;
+
+    let comment = app
+        .db
+        .update_post_comment(time, db_user.id.clone(), comment_key, text)
+        .await
+        .map_err(|err| match err {
+            DB404Err::NotFound => ResErr::NotFound.into(),
+            DB404Err::DB(_) => ServerErr::DbErr,
+        })?;
+    // DBPostCommentErr::PostNotFound(_) => ResErr::NotFound(format!("post \"{post_id}\" not found")).into(),
+    let comment = UserPostComment::from(comment);
+
+    // //
+    Ok(ServerRes::Comment(comment))
+}
+
 pub async fn add_post_comment(
     State(app): State<AppState>,
     auth_token: Extension<AuthToken>,
@@ -130,10 +160,32 @@ mod tests {
     use crate::api::{
         Api, Order, ServerRes, TimeRange, shared::post_comment::UserPostComment, tests::ApiTestApp,
     };
+    use surrealdb::types::ToSql;
     use tracing::{debug, error, trace};
     use web_sys::console::assert;
 
     impl ApiTestApp {
+        pub async fn update_post_comment(
+            &self,
+            server_time: u128,
+            auth_token: impl AsRef<str>,
+            comment_key: impl Into<String>,
+            text: impl Into<String>,
+        ) -> Option<UserPostComment> {
+            self.set_time(server_time).await;
+            let result = self
+                .api
+                .update_post_comment(comment_key, text)
+                .send_native_with_token(auth_token)
+                .await;
+
+            let Ok(ServerRes::Comment(comment)) = result else {
+                return None;
+            };
+
+            Some(comment)
+        }
+
         pub async fn add_post_comment(
             &self,
             server_time: u128,
@@ -179,6 +231,56 @@ mod tests {
 
             Some(comment)
         }
+    }
+
+    #[tokio::test]
+    async fn api_post_comment_update() {
+        crate::init_test_log();
+
+        let app = ApiTestApp::new(1).await;
+
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+
+        let auth_token2 = app
+            .register(0, "hey2", "hey2@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+
+        let post = app.add_post(0, &auth_token).await.unwrap();
+        debug!("wtf is that {post:#?}");
+
+        let comment = app
+            .add_post_comment(0, &auth_token, post.id.clone(), None, "wowza1".to_string())
+            .await
+            .unwrap();
+
+        assert_eq!(comment.text, "wowza1");
+
+        let comment = app
+            .update_post_comment(0, &auth_token, comment.key.clone(), "wowza2")
+            .await
+            .unwrap();
+
+        assert_eq!(comment.text, "wowza2");
+
+        let comment = app
+            .state
+            .db
+            .get_post_comment(comment.key.clone())
+            .await
+            .unwrap();
+
+        assert_eq!(comment.text, "wowza2");
+
+        let comment = app
+            .update_post_comment(0, &auth_token2, comment.id.key.to_sql(), "wowza3")
+            .await;
+
+        assert!(comment.is_none());
+
     }
 
     #[tokio::test]

@@ -418,6 +418,10 @@ pub enum ServerReq {
         comment_key: Option<String>,
         text: String,
     },
+    UpdatePostComment {
+        comment_key: String,
+        text: String,
+    },
     CommentId {
         comment_id: String,
     },
@@ -1535,6 +1539,19 @@ pub trait Api {
         )
     }
     // post comment
+    fn update_post_comment(
+        &self,
+        comment_key: impl Into<String>,
+        text: impl Into<String>,
+    ) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_POST_COMMENT_UPDATE,
+            ServerReq::UpdatePostComment {
+                comment_key: comment_key.into(),
+                text: text.into(),
+            },
+        )
+    }
     fn add_post_comment(
         &self,
         post_key: impl Into<String>,
@@ -2805,7 +2822,11 @@ pub mod tests {
                 .send_native_with_token(&auth_token)
                 .await;
             let matched = match result {
-                Ok(ServerRes::Acc { username, email, key }) => true,
+                Ok(ServerRes::Acc {
+                    username,
+                    email,
+                    key,
+                }) => true,
                 _ => false,
             };
 

@@ -258,6 +258,7 @@ pub mod path {
     pub const PATH_API: &'static str = "/api";
 
     // post comment 
+    pub const PATH_API_POST_COMMENT_UPDATE: &'static str = "/update_post_comment";
     pub const PATH_API_POST_COMMENT_ADD: &'static str = "/add_post_comment";
     pub const PATH_API_POST_COMMENT_GET: &'static str = "/get_post_comment";
     pub const PATH_API_POST_COMMENT_DELETE: &'static str = "/delete_post_comment";

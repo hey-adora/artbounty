@@ -35,6 +35,34 @@ pub fn create_post_comment_id(id: impl Into<RecordIdKey>) -> RecordId {
 }
 
 impl<C: Connection> Db<C> {
+    pub async fn update_post_comment(
+        &self,
+        time: u128,
+        user_id: RecordId,
+        comment_id: impl Into<RecordIdKey>,
+        // post_comment_reply: Option<String>,
+        text: impl Into<String>,
+    ) -> Result<DBPostComment, DB404Err> {
+        let comment_id = create_post_comment_id(comment_id);
+        // let parent_id = post_comment_reply.map(|v| create_post_comment_id(v));
+        let q = r#"
+                 UPDATE post_comment SET
+                    text = $comment_text,
+                    modified_at = $time
+                    WHERE id = $comment_id AND user = $user_id
+                 RETURN *, user.*;
+                "#;
+        trace!("about to run {q}");
+        self.db
+            .query(q)
+            .bind(("time", time))
+            .bind(("user_id", user_id))
+            .bind(("comment_id", comment_id))
+            .bind(("comment_text", text.into()))
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_or(0, DB404Err::NotFound)
+    }
     pub async fn add_post_comment(
         &self,
         time: u128,
@@ -631,6 +659,50 @@ mod tests {
             .await
             .unwrap();
         assert!(comments.len() == 2);
+    }
+
+    #[tokio::test]
+    async fn db_post_comment_update() {
+        init_test_log();
+
+        crate::init_test_log();
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate(0).await.unwrap();
+
+        let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
+        let user2 = db.add_user(0, "hey2", "hey2@hey.com", "123").await.unwrap();
+
+        let post = db
+            .add_post(1, "hey1", "title", "description", 0, vec![])
+            .await
+            .unwrap();
+
+        let post_comment = db
+            .add_post_comment(2, user.id.clone(), post.id.key.clone(), None, "wow1")
+            .await
+            .unwrap();
+
+        let post_comment = db
+            .update_post_comment(3, user.id.clone(), post_comment.id.key.clone(), "wow2")
+            .await
+            .unwrap();
+
+        assert_eq!(post_comment.text, "wow2");
+
+        let post_comment = db
+            .get_post_comment(post_comment.id.key.clone())
+            .await
+            .unwrap();
+
+        assert_eq!(post_comment.text, "wow2");
+
+        let post_comment = db
+            .update_post_comment(3, user2.id.clone(), post_comment.id.key.clone(), "wow3")
+            .await;
+
+        assert!(post_comment.is_err());
+
+        //
     }
 
     #[tokio::test]

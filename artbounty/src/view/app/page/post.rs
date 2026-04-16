@@ -24,7 +24,11 @@ use leptos::{ev, html, prelude::*};
 use leptos_router::hooks::{use_location, use_params};
 use leptos_router::params::Params;
 use tracing::{debug, error, trace, warn};
-use web_sys::{Event, ScrollBehavior, ScrollIntoViewOptions, ScrollLogicalPosition, SubmitEvent};
+use wasm_bindgen::JsValue;
+use web_sys::{
+    Event, HtmlDivElement, HtmlElement, ScrollBehavior, ScrollIntoViewOptions,
+    ScrollLogicalPosition, SubmitEvent,
+};
 
 #[derive(Params, PartialEq, Clone)]
 pub struct PostParams {
@@ -450,6 +454,7 @@ pub fn PostCommentElm(
     let reply_render_comments = current_depth <= max_depth;
     // let reply_btn_shown = RwSignal::new(false);
     let replies_shown = RwSignal::new(false);
+    // let edit_enabled = RwSignal::new(false);
     let api = ApiWeb::new();
     let comment_key = comment.key.clone();
     let is_owned_fn = {
@@ -568,20 +573,20 @@ pub fn PostCommentElm(
         current_depth > 0 && comments_manual.items.with(|v| v.len() > 0) && show_replies_fn()
     };
 
-    let bubble2 = Memo::new({
-        let comment_key = comment_key.clone();
-        let is_none = kind.is_none();
-        let last = comment.parent_key.last().cloned();
-        move |_| {
-            if !is_none {
-                return None;
-            }
-            let Some(last) = last.clone() else {
-                return None;
-            };
-            parent_items.with(|v| v.iter().find(|v| v.key == last).cloned())
-        }
-    });
+    // let bubble2 = Memo::new({
+    //     let comment_key = comment_key.clone();
+    //     let is_none = kind.is_none();
+    //     let last = comment.parent_key.last().cloned();
+    //     move |_| {
+    //         if !is_none {
+    //             return None;
+    //         }
+    //         let Some(last) = last.clone() else {
+    //             return None;
+    //         };
+    //         parent_items.with(|v| v.iter().find(|v| v.key == last).cloned())
+    //     }
+    // });
 
     let is_bubble = 'f: {
         if !kind.is_none() {
@@ -623,7 +628,7 @@ pub fn PostCommentElm(
             // elm.set_class_name(anim);
             let result = set_timeout(
                 move || {
-                   let _ = classes.remove_1(anim);
+                    let _ = classes.remove_1(anim);
                 },
                 Duration::from_secs(1),
             );
@@ -641,6 +646,49 @@ pub fn PostCommentElm(
         (on_bubble_click.clone())();
     };
 
+    let click_edit = move |_| {
+        // edit_enabled.update(|v| *v = !*v);
+        if comments_manual.edit_mode.get_untracked() {
+            let Some(text) = comment_edit_ref
+                .get_untracked()
+                .and_then(|v: HtmlDivElement| v.text_content())
+            else {
+                return;
+            };
+            spawner.spawn(comments_manual.update_comment(text));
+        }
+
+        comments_manual.edit_mode.set(true);
+        // let Some(elm) = comment_edit_ref.get_untracked() as Option<HtmlDivElement> else {
+        //     return;
+        // };
+        // let is_editable = elm.content_editable() == "true";
+        // if is_editable {
+        //     elm.set_content_editable("false");
+        // } else {
+        //     elm.set_content_editable("true");
+        // }
+
+        //
+    };
+
+    let click_cancel = move |_| {
+
+        let Some(elm) = comment_edit_ref
+            .get_untracked() as Option<HtmlDivElement>
+        else {
+            return;
+        };
+
+        let txt = comments_manual.text.get_untracked();
+
+        elm.set_text_content(Some(&txt));
+
+        comments_manual.edit_mode.set(false);
+    };
+
+    // let elm1: JsValue = elm.clone().into();
+    // let elm1: HtmlElement = elm1.into();
     // let bubble = Memo::new({
     //     // let comment_key = comment_key.clone();
     //     let is_none = kind.is_none();
@@ -699,19 +747,31 @@ pub fn PostCommentElm(
                         </Show>
                     </div>
                     <div  class="pl-4  flex flex-col w-full group">
-                        <div class="flex gap-2 place-items-start ">
+                        <div class="flex gap-2 place-items-center ">
                             <div class="text-[1.2rem]"> {comment.user.username} </div>
                             <div class="text-[1rem] text-base03"> {move || ns_to_str(global_state.get_time_ns().saturating_sub(comment.created_at))}" ago"</div>
 
                             <Show when=is_owned_fn >
-                                <button on:click=delete_comment class="ml-auto">
-                                    <SVGTrash class="size-6 text-base08 hidden group-hover:flex"/>
+                                <button on:click=click_edit class=move || format!("text-center group-hover:block hidden ml-auto rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem]  {}", if comments_manual.edit_mode.get() { "hover:bg-base05 bg-base0D text-base01" } else { "text-base05 bg-base01 hover:bg-base05 hover:text-base01" })>
+                                    <Show when={move || comments_manual.edit_mode.get() } fallback={move || "Edit" }>
+                                        "Save"
+                                    </Show>
                                 </button>
+                                <Show when=move || comments_manual.edit_mode.get() >
+                                    <button on:click=click_cancel class=move || format!("text-center group-hover:block hidden rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem] text-base05 bg-base01 hover:bg-base05 hover:text-base01")>
+                                        "Cancel"
+                                    </button>
+                                </Show>
+                                <Show when=move || !comments_manual.edit_mode.get() >
+                                    <button on:click=delete_comment class="">
+                                        <SVGTrash class="size-6 text-base08 hidden group-hover:block"/>
+                                    </button>
+                                </Show>
                             </Show>
                         </div>
 
 
-                        <span contenteditable node_ref=comment_edit_ref class=" text-[1.1rem] break-all focus:outline-none! appearance-none border-none resize w-full" >{comment.text}</span>
+                        <div contenteditable={move || comments_manual.edit_mode.get()} node_ref=comment_edit_ref class={move || format!(" text-[1.1rem] break-all focus:outline-none! appearance-none border-none resize w-full rounded {}", if comments_manual.edit_mode.get() { "bg-base01 px-4 py-2" } else { "" })} >{move || comments_manual.text.get()}</div>
                         <ul class="ml-[1rem] text-base08 list-disc">
                             {move || comments_manual.err_delete.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                         </ul>
@@ -740,7 +800,7 @@ pub fn PostCommentElm(
                                 </Show>
                             </Show>
                             <Show when=move || global_state.is_logged_in().unwrap_or_default()>
-                                <button on:click=toggle_btn type="submit" class=move || format!("  rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] py-[0.2rem] w-[5rem]  {}", if comments_manual.show_editor.get() { "text-base05 bg-base01 hover:bg-base03" } else { "text-base05 bg-base01 hover:bg-base05 hover:text-base01" })>
+                                <button on:click=toggle_btn type="submit" class=move || format!("  rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem]  {}", if comments_manual.show_editor.get() { "text-base05 bg-base01 hover:bg-base03" } else { "text-base05 bg-base01 hover:bg-base05 hover:text-base01" })>
                                     <Show when=move || comments_manual.show_editor.get() fallback=|| "Reply">
                                         <SVGArrowDown class="size-4 mx-auto"/>
                                     </Show>

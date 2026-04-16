@@ -63,7 +63,9 @@ pub struct CommentsApi2<API: Api> {
     pub items: RwSignal<Vec<UserPostComment>, LocalStorage>,
     pub finished: RwSignal<bool, LocalStorage>,
     pub replies_count: RwSignal<usize, LocalStorage>,
+    pub text: RwSignal<String, LocalStorage>,
     pub show_editor: RwSignal<bool, LocalStorage>,
+    pub edit_mode: RwSignal<bool, LocalStorage>,
     // pub is_last: RwSignal<bool, LocalStorage>,
     // pub is_last: StoredValue<Box<dyn Fn() -> bool + 'static>, LocalStorage>,
     pub err_post: RwSignal<String, LocalStorage>,
@@ -84,8 +86,8 @@ where
     API: Api,
 {
     pub fn new(api: API, fetch_count: usize, kind: CommentKind2) -> Self {
-        let replies_count = match &kind {
-            CommentKind2::Root => 0,
+        let (replies_count, text) = match &kind {
+            CommentKind2::Root => (0, String::new()),
             CommentKind2::Flat {
                 comment,
                 parent_key,
@@ -100,7 +102,7 @@ where
                 comment,
                 parent_key,
                 ..
-            } => comment.replies_count,
+            } => (comment.replies_count, comment.text.clone()),
         };
 
         // let has_reply_bubble = kind.is_none() && com;
@@ -109,9 +111,11 @@ where
             items: RwSignal::new_local(Vec::new()),
             finished: RwSignal::new_local(false),
             replies_count: RwSignal::new_local(replies_count),
+            text: RwSignal::new_local(text),
             // has_reply_bubble,
             // is_last: RwSignal::new_local(false),
             show_editor: RwSignal::new_local(false),
+            edit_mode: RwSignal::new_local(false),
             err_post: RwSignal::new_local(String::new()),
             err_fetch: RwSignal::new_local(String::new()),
             err_delete: RwSignal::new_local(String::new()),
@@ -327,6 +331,56 @@ where
             }
         };
         None
+    }
+
+    pub async fn update_comment(self, text: impl Into<String>) {
+        let comment_key = match self.kind.get_value() {
+            CommentKind2::Root => {
+                return;
+            }
+
+            CommentKind2::Flat {
+                parent_key,
+                parent_items,
+                parent_replies_count,
+                comment,
+            }
+            | CommentKind2::None {
+                parent_key,
+                parent_items,
+                parent_replies_count,
+                comment,
+            }
+            | CommentKind2::Reply {
+                parent_key,
+                parent_items,
+                parent_replies_count,
+                comment,
+            } => comment.key,
+        };
+
+        let result = self
+            .api
+            .update_post_comment(comment_key, text)
+            .send_native()
+            .await;
+
+        match result {
+            Ok(ServerRes::Comment(comment)) => {
+                self.edit_mode.set(false);
+                self.text.set(comment.text);
+            }
+            Ok(err) => {
+                let err = format!("post comments basic: unexpected res: {err:?}");
+                error!(err);
+                self.err_post.set(err);
+            }
+            Err(err) => {
+                let err = format!("post comments basic: {err}");
+                error!(err);
+                self.err_post.set(err);
+            }
+        };
     }
 
     async fn post_comment(&self, text: impl Into<String>) -> Option<UserPostComment> {
@@ -1488,6 +1542,58 @@ pub mod tests {
         assert_eq!(items_flat.len(), 8);
         assert_eq!(items_flat[0].text, "c0_r0x2");
         assert_eq!(items_flat[7].text, "c0_r3x3");
+    }
+
+    #[tokio::test]
+    pub async fn hook_comments_api_update() {
+        println!("hello");
+        init_test_log();
+        let owner = Owner::new_root(Some(Arc::new(HydrateSharedContext::new())));
+        let mut app = ApiTestApp::new(10).await;
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+        app.api.pre_load_token = auth_token.clone();
+        let post = app.add_post(1, &auth_token).await.unwrap();
+        let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
+        hook_root.observe_only(post.id.clone());
+
+        (app.set_time(2).await, hook_root.post("c0").await);
+
+        let c0 = hook_root.items.with_untracked(|v| v[0].clone());
+        let hook_reply = CommentsApi2::new(
+            &app.api,
+            2,
+            CommentKind2::Reply {
+                parent_key: String::new(),
+                parent_items: hook_root.items,
+                parent_replies_count: hook_root.replies_count,
+                comment: c0.clone(),
+            },
+        );
+        hook_reply.observe_only(post.id.clone());
+        hook_reply.edit_mode.set(true);
+
+        assert_eq!(hook_reply.text.get_untracked(), "c0");
+
+        hook_reply.update_comment("c0_v2").await;
+
+        assert_eq!(hook_reply.text.get_untracked(), "c0_v2");
+        assert_eq!(hook_reply.edit_mode.get_untracked(), false);
+
+        let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
+        hook_root.observe_only(post.id.clone());
+        hook_root.fetch().await;
+
+        let items_root = hook_root.items.get_untracked();
+        let c0 = hook_root.items.with_untracked(|v| v[0].clone());
+
+        assert_eq!(items_root.len(), 1);
+        assert_eq!(c0.text, "c0_v2");
+
+
+
     }
 
     #[tokio::test]
