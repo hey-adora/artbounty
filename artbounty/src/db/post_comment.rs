@@ -273,7 +273,7 @@ mod tests {
         db.migrate(0).await.unwrap();
         let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
         let post = db
-            .add_post(0, "hey1", "title", "description", 0, vec![])
+            .add_post(0, "hey1", "title", "description", "", 0, vec![])
             .await
             .unwrap();
 
@@ -344,7 +344,7 @@ mod tests {
         db.migrate(0).await.unwrap();
         let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
         let post = db
-            .add_post(0, "hey1", "title", "description", 0, vec![])
+            .add_post(0, "hey1", "title", "description", "", 0, vec![])
             .await
             .unwrap();
 
@@ -415,7 +415,7 @@ mod tests {
         db.migrate(0).await.unwrap();
         let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
         let post = db
-            .add_post(0, "hey1", "title", "description", 0, vec![])
+            .add_post(0, "hey1", "title", "description", "", 0, vec![])
             .await
             .unwrap();
 
@@ -545,7 +545,7 @@ mod tests {
 
         let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
         let post = db
-            .add_post(0, "hey1", "title", "description", 0, vec![])
+            .add_post(0, "hey1", "title", "description", "", 0, vec![])
             .await
             .unwrap();
 
@@ -608,7 +608,7 @@ mod tests {
 
         let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
         let post = db
-            .add_post(0, "hey1", "title", "description", 0, vec![])
+            .add_post(0, "hey1", "title", "description", "", 0, vec![])
             .await
             .unwrap();
 
@@ -673,7 +673,7 @@ mod tests {
         let user2 = db.add_user(0, "hey2", "hey2@hey.com", "123").await.unwrap();
 
         let post = db
-            .add_post(1, "hey1", "title", "description", 0, vec![])
+            .add_post(1, "hey1", "title", "description", "", 0, vec![])
             .await
             .unwrap();
 
@@ -715,7 +715,7 @@ mod tests {
 
         let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
         let post = db
-            .add_post(1, "hey1", "title", "description", 0, vec![])
+            .add_post(1, "hey1", "title", "description", "", 0, vec![])
             .await
             .unwrap();
 

@@ -372,6 +372,7 @@ pub mod upload {
 
             let title = proccess_post_title(title.value());
             let description = proccess_post_description(description.value());
+            let tags = tags.value();
 
             upload_title_err.set(title.clone().err().unwrap_or_default());
             upload_description_err.set(description.clone().err().unwrap_or_default());
@@ -406,7 +407,7 @@ pub mod upload {
                     files_data.push(ServerReqImg { data, path });
                 }
                 trace!("files data read");
-                api.add_post(title, description, files_data)
+                api.add_post(title, description, tags, files_data)
                     .send_web(move |res| {
                         let navigate = navigate.clone();
                         async move {

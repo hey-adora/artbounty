@@ -1,4 +1,3 @@
-
 pub mod nav {
 
     use crate::{
@@ -57,7 +56,6 @@ pub mod nav {
     }
 }
 pub mod gallery {
-
 
     use crate::api::{Api, ApiWeb, UserPost, UserPostFile};
     use crate::path::{link_img, link_post, link_post_with_history};
@@ -543,7 +541,6 @@ pub mod gallery {
         let fn_width = move || format!("{view_width}px");
         let fn_height = move || format!("{view_height}px");
 
-
         let on_img_click = move |e: MouseEvent| {
             run_on_click(e, img.clone());
         };
@@ -813,7 +810,7 @@ pub mod gallery {
     }
 
     pub fn add_imgs_to_top<IMG>(
-        mut imgs: Vec<IMG>,
+        mut old_imgs: Vec<IMG>,
         mut new_imgs: Vec<IMG>,
         width: u32,
         heigth: f64,
@@ -827,49 +824,54 @@ pub mod gallery {
             width,
             heigth,
             row_height,
-            vec_img_to_string(&imgs),
+            vec_img_to_string(&old_imgs),
             vec_img_to_string(&new_imgs)
         );
         if new_imgs.is_empty() {
-            return (imgs, 0.0);
+            return (old_imgs, 0.0);
         }
-        let height_before_remove = get_total_height(&imgs);
-        trace!("stage 0: {imgs:#?}");
-        if let Some(cut_index) = remove_until_fit_from_bottom(&mut imgs, heigth) {
-            imgs = imgs[..cut_index].to_vec();
-            trace!("stage 1 ({cut_index}): {imgs:#?}");
+        let height_before_remove = get_total_height(&old_imgs);
+        trace!("stage 0: {old_imgs:#?}");
+        if let Some(cut_index) = remove_until_fit_from_bottom(&mut old_imgs, heigth) {
+            old_imgs = old_imgs[..cut_index].to_vec();
+            trace!("stage 1 ({cut_index}): {old_imgs:#?}");
         }
 
-        let height_after_remove = get_total_height(&imgs);
-        let Some(offset) = imgs
-            .len()
-            .checked_add(new_imgs.len())
-            .and_then(|v| v.checked_sub(2))
-        else {
-            return (imgs, 0.0);
-        };
+        let height_after_remove = get_total_height(&old_imgs);
 
-        new_imgs.extend(imgs);
-        imgs = new_imgs;
+        // 2 because .len() twice adds 2
+        let offset = (old_imgs.len() + new_imgs.len()).saturating_sub(2);
 
-        let offset = get_row_end(&mut imgs, offset);
-        trace!("stage 4(offset: {offset}): {imgs:#?}");
-        let rows = get_rows_to_top(&imgs, offset, width, row_height);
-        set_rows_to_top(&mut imgs, &rows, width);
-        trace!("stage 2: {imgs:#?}");
-        normalize_imgs_y_v2(&mut imgs);
-        let height_final = get_total_height(&imgs);
+        // let Some(offset) = old_imgs
+        //     .len()
+        //     .checked_add(new_imgs.len())
+        //     .and_then(|v| v.checked_sub(2))
+        // else {
+        //     trace!("returning old imgs {old_imgs:#?}");
+        //     return (old_imgs, 0.0);
+        // };
+
+        new_imgs.extend(old_imgs);
+        old_imgs = new_imgs;
+
+        let offset = get_row_end(&mut old_imgs, offset);
+        trace!("stage 4(offset: {offset}): {old_imgs:#?}");
+        let rows = get_rows_to_top(&old_imgs, offset, width, row_height);
+        set_rows_to_top(&mut old_imgs, &rows, width);
+        trace!("stage 2: {old_imgs:#?}");
+        normalize_imgs_y_v2(&mut old_imgs);
+        let height_final = get_total_height(&old_imgs);
         let scroll_by = height_final - height_after_remove;
 
         trace!(
-            "stage 5(KOKheight_before_remove: {height_before_remove}, height_after_remove: {height_after_remove}, height_final: {height_final}, scroll_by: {scroll_by}): {imgs:#?}"
+            "stage 5(KOKheight_before_remove: {height_before_remove}, height_after_remove: {height_after_remove}, height_final: {height_final}, scroll_by: {scroll_by}): {old_imgs:#?}"
         );
         trace!(
             "INPUT FOR ADD IMGS TO TOP OUTPUT {}\n{}",
             scroll_by,
-            vec_img_to_string(&imgs),
+            vec_img_to_string(&old_imgs),
         );
-        (imgs, scroll_by)
+        (old_imgs, scroll_by)
     }
 
     pub fn normalize_imgs_y_v2<IMG>(imgs: &mut [IMG])
@@ -1631,6 +1633,16 @@ pub mod gallery {
             crate::init_test_log();
 
             // TODO, ASSET SCROLL_BY
+            trace!("=======UPDATING IMGS=======");
+            let imgs = Vec::from([]);
+            let new_imgs = Vec::from([Img::new(4, 500, 500)]);
+            let expected_imgs = Vec::from([
+                //row 1
+                Img::new_full(4, 500, 500, 500.0, 500.0, 0.0, 0.0),
+            ]);
+            let (imgs, scroll_by) = add_imgs_to_top(imgs, new_imgs, 1000, 500.0, 500);
+            trace!(scroll_by);
+            assert_eq!(expected_imgs, imgs);
             trace!("=======UPDATING IMGS=======");
             let imgs = Vec::from([]);
             let new_imgs = Vec::from([

@@ -13,7 +13,7 @@ use crate::view::app::hook::use_infinite_scroll_virtual::{
 };
 use crate::view::app::hook::use_post_comment::use_post_comment;
 use crate::view::app::hook::use_post_comments_baisc::CommentsBaisc;
-use crate::view::app::hook::use_post_comments_manual::{
+use crate::view::app::hook::api_post_comments::{
     CommentKind, CommentKind2, CommentsApi, CommentsApi2,
 };
 use crate::view::app::hook::use_post_like::{self, PostLikeStage, use_post_like};
@@ -355,7 +355,7 @@ pub fn Page() -> impl IntoView {
                         </div>
                         // <form class=move || format!("flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 {}", if global_state.is_logged_in().unwrap_or_default()  { "" } else { "hidden" }) on:submit=post_comments.on_comment.to_fn() >
                         <form class=move || format!("flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 {}", if global_state.is_logged_in().unwrap_or_default()  { "" } else { "hidden" })  on:submit=post_comment>
-                            <textarea placeholder="Comment" node_ref=comment_input_ref class="focus:outline-none! appearance-none border-none resize text-[1.1rem]" id="story" name="story" rows="5" cols="30" ></textarea>
+                            <textarea placeholder="Comment" node_ref=comment_input_ref class="focus:outline-none! appearance-none border-none resize text-[1.1rem]" id="story" name="story" rows="5" cols="5" ></textarea>
                             <ul class="text-base08 list-disc ml-[1rem]">
                                 {move || comment_basic.err_post.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                             </ul>

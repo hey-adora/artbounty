@@ -13,7 +13,8 @@ pub mod use_intersection;
 pub mod use_event_listener;
 pub mod use_post_comment;
 pub mod use_post_comments_baisc;
-pub mod use_post_comments_manual;
+pub mod api_post_comments;
+pub mod api_post;
 pub mod use_flag;
 pub mod use_spawner;
 

@@ -1347,7 +1347,7 @@ pub mod tests {
     use crate::{
         api::{shared::post_comment::UserPostComment, tests::ApiTestApp},
         view::{
-            app::hook::use_post_comments_manual::{
+            app::hook::api_post_comments::{
                 CommentKind, CommentKind2, CommentsApi, CommentsApi2,
             },
             logger,
@@ -1383,7 +1383,7 @@ pub mod tests {
 
         app.api.pre_load_token = auth_token.clone();
 
-        let post = app.add_post(t(), &auth_token).await.unwrap();
+        let post = app.add_post(t(), &auth_token, "title1", "cat", "one").await.unwrap();
 
         let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
         hook_root.observe_only(post.id.clone());
@@ -1557,7 +1557,7 @@ pub mod tests {
             .await
             .unwrap();
         app.api.pre_load_token = auth_token.clone();
-        let post = app.add_post(1, &auth_token).await.unwrap();
+        let post = app.add_post(1, &auth_token, "title1", "cat", "one").await.unwrap();
         let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
         hook_root.observe_only(post.id.clone());
 
@@ -1618,7 +1618,7 @@ pub mod tests {
 
         app.api.pre_load_token = auth_token.clone();
 
-        let post = app.add_post(t(), &auth_token).await.unwrap();
+        let post = app.add_post(t(), &auth_token, "title1", "cat", "one").await.unwrap();
 
         let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
         hook_root.observe_only(post.id.clone());
@@ -1772,7 +1772,7 @@ pub mod tests {
 
             app.api.pre_load_token = auth_token.clone();
 
-            let post = app.add_post(0, &auth_token).await.unwrap();
+            let post = app.add_post(0, &auth_token, "title1", "cat", "one").await.unwrap();
 
             let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
             hook_root.post_key.set_value(post.id.clone());

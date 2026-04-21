@@ -107,7 +107,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        let post = app.add_post(0, &auth_token).await.unwrap();
+        let post = app.add_post(0, &auth_token, "title1", "cat", "one").await.unwrap();
         debug!("wtf is that {post:#?}");
 
         app.check_post_like(0, &auth_token, post.id.clone(), false)

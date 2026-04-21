@@ -160,6 +160,7 @@ pub struct DBUserPost {
     pub user: DBUser,
     pub show: bool,
     pub title: String,
+    pub tags: String,
     pub description: String,
     pub favorites: u64,
     pub file: Vec<DBUserPostFile>,
@@ -299,10 +300,10 @@ pub fn create_user_id(id: impl Into<String>) -> RecordId {
 pub mod post_comment;
 pub mod invite {
     use crate::db::DB404Err;
+    use crate::db::DBEmailIsTakenErr;
     use crate::db::DBPostLikeErr;
     use crate::db::DBUser;
     use crate::db::DBUserPost;
-    use crate::db::DBEmailIsTakenErr;
     use crate::db::SurrealCheckUtils;
     use crate::db::SurrealErrUtils;
     use crate::db::SurrealSerializeUtils;
@@ -449,8 +450,8 @@ pub mod invite {
         use crate::{
             api::{ChangeUsernameErr, ServerRes},
             db::{
-                AddUserErr, DB404Err, DBChangeUsernameErr, DBPostLikeErr, DBSentEmailReason,
-                DBUserPostFile, Db, DBEmailIsTakenErr, post_like::create_post_like_id,
+                AddUserErr, DB404Err, DBChangeUsernameErr, DBEmailIsTakenErr, DBPostLikeErr,
+                DBSentEmailReason, DBUserPostFile, Db, post_like::create_post_like_id,
                 session::AddSessionErr,
             },
             init_test_log,
@@ -753,6 +754,7 @@ pub mod migration {
                     DEFINE FIELD show ON TABLE post TYPE bool;
                     DEFINE FIELD title ON TABLE post TYPE string;
                     DEFINE FIELD description ON TABLE post TYPE string;
+                    DEFINE FIELD tags ON TABLE post TYPE string;
                     DEFINE FIELD favorites ON TABLE post TYPE number;
                     DEFINE FIELD file ON TABLE post TYPE array<object>;
                     DEFINE FIELD file.*.extension ON TABLE post TYPE string;
@@ -955,8 +957,8 @@ pub mod session {
         use crate::{
             api::{ChangeUsernameErr, ServerRes},
             db::{
-                AddUserErr, DB404Err, DBChangeUsernameErr, DBPostLikeErr, DBSentEmailReason,
-                DBUserPostFile, Db, DBEmailIsTakenErr, post_like::create_post_like_id,
+                AddUserErr, DB404Err, DBChangeUsernameErr, DBEmailIsTakenErr, DBPostLikeErr,
+                DBSentEmailReason, DBUserPostFile, Db, post_like::create_post_like_id,
                 session::AddSessionErr,
             },
         };
@@ -1151,8 +1153,8 @@ pub mod post_like {
         use crate::{
             api::{ChangeUsernameErr, ServerRes},
             db::{
-                AddUserErr, DB404Err, DBChangeUsernameErr, DBPostLikeErr, DBSentEmailReason,
-                DBUserPostFile, Db, DBEmailIsTakenErr, post_like::create_post_like_id,
+                AddUserErr, DB404Err, DBChangeUsernameErr, DBEmailIsTakenErr, DBPostLikeErr,
+                DBSentEmailReason, DBUserPostFile, Db, post_like::create_post_like_id,
             },
         };
 
@@ -1164,7 +1166,7 @@ pub mod post_like {
 
             let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
             let post = db
-                .add_post(0, "hey1", "title", "description", 0, vec![])
+                .add_post(0, "hey1", "title", "description", "", 0, vec![])
                 .await
                 .unwrap();
 
@@ -1331,8 +1333,8 @@ pub mod confirm_email {
         use crate::{
             api::ChangeUsernameErr,
             db::{
-                AddUserErr, DB404Err, DBChangeUsernameErr, DBSentEmailReason, DBUserPostFile, Db,
-                DBEmailIsTakenErr,
+                AddUserErr, DB404Err, DBChangeUsernameErr, DBEmailIsTakenErr, DBSentEmailReason,
+                DBUserPostFile, Db,
             },
         };
 
@@ -1383,18 +1385,325 @@ pub mod confirm_email {
 
 pub mod post {
 
-    use surrealdb::types::{RecordId, RecordIdKey};
+    use surrealdb::{
+        Connection,
+        types::{RecordId, RecordIdKey},
+    };
+
+    use crate::{
+        api::{Order, TimeRange},
+        db::{DBUserPost, Db, SurrealCheckUtils, SurrealSerializeUtils},
+    };
+    use tracing::trace;
 
     pub fn create_post_id(id: impl Into<RecordIdKey>) -> RecordId {
         RecordId::new("post", id.into())
+    }
+
+    impl<C: Connection> Db<C> {
+        pub async fn post_search(
+            &self,
+            limit: usize,
+            time_range: TimeRange,
+            order: Order,
+            tags: impl Into<String>,
+            user: impl Into<String>,
+        ) -> Result<Vec<DBUserPost>, surrealdb::Error> {
+            // TODO make sure limit cant be millions
+
+            let tags = tags.into();
+            let user = user.into();
+
+            let tags = tags.split_whitespace();
+            let tags = tags.map(|v| v.to_string()).collect::<Vec<String>>();
+
+            // let tags = tags
+            //     .map(|tags| {
+            //         tags
+            //     })
+            //     .unwrap_or_default();
+            // let user = user.unwrap_or_default();
+
+            let time_range_val = match time_range {
+                TimeRange::None => 0,
+                TimeRange::Less(v)
+                | TimeRange::LessOrEqual(v)
+                | TimeRange::More(v)
+                | TimeRange::MoreOrEqual(v) => v,
+            };
+
+            let q_tags = if tags.len() > 0 {
+                "tags CONTAINSALL $tags"
+            } else {
+                ""
+            };
+
+            let q_user = if !user.is_empty() { "user = (SELECT id FROM ONLY user WHERE username = $user).id" } else { "" };
+
+            let q_time_after = match time_range {
+                TimeRange::None => "",
+                TimeRange::Less(_) => "created_at < $time_range",
+                TimeRange::LessOrEqual(_) => "created_at <= $time_range",
+                TimeRange::More(_) => "created_at > $time_range",
+                TimeRange::MoreOrEqual(_) => "created_at >= $time_range",
+            };
+
+            let q_order = match order {
+                Order::OneTwoThree => "ASC",
+                Order::ThreeTwoOne => "DESC",
+            };
+
+            let filters = [q_tags, q_time_after, q_user];
+            // let filters_len = filters.len();
+            let mut q_where = String::new();
+            let mut iter = filters.into_iter().peekable();
+            loop {
+                let Some(q) = iter.next() else {
+                    break;
+                };
+                if q.is_empty() {
+                    continue;
+                }
+                q_where.push_str(q);
+                // trace!("filters_len({filters_len}) == i({})", i + 1);
+                let next_is_empty = iter.peek().map(|v| v.is_empty()).unwrap_or(true);
+                if next_is_empty {
+                    break;
+                }
+                q_where.push_str(" AND ");
+            }
+
+            let q = format!(
+                "
+                SELECT *, user.* FROM post WHERE 
+                    {q_where}   
+                    ORDER BY created_at {q_order}
+                    LIMIT $get_limit;
+            "
+            );
+            trace!("about to run {q}");
+
+            self.db
+                .query(q)
+                .bind(("get_limit", limit))
+                .bind(("time_range", time_range_val))
+                .bind(("tags", tags))
+                .bind(("user", user))
+                .await
+                .check_good(surrealdb::Error::from)
+                .and_then_take_all(0)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+
+        use std::time::Duration;
+
+        use surrealdb::engine::local::Mem;
+        use tracing::trace;
+
+        use crate::{
+            api::{Order, TimeRange},
+            db::{DB404Err, DBEmailIsTakenErr, DBUserPostFile, Db, email_change::DBChangeEmailErr},
+        };
+
+        #[tokio::test]
+        async fn db_post_search() {
+            crate::init_test_log();
+
+            let db = Db::new::<Mem>(()).await.unwrap();
+            db.migrate(0).await.unwrap();
+
+            let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
+
+            let files = vec![
+                DBUserPostFile {
+                    extension: ".png".to_string(),
+                    hash: "A".to_string(),
+                    width: 1,
+                    height: 1,
+                },
+                DBUserPostFile {
+                    extension: ".png".to_string(),
+                    hash: "B".to_string(),
+                    width: 1,
+                    height: 1,
+                },
+            ];
+            let post0 = db
+                .add_post(
+                    1,
+                    "hey",
+                    "1",
+                    "description",
+                    "one two three",
+                    0,
+                    files.clone(),
+                )
+                .await
+                .unwrap();
+            let post1 = db
+                .add_post(2, "hey", "2", "description", "one two", 0, files.clone())
+                .await
+                .unwrap();
+            let post2 = db
+                .add_post(3, "hey", "3", "description", "one", 0, files.clone())
+                .await
+                .unwrap();
+
+            {
+                // user field
+                let result = db
+                    .post_search(
+                        3,
+                        TimeRange::LessOrEqual(3),
+                        Order::ThreeTwoOne,
+                        " three  two     ",
+                        "hey",
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(result.len(), 1);
+                assert_eq!(&result[0].title, "1");
+
+                let result = db
+                    .post_search(
+                        3,
+                        TimeRange::LessOrEqual(3),
+                        Order::ThreeTwoOne,
+                        " three  two     ",
+                        "hey2",
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(result.len(), 0);
+            }
+
+            let result = db
+                .post_search(
+                    3,
+                    TimeRange::LessOrEqual(3),
+                    Order::ThreeTwoOne,
+                    " three  two     ",
+                    String::new(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(result.len(), 1);
+            assert_eq!(&result[0].title, "1");
+
+            let result = db
+                .post_search(
+                    3,
+                    TimeRange::LessOrEqual(3),
+                    Order::ThreeTwoOne,
+                    "three two",
+                    String::new(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(result.len(), 1);
+            assert_eq!(&result[0].title, "1");
+
+            let result = db
+                .post_search(
+                    3,
+                    TimeRange::LessOrEqual(3),
+                    Order::ThreeTwoOne,
+                    "two",
+                    String::new(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(result.len(), 2);
+            assert_eq!(&result[0].title, "2");
+            assert_eq!(&result[1].title, "1");
+
+            let result = db
+                .post_search(
+                    3,
+                    TimeRange::LessOrEqual(3),
+                    Order::OneTwoThree,
+                    "two",
+                    String::new(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(result.len(), 2);
+            assert_eq!(&result[0].title, "1");
+            assert_eq!(&result[1].title, "2");
+
+            let result = db
+                .post_search(
+                    3,
+                    TimeRange::MoreOrEqual(1),
+                    Order::OneTwoThree,
+                    "two",
+                    String::new(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(result.len(), 2);
+            assert_eq!(&result[0].title, "1");
+            assert_eq!(&result[1].title, "2");
+
+            let result = db
+                .post_search(3, TimeRange::None, Order::OneTwoThree, "two", String::new())
+                .await
+                .unwrap();
+            assert_eq!(result.len(), 2);
+            assert_eq!(&result[0].title, "1");
+            assert_eq!(&result[1].title, "2");
+
+            let result = db
+                .post_search(
+                    3,
+                    TimeRange::Less(3),
+                    Order::OneTwoThree,
+                    "two",
+                    String::new(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(result.len(), 2);
+            assert_eq!(&result[0].title, "1");
+            assert_eq!(&result[1].title, "2");
+
+            let result = db
+                .post_search(
+                    3,
+                    TimeRange::Less(2),
+                    Order::OneTwoThree,
+                    "two",
+                    String::new(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(result.len(), 1);
+            assert_eq!(&result[0].title, "1");
+
+            let result = db
+                .post_search(
+                    3,
+                    TimeRange::More(1),
+                    Order::OneTwoThree,
+                    "two",
+                    String::new(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(result.len(), 1);
+            assert_eq!(&result[0].title, "2");
+        }
     }
 }
 
 pub mod email_change {
 
     use crate::db::DB404Err;
-    use crate::db::DBUser;
     use crate::db::DBEmailIsTakenErr;
+    use crate::db::DBUser;
     use crate::db::SurrealCheckUtils;
     use crate::db::SurrealErrUtils;
     use crate::db::SurrealSerializeUtils;
@@ -1700,7 +2009,7 @@ pub mod email_change {
         use surrealdb::engine::local::Mem;
         use tracing::trace;
 
-        use crate::db::{DB404Err, Db, DBEmailIsTakenErr, email_change::DBChangeEmailErr};
+        use crate::db::{DB404Err, DBEmailIsTakenErr, Db, email_change::DBChangeEmailErr};
 
         #[tokio::test]
         async fn db_email_change() {
@@ -1954,12 +2263,14 @@ impl<C: Connection> Db<C> {
         username: impl Into<String>,
         title: impl Into<String>,
         description: impl Into<String>,
+        tags: impl Into<String>,
         favorites: u64,
         files: Vec<DBUserPostFile>,
     ) -> Result<DBUserPost, AddPostErr> {
         let username = username.into();
         let title = title.into();
         let description = description.into();
+        let tags = tags.into();
 
         self.db
             .query(
@@ -1970,6 +2281,7 @@ impl<C: Connection> Db<C> {
                 show = true,
                 title = $title,
                 description = $description,
+                tags = $tags,
                 favorites = $favorites,
                 file = $files,
                 modified_at = $time,
@@ -1981,6 +2293,7 @@ impl<C: Connection> Db<C> {
             .bind(("username", username.clone()))
             .bind(("title", title))
             .bind(("description", description))
+            .bind(("tags", tags))
             .bind(("favorites", favorites))
             .bind(("time", time))
             .await
@@ -2194,8 +2507,8 @@ mod tests {
     use crate::{
         api::ChangeUsernameErr,
         db::{
-            AddUserErr, DB404Err, DBChangeUsernameErr, DBSentEmailReason, DBUserPostFile, Db,
-            DBEmailIsTakenErr,
+            AddUserErr, DB404Err, DBChangeUsernameErr, DBEmailIsTakenErr, DBSentEmailReason,
+            DBUserPostFile, Db,
         },
     };
 
@@ -2254,6 +2567,7 @@ mod tests {
                 "hey",
                 "title",
                 "description",
+                "",
                 0,
                 vec![
                     DBUserPostFile {
@@ -2285,6 +2599,7 @@ mod tests {
                     "hey",
                     format!("title{i}"),
                     "description",
+                    "",
                     0,
                     vec![DBUserPostFile {
                         extension: ".png".to_string(),

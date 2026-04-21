@@ -5,7 +5,7 @@ use crate::{
             use_future::FutureFn,
             use_infinite_scroll_basic::InfiniteBasic,
             use_infinite_scroll_fn::{InfiniteItem, InfiniteScrollFn},
-            use_post_comments_manual::{CommentKind, CommentKind2, CommentsApi, CommentsApi2},
+            api_post_comments::{CommentKind, CommentKind2, CommentsApi, CommentsApi2},
             use_spawner::Spawner,
         },
         toolbox::prelude::*,

@@ -7,7 +7,7 @@ use wasm_bindgen::JsCast;
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn hydrate() {
 
-    artbounty::view::app::hook::use_post_comments_manual::tests::comments_hook();
+    artbounty::view::app::hook::api_post_comments::tests::comments_hook();
     // console_error_panic_hook::set_once();
     // logger::simple_web_logger_init();
     // tracing::debug!("yo wtf");

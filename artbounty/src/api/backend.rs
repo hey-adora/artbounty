@@ -1,16 +1,15 @@
-
 use crate::api::app_state::AppState;
 use crate::api::{
     AuthToken, ChangeUsernameErr, EmailChangeErr, EmailChangeNewErr, EmailChangeStage,
-    EmailChangeTokenErr,  Server404Err, ServerAddPostErr, ServerAuthErr,
-    ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerLoginErr,
-    ServerRegistrationErr, ServerReq, ServerRes, ServerTokenErr, User, UserPost, UserPostFile,
-    auth_token_get, hash_password, verify_password,
+    EmailChangeTokenErr, Server404Err, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr,
+    ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerLoginErr, ServerRegistrationErr,
+    ServerReq, ServerRes, ServerTokenErr, User, UserPost, UserPostFile, auth_token_get,
+    hash_password, verify_password,
 };
 use crate::db::email_change::create_email_change_id;
 use crate::db::{AddUserErr, email_change::DBChangeEmailErr};
 use crate::db::{DB404Err, DBChangeUsernameErr, create_user_id};
-use crate::db::{DBUser, DBEmailIsTakenErr};
+use crate::db::{DBEmailIsTakenErr, DBUser};
 use crate::db::{DBUserPostFile, email_change::DBEmailChange};
 use crate::path::{link_settings_form_email_current_confirm, link_settings_form_email_new_confirm};
 use crate::valid::auth::{
@@ -75,6 +74,39 @@ pub async fn get_account(
         username: db_user.username.clone(),
         email: db_user.email.clone(),
     })
+}
+
+pub async fn get_posts(
+    State(app_state): State<AppState>,
+    req: ServerReq,
+) -> Result<ServerRes, ServerErr> {
+    let ServerReq::GetPosts2 {
+        time,
+        order,
+        limit,
+        tags,
+        username,
+    } = req
+    else {
+        return Err(
+            ServerDesErr::ServerWrongInput(format!("expected GetPost, received: {req:?}")).into(),
+        );
+    };
+    let post = app_state
+        .db
+        .post_search(limit as usize, time, order, tags, username)
+        .await
+        .map_err(|_| ServerErr::DbErr)?
+        .into_iter()
+        .map(UserPost::from)
+        .collect::<Vec<UserPost>>();
+    // .map_err(|err| match err {
+    //     DB404Err::NotFound => ServerErr::NotFoundErr(Server404Err::NotFound),
+    //     _ => ServerErr::DbErr,
+    // })?;
+
+    // Ok(ServerRes::Ok)
+    Ok(ServerRes::Posts(post))
 }
 
 pub async fn get_post(
@@ -345,6 +377,7 @@ pub async fn add_post(
     let ServerReq::AddPost {
         title,
         description,
+        tags,
         files,
     } = req
     else {
@@ -494,6 +527,7 @@ pub async fn add_post(
             &db_user.username,
             &title,
             &description,
+            tags,
             0,
             post_files,
         )
@@ -505,7 +539,6 @@ pub async fn add_post(
 }
 
 // email change
-
 
 pub async fn auth_optional_middleware(
     State(app_state): State<AppState>,

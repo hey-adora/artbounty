@@ -445,9 +445,17 @@ pub enum ServerReq {
         limit: u32,
         username: String,
     },
+    GetPosts2 {
+        time: TimeRange,
+        order: Order,
+        limit: usize,
+        tags: String,
+        username: String,
+    },
     AddPost {
         title: String,
         description: String,
+        tags: String,
         files: Vec<ServerReqImg>,
     },
     None,
@@ -1829,18 +1837,49 @@ pub trait Api {
         }
     }
 
+    fn get_posts(
+        &self,
+        limit: usize,
+        time_range: TimeRange,
+        order: Order,
+        tags: impl Into<String>,
+        username: impl Into<String>,
+    ) -> ApiReq {
+        // let tags = tags.into();
+        // let tags = tags.into();
+        let builder = self.provide_builder(crate::path::PATH_API_POSTS_GET);
+        let server_req = ServerReq::GetPosts2 {
+            time: time_range,
+            order,
+            limit,
+            username: username.into(),
+            tags: tags.into(),
+        };
+        let result_signal = self.provide_signal_result();
+        let busy_signal = self.provide_signal_busy();
+        ApiReq {
+            builder,
+            server_req,
+            result: result_signal,
+            busy: busy_signal,
+        }
+    }
+
     fn add_post(
         &self,
         title: impl Into<String>,
         description: impl Into<String>,
+        tags: impl Into<String>,
         files: Vec<ServerReqImg>,
     ) -> ApiReq {
         let title = title.into();
         let description = description.into();
+        let tags = tags.into();
         let builder = self.provide_builder(crate::path::PATH_API_POST_ADD);
         let server_req = ServerReq::AddPost {
             title,
             description,
+            tags,
             files,
         };
         let result_signal = self.provide_signal_result();
@@ -2342,8 +2381,8 @@ pub mod tests {
     use crate::api::shared::post_comment::UserPostComment;
     use crate::api::{
         Api, ApiTest, EmailChangeErr, EmailChangeNewErr, EmailChangeStage, EmailChangeTokenErr,
-        PostLikeErr, Server404Err, ServerAuthErr, ServerErr, ServerLoginErr, ServerRegistrationErr,
-        ServerReqImg, ServerRes, ServerSendInviteErr, UserPost,
+        Order, PostLikeErr, Server404Err, ServerAuthErr, ServerErr, ServerLoginErr,
+        ServerRegistrationErr, ServerReqImg, ServerRes, ServerSendInviteErr, TimeRange, UserPost,
     };
     use crate::db::DB404Err;
     use crate::db::email_change::create_email_change_id;
@@ -2394,9 +2433,15 @@ pub mod tests {
             &self,
             time: u128,
             auth_token: impl Into<String>,
+            title: impl Into<String>,
+            description: impl Into<String>,
+            tags: impl Into<String>,
         ) -> Option<UserPost> {
             self.set_time(time).await;
             let auth_token = auth_token.into();
+            let title = title.into();
+            let tags = tags.into();
+            let description = description.into();
 
             let mut imgbuf = image::ImageBuffer::new(250, 250);
             // Iterate over the coordinates and pixels of the image
@@ -2406,16 +2451,18 @@ pub mod tests {
                 *pixel = image::Rgb([r, 0, b]);
             }
 
-            create_dir_all("../target/tmp/").await.unwrap();
-            let path = "../target/tmp/img.png";
+            // create_dir_all("../target/tmp/").await.unwrap();
+            // let path = "../target/tmp/img.png";
+            let path = "/tmp/img.png";
             imgbuf.save(path).unwrap();
 
             let img = tokio::fs::read(path).await.unwrap();
             let result = self
                 .api
                 .add_post(
-                    "title1",
-                    "wow",
+                    title,
+                    description,
+                    tags,
                     Vec::from([ServerReqImg {
                         path: path.to_string(),
                         data: img.clone(),
@@ -2427,6 +2474,32 @@ pub mod tests {
 
             match result {
                 Ok(crate::api::ServerRes::Post(post)) => Some(post),
+                _ => None,
+            }
+        }
+
+        pub async fn get_posts(
+            &self,
+            time: u128,
+            auth_token: impl Into<String>,
+            limit: usize,
+            time_range: TimeRange,
+            order: Order,
+            tags: impl Into<String>,
+            username: impl Into<String>,
+        ) -> Option<Vec<UserPost>> {
+            self.set_time(time).await;
+            let auth_token = auth_token.into();
+
+            let result = self
+                .api
+                .get_posts(limit, time_range, order, tags, username)
+                .send_native_with_token(auth_token.clone())
+                .await;
+            trace!("{result:#?}");
+
+            match result {
+                Ok(crate::api::ServerRes::Posts(posts)) => Some(posts),
                 _ => None,
             }
         }
@@ -3521,6 +3594,42 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn api_post_get_test() {
+        crate::init_test_log();
+
+        let app = ApiTestApp::new(1).await;
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+
+        app.add_post(0, &auth_token, "title1", "cat", "one two three")
+            .await
+            .unwrap();
+        app.add_post(1, &auth_token, "title2", "cat", "one two")
+            .await
+            .unwrap();
+        app.add_post(2, &auth_token, "title3", "cat", "one")
+            .await
+            .unwrap();
+
+        let posts = app
+            .get_posts(
+                3,
+                auth_token,
+                3,
+                TimeRange::Less(3),
+                Order::ThreeTwoOne,
+                "one",
+                "hey",
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(posts.len(), 3);
+    }
+
+    #[tokio::test]
     async fn api_post_test() {
         crate::init_test_log();
 
@@ -3530,9 +3639,13 @@ pub mod tests {
             .await
             .unwrap();
 
-        app.add_post(0, &auth_token).await.unwrap();
+        app.add_post(0, &auth_token, "title1", "cat", "one")
+            .await
+            .unwrap();
         app.expect_posts(0, 0, 1, 0, 1).await.unwrap();
-        app.add_post(1, &auth_token).await.unwrap();
+        app.add_post(1, &auth_token, "title2", "cat", "one")
+            .await
+            .unwrap();
         app.expect_posts(0, 1, 2, 0, 1).await.unwrap();
         app.expect_posts(1, 0, 1, 1, 2).await.unwrap();
         app.expect_posts(2, 0, 0, 2, 2).await.unwrap();

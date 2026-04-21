@@ -249,7 +249,7 @@ mod tests {
             .await
             .unwrap();
 
-        let post = app.add_post(0, &auth_token).await.unwrap();
+        let post = app.add_post(0, &auth_token, "title1", "cat", "one").await.unwrap();
         debug!("wtf is that {post:#?}");
 
         let comment = app
@@ -294,7 +294,7 @@ mod tests {
             .await
             .unwrap();
 
-        let post = app.add_post(0, &auth_token).await.unwrap();
+        let post = app.add_post(0, &auth_token, "title1", "cat", "one").await.unwrap();
         debug!("wtf is that {post:#?}");
 
         let comment = app
@@ -338,7 +338,7 @@ mod tests {
             .await
             .unwrap();
 
-        let post = app.add_post(0, &auth_token).await.unwrap();
+        let post = app.add_post(0, &auth_token, "title1", "cat", "one").await.unwrap();
         debug!("wtf is that {post:#?}");
 
         let comment = app

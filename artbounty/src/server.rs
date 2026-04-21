@@ -130,6 +130,7 @@ pub fn create_api_router(
         )
         .route(path::PATH_API_USER, post(api::backend::get_user))
         .route(path::PATH_API_POST_GET, post(api::backend::get_post))
+        .route(path::PATH_API_POSTS_GET, post(api::backend::get_posts))
         .route(
             path::PATH_API_POST_GET_OLDER,
             post(api::backend::get_posts_older),
