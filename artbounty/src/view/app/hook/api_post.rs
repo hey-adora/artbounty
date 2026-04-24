@@ -1,227 +1,130 @@
-use crate::{
-    api::{
-        Api, ApiWeb, Order, ServerErr, ServerReqImg, ServerRes, TimeRange, UserPost,
-        shared::post_comment::UserPostComment,
-    },
-    view::{
-        app::{
-            components::gallery::{Img, add_imgs_to_bottom, add_imgs_to_top},
-            hook::{
-                use_future::FutureFn, use_infinite_scroll_basic::InfiniteBasic,
-                use_infinite_scroll_fn::InfiniteItem,
-            },
-        },
-        toolbox::prelude::*,
-    },
-};
-use leptos::{
-    html::{ElementType, Textarea},
-    prelude::*,
-};
-use tracing::{error, trace, warn};
-use wasm_bindgen::JsCast;
-use web_sys::{Element, HtmlElement, HtmlTextAreaElement, MutationObserver, MutationRecord};
+use leptos::prelude::*;
 
-#[derive(Clone, Copy, Default, Debug)]
-pub struct PostContainerSize {
-    pub width: u32,
-    pub height: f64,
-    pub row_height: u32,
-}
+use crate::{
+    api::{Api, Server404Err, ServerErr},
+    path::{link_home, link_img, link_user},
+};
+use tracing::{error, info, trace, warn};
 
 #[derive(Clone, Copy)]
 pub struct PostApi<API: Api> {
     // ui
-    pub items: RwSignal<Vec<Img>, LocalStorage>,
+    // pub items: RwSignal<Vec<Img>, LocalStorage>,
+    pub imgs_links: RwSignal<Vec<(String, f64)>, LocalStorage>,
+    pub title: RwSignal<String, LocalStorage>,
+    pub author: RwSignal<String, LocalStorage>,
+    pub author_link: RwSignal<String, LocalStorage>,
+    pub description: RwSignal<String, LocalStorage>,
+    pub description_is_empty: RwSignal<bool, LocalStorage>,
+    pub favorites: RwSignal<u64, LocalStorage>,
+    pub post_state: RwSignal<PostState, LocalStorage>,
 
-    // params
-    // pub post_key: StoredValue<String, LocalStorage>,
-    // pub input_elm: StoredValue::;
-    // pub post_key: StoredValue<String, LocalStorage>,
-    // pub size: StoredValue<PostContainerSize, LocalStorage>,
-    pub fetch_count: usize,
     pub api: API,
 }
 
+#[derive(
+    Debug,
+    Default,
+    Clone,
+    PartialEq,
+    PartialOrd,
+    strum::EnumString,
+    strum::Display,
+    strum::EnumIter,
+    strum::EnumIs,
+)]
+#[strum(serialize_all = "lowercase")]
+pub enum PostState {
+    #[default]
+    Loading,
+    Normal,
+    NotFound,
+    Deleted,
+}
+
 impl<API: Api> PostApi<API> {
-    pub fn new(api: API, fetch_count: usize) -> Self {
+    pub fn new(api: API) -> Self {
         Self {
-            items: RwSignal::new_local(Vec::new()),
-            // size: StoredValue::new_local(PostContainerSize::default()),
-            // post_key: StoredValue::new_local(String::new()),
-            fetch_count,
+            // items: RwSignal::new_local(Vec::new()),
+            imgs_links: RwSignal::new_local(Vec::<(String, f64)>::new()),
+            title: RwSignal::new_local(String::from("loading...")),
+            author: RwSignal::new_local(String::from("loading...")),
+            author_link: RwSignal::new_local(link_home()),
+            description: RwSignal::new_local(String::from("loading...")),
+            description_is_empty: RwSignal::new_local(true),
+            favorites: RwSignal::new_local(0_u64),
+            post_state: RwSignal::new_local(PostState::Loading),
             api,
         }
     }
 
-    // pub fn observe_only(&self, size: PostContainerSize) {
-    //     self.size.set_value(size);
-    // }
-
-    pub async fn post(
-        &self,
-        size: PostContainerSize,
-        title: impl Into<String>,
-        description: impl Into<String>,
-        tags: impl Into<String>,
-        files: Vec<ServerReqImg>,
-    ) -> f64 {
-        let items = self.items;
-        // let size = self.size.get_value();
-        // if size.row_height == 0 || size.height == 0.0 || size.width == 0 {
-        //     warn!("required params size({size:?} were not set)");
-        //     return 0.0;
-        // }
-        // let post_key = self.post_key.get_value();
-        // let limit = self.fetch_count;
-
-        let result = self
-            .api
-            .add_post(title, description, tags, files)
-            .send_native()
-            .await;
+    pub async fn delete(self, post_id: impl Into<String>) -> Option<()> {
+        let post_id = post_id.into();
+        let result = self.api.delete_post(post_id).send_native().await;
 
         match result {
-            Ok(ServerRes::Post(post)) => {
-                let new_img = Img::from(post);
-                let new_imgs = Vec::from([new_img]);
-                let old_imgs = items.get_untracked();
-
-                trace!("CAN I MAKE THIS OR NOT");
-                let (resized_imgs, scroll_by) = add_imgs_to_bottom(
-                    old_imgs,
-                    new_imgs,
-                    size.width,
-                    size.height,
-                    size.row_height,
-                );
-                items.set(resized_imgs);
-                return scroll_by;
+            Ok(crate::api::ServerRes::Ok) => {
+                self.post_state.set(PostState::Deleted);
+                return Some(());
             }
-            Ok(err) => {
-                let err = format!("post comments basic: unexpected res: {err:?}");
-                error!(err);
-                // self.err_fetch.set(err);
+            Ok(res) => {
+                error!("wrong res, expected Post, got {:?}", res);
+            }
+            Err(ServerErr::NotFoundErr(Server404Err::NotFound)) => {
+                self.post_state.set(PostState::NotFound);
             }
             Err(err) => {
-                let err = format!("post comments basic: {err}");
-                error!(err);
-                // self.err_fetch.set(err);
+                error!("unexpected err {:#?}", { err });
             }
-        };
-        0.0
+        }
+
+        None
     }
 
-    pub async fn fetch(
-        self,
-        // is_bottom: bool,
-        // time: u128,
-        size: PostContainerSize,
-        time_range: TimeRange,
-        order: Order,
-        tags: impl Into<String>,
-        username: impl Into<String>,
-    ) -> f64 {
-        let tags = tags.into();
-        let username = username.into();
-        let items = self.items;
-        let is_empty = items.with_untracked(|v| v.is_empty());
-        // let post_key = self.post_key.get_value();
-        let limit = self.fetch_count;
-        // let size = self.size.get_value();
-        // if size.row_height == 0 || size.height == 0.0 || size.width == 0 {
-        //     warn!("required params size({size:?} were not set)");
-        //     return 0.0;
-        // }
+    pub async fn get(self, post_id: impl Into<String>) {
+        let post_id = post_id.into();
+        // let (Some(username), Some(post_id)) = (param_username(), param_post.get()) else {
+        //     return;
+        // };
 
-        let is_bottom = match time_range {
-            TimeRange::None => true,
-            TimeRange::Less(_) => true,
-            TimeRange::LessOrEqual(_) => true,
-            TimeRange::More(_) => false,
-            TimeRange::MoreOrEqual(_) => false,
-        };
-        // let time_range = match (is_empty, is_bottom) {
-        //     (true, true) => TimeRange::LessOrEqual(()),
-        //
-        // }
-
-        let result = self
-            .api
-            .get_posts(limit, time_range, order, tags, username)
-            .send_native()
-            .await;
-
+        let result = self.api.get_post(post_id).send_native().await;
         match result {
-            Ok(ServerRes::Posts(posts)) => {
-                let new_imgs = posts.into_iter().map(Img::from).collect::<Vec<Img>>();
-                let old_imgs = items.get_untracked();
-
-                let (resized_imgs, scroll_by) = if is_bottom {
-                    add_imgs_to_bottom(old_imgs, new_imgs, size.width, size.height, size.row_height)
+            Ok(crate::api::ServerRes::Post(post)) => {
+                self.title.set(post.title);
+                self.author.set(post.user.username.clone());
+                self.author_link.set(link_user(post.user.username));
+                if post.description.is_empty() {
+                    self.description.set("No description.".to_string());
+                    self.description_is_empty.set(true);
                 } else {
-                    add_imgs_to_top(old_imgs, new_imgs, size.width, size.height, size.row_height)
-                };
+                    self.description.set(post.description);
+                    self.description_is_empty.set(false);
+                }
 
-                items.set(resized_imgs);
-
-                return scroll_by;
-
-                // let fetch_count = self.fetch_count;
-                // let len = comments.len();
-
-                // return comments;
-                // trace!(
-                //     "comments manual (len){len} < (fetch_count){fetch_count} = {}",
-                //     len < fetch_count
-                // );
-                //
-                // if len == fetch_count {
-                //     finished.set(false);
-                // } else if !finished.get_untracked() && len < fetch_count {
-                //     finished.set(true);
-                // }
-                //
-                // if len > 0 {
-                //     let replies_count = self.replies_count;
-                //     self.items.update(|v| {
-                //         trace!("comments manual before {v:#?}");
-                //         v.extend(comments);
-                //         let len = v.len();
-                //
-                //         trace!("replies count {} {}", replies_count.get_untracked(), len);
-                //         // panic!("stop");
-                //         if replies_count.get_untracked() < len {
-                //             replies_count.set(len);
-                //
-                //         }
-                //         trace!("comments manual after {v:#?}");
-                //     });
-                // }
+                self.favorites.set(post.favorites);
+                self.imgs_links.set(
+                    post.file
+                        .into_iter()
+                        .map(|file| {
+                            (
+                                link_img(file.hash, file.extension),
+                                file.width as f64 / file.height as f64,
+                            )
+                        })
+                        .collect(),
+                );
+                self.post_state.set(PostState::Normal);
             }
-            Ok(err) => {
-                let err = format!("post comments basic: unexpected res: {err:?}");
-                error!(err);
-                // self.err_fetch.set(err);
+            Ok(res) => {
+                error!("wrong res, expected Post, got {:?}", res);
+            }
+            Err(ServerErr::NotFoundErr(Server404Err::NotFound)) => {
+                self.post_state.set(PostState::NotFound);
             }
             Err(err) => {
-                let err = format!("post comments basic: {err}");
-                error!(err);
-                // self.err_fetch.set(err);
+                error!("unexpected err {:#?}", { err });
             }
-        };
-
-        0.0
-    }
-
-    pub async fn fetch_btm(self, size: PostContainerSize, current_time: u128) -> f64 {
-        let time_range = self
-            .items
-            .with_untracked(|v| v.last().map(|v| v.created_at))
-            .map(TimeRange::Less)
-            .unwrap_or(TimeRange::LessOrEqual(current_time));
-
-        self.fetch(size, time_range, Order::ThreeTwoOne, "", "").await
+        }
     }
 }
 
@@ -234,7 +137,8 @@ pub mod tests {
         },
         view::{
             app::hook::{
-                api_post::{PostApi, PostContainerSize},
+                api_gallery::{GalleryApi, GalleryContainerSize, tests::create_img_req},
+                api_post::PostApi,
                 api_post_comments::{CommentKind, CommentKind2, CommentsApi, CommentsApi2},
             },
             logger,
@@ -250,30 +154,50 @@ pub mod tests {
 
     use crate::init_test_log;
 
-    pub async fn create_img(name: impl Into<String>, width: u32, height: u32) -> Vec<u8> {
-        let mut imgbuf = image::ImageBuffer::new(width, height);
-        // Iterate over the coordinates and pixels of the image
-        for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
-            let r = (0.3 * x as f32) as u8;
-            let b = (0.3 * y as f32) as u8;
-            *pixel = image::Rgb([r, 0, b]);
-        }
+    #[tokio::test]
+    pub async fn hook_post_api_delete() {
+        println!("hello");
+        init_test_log();
+        let owner = Owner::new_root(Some(Arc::new(HydrateSharedContext::new())));
+        let mut app = ApiTestApp::new(10).await;
 
-        // create_dir_all("../target/tmp/").await.unwrap();
-        // let path = "../target/tmp/img.png";
-        let path = format!("/tmp/{}.png", name.into());
-        imgbuf.save(&path).unwrap();
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
 
-        tokio::fs::read(path).await.unwrap()
-    }
+        app.api.pre_load_token = auth_token.clone();
 
-    pub async fn create_img_req(name: impl Into<String>, width: u32, height: u32) -> ServerReqImg {
-        let name = name.into();
-        let v = create_img(name.clone(), width, height).await;
-        ServerReqImg {
-            path: name,
-            data: v,
-        }
+        let gallery_api = GalleryApi::new(&app.api, 10);
+        let size = GalleryContainerSize {
+            width: 100,
+            height: 100.0,
+            row_height: 50,
+        };
+
+        app.set_time(1).await;
+        gallery_api
+            .post(
+                size,
+                "title1",
+                "0",
+                "",
+                vec![create_img_req("1", 50, 50).await],
+            )
+            .await;
+        let post0 = gallery_api.items.get()[0].clone();
+
+        let post_all = app.state.db.get_post_all().await.unwrap();
+        assert_eq!(post_all.len(), 1);
+
+        let post_api = PostApi::new(&app.api);
+        post_api.get(&post0.key).await;
+
+        let result = post_api.delete(post0.key.clone()).await;
+        assert!(result.is_some());
+
+        let post_all = app.state.db.get_post_all().await.unwrap();
+        assert_eq!(post_all.len(), 0);
     }
 
     #[tokio::test]
@@ -290,20 +214,14 @@ pub mod tests {
 
         app.api.pre_load_token = auth_token.clone();
 
-        let post_api = PostApi::new(&app.api, 10);
-        let size = PostContainerSize {
+        let gallery_api = GalleryApi::new(&app.api, 10);
+        let size = GalleryContainerSize {
             width: 100,
             height: 100.0,
             row_height: 50,
         };
-        // post_api.observe_only(PostContainerSize {
-        //     width: 100,
-        //     height: 100.0,
-        //     row_height: 50,
-        // });
-
         app.set_time(1).await;
-        post_api
+        gallery_api
             .post(
                 size,
                 "title1",
@@ -312,41 +230,11 @@ pub mod tests {
                 vec![create_img_req("1", 50, 50).await],
             )
             .await;
-        post_api
-            .post(
-                size,
-                "title2",
-                "0",
-                "",
-                vec![create_img_req("2", 50, 50).await],
-            )
-            .await;
-        post_api
-            .post(
-                size,
-                "title3",
-                "0",
-                "",
-                vec![create_img_req("3", 50, 50).await],
-            )
-            .await;
-        let items = post_api.items.get_untracked();
-        trace!("aaaaa {items:#?}");
-        assert_eq!(items.len(), 3);
+        let post0 = gallery_api.items.get()[0].clone();
 
-        // app.set_time(2).await;
-        // post_api
-        //     .fetch(
-        //         TimeRange::Less(1),
-        //         Order::OneTwoThree,
-        //         String::new(),
-        //         String::new(),
-        //     )
-        //     .await;
-        //
-        // let items = post_api.items.get_untracked();
-        // trace!("aaaaa {items:#?}");
-        // assert_eq!(items.len(), 1);
+        let post_api = PostApi::new(&app.api);
+        post_api.get(&post0.key).await;
+        assert_eq!(post_api.title.get_untracked(), "title1");
 
         //
     }

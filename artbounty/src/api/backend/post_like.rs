@@ -18,7 +18,7 @@ pub async fn add_post_like(
 ) -> Result<ServerRes, ServerErr> {
     type ResErr = PostLikeErr;
     //
-    let ServerReq::PostId { post_id } = req else {
+    let ServerReq::PostId { post_key: post_id } = req else {
         return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
             "expected PostId, received: {req:?}"
         ))));
@@ -43,7 +43,7 @@ pub async fn check_post_like(
     db_user: Extension<DBUser>,
     req: ServerReq,
 ) -> Result<ServerRes, ServerErr> {
-    let ServerReq::PostId { post_id } = req else {
+    let ServerReq::PostId { post_key: post_id } = req else {
         return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
             "expected PostId, received: {req:?}"
         ))));
@@ -69,7 +69,7 @@ pub async fn delete_post_like(
 ) -> Result<ServerRes, ServerErr> {
     type ResErr = Server404Err;
 
-    let ServerReq::PostId { post_id } = req else {
+    let ServerReq::PostId { post_key: post_id } = req else {
         return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
             "expected PostId, received: {req:?}"
         ))));
@@ -110,25 +110,25 @@ pub mod tests {
         let post = app.add_post(0, &auth_token, "title1", "cat", "one").await.unwrap();
         debug!("wtf is that {post:#?}");
 
-        app.check_post_like(0, &auth_token, post.id.clone(), false)
+        app.check_post_like(0, &auth_token, post.key.clone(), false)
             .await
             .unwrap();
-        app.add_post_like(0, &auth_token, post.id.clone())
+        app.add_post_like(0, &auth_token, post.key.clone())
             .await
             .unwrap();
-        app.check_post_like(0, &auth_token, post.id.clone(), true)
+        app.check_post_like(0, &auth_token, post.key.clone(), true)
             .await
             .unwrap();
-        app.add_post_like_err_already_liked(0, &auth_token, post.id.clone())
+        app.add_post_like_err_already_liked(0, &auth_token, post.key.clone())
             .await
             .unwrap();
         app.add_post_like_err_not_found(0, &auth_token, "none")
             .await
             .unwrap();
-        app.delete_post_like(0, &auth_token, post.id.clone())
+        app.delete_post_like(0, &auth_token, post.key.clone())
             .await
             .unwrap();
-        app.check_post_like(0, &auth_token, post.id.clone(), false)
+        app.check_post_like(0, &auth_token, post.key.clone(), false)
             .await
             .unwrap();
     }

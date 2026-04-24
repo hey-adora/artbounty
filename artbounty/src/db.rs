@@ -1043,9 +1043,9 @@ pub mod post_like {
             &self,
             time: u128,
             user_id: RecordId,
-            post_id: impl Into<RecordIdKey>,
+            post_key: impl Into<RecordIdKey>,
         ) -> Result<DBPostLike, DBPostLikeErr> {
-            let post_id = post_id.into();
+            let post_id = post_key.into();
             self.db
                 .query(
                     r#"
@@ -1093,6 +1093,24 @@ pub mod post_like {
                 // .check_good(Surreal::from)
                 .map(|_| ())
             // .and_then_take_or(0, DB404Err::NotFound)
+        }
+
+        pub async fn get_post_like_all(
+            &self,
+            // time: u128,
+            // user: RecordId,
+            // post: RecordId,
+        ) -> Result<Vec<DBPostLike>, DB404Err> {
+            self.db
+                .query(
+                    "SELECT * FROM ONLY post_like ORDER BY created_at ASC",
+                )
+                // .bind(("time", time))
+                // .bind(("user_user", user))
+                // .bind(("user_post", post))
+                .await
+                .check_good(DB404Err::from)
+                .and_then_take_all(0)
         }
 
         pub async fn get_post_like(
@@ -1438,7 +1456,11 @@ pub mod post {
                 ""
             };
 
-            let q_user = if !user.is_empty() { "user = (SELECT id FROM ONLY user WHERE username = $user).id" } else { "" };
+            let q_user = if !user.is_empty() {
+                "user = (SELECT id FROM ONLY user WHERE username = $user).id"
+            } else {
+                ""
+            };
 
             let q_time_after = match time_range {
                 TimeRange::None => "",
@@ -2257,6 +2279,20 @@ impl<C: Connection> Db<C> {
             .and_then_take_all(0)
     }
 
+    pub async fn get_post_all(
+        &self,
+        // time: u128,
+        // limit: u32,
+    ) -> Result<Vec<DBUserPost>, surrealdb::Error> {
+        self.db
+            .query("SELECT *, user.* FROM post ORDER BY created_at ASC")
+            // .bind(("post_limit", limit))
+            // .bind(("created_at", time))
+            .await
+            .check_good(surrealdb::Error::from)
+            .and_then_take_all(0)
+    }
+
     pub async fn add_post(
         &self,
         time: u128,
@@ -2302,6 +2338,32 @@ impl<C: Connection> Db<C> {
                 err => err.into(),
             })
             .and_then_take_expect(2)
+    }
+
+    pub async fn delete_post(
+        &self,
+        user_id: RecordId,
+        post_key: impl Into<RecordIdKey>,
+    ) -> Result<(), surrealdb::Error> {
+        let post_id = create_post_id(post_key);
+
+        self.db
+            .query(
+                r#"
+             BEGIN TRANSACTION;
+
+             DELETE post WHERE id = $post_id AND user = $user_id;
+             DELETE post_comment WHERE post == $post_id AND user = $user_id;
+             DELETE post_like WHERE post = $post_id AND user = $user_id;
+
+             COMMIT TRANSACTION;
+            "#,
+            )
+            .bind(("post_id", post_id))
+            .bind(("user_id", user_id.clone()))
+            .await
+            .check_good(surrealdb::Error::from)
+            .map(|_| ())
     }
 
     pub async fn add_sent_email(
@@ -2501,7 +2563,7 @@ mod tests {
 
     use std::time::Duration;
 
-    use surrealdb::engine::local::Mem;
+    use surrealdb::{engine::local::Mem, types::ToSql};
     use tracing::trace;
 
     use crate::{
@@ -2552,6 +2614,113 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(latest_email.body, "wowza2");
+    }
+    #[tokio::test]
+    async fn db_post_delete() {
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate(0).await.unwrap();
+        let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
+
+        let post = db
+            .add_post(
+                0,
+                "hey",
+                "title",
+                "description",
+                "",
+                0,
+                vec![
+                    DBUserPostFile {
+                        extension: ".png".to_string(),
+                        hash: "A".to_string(),
+                        width: 1,
+                        height: 1,
+                    },
+                    DBUserPostFile {
+                        extension: ".png".to_string(),
+                        hash: "B".to_string(),
+                        width: 1,
+                        height: 1,
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let post2 = db
+            .add_post(
+                0,
+                "hey",
+                "title2",
+                "description",
+                "",
+                0,
+                vec![
+                    DBUserPostFile {
+                        extension: ".png".to_string(),
+                        hash: "A".to_string(),
+                        width: 1,
+                        height: 1,
+                    },
+                    DBUserPostFile {
+                        extension: ".png".to_string(),
+                        hash: "B".to_string(),
+                        width: 1,
+                        height: 1,
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let post_comment = db
+            .add_post_comment(1, user.id.clone(), post.id.key.clone(), None, "wow1")
+            .await
+            .unwrap();
+        let post_reply = db
+            .add_post_comment(
+                2,
+                user.id.clone(),
+                post.id.key.clone(),
+                Some(post_comment.id.key.clone().to_sql()),
+                "wowza",
+            )
+            .await
+            .unwrap();
+
+        let post_comment2 = db
+            .add_post_comment(3, user.id.clone(), post2.id.key.clone(), None, "wow2")
+            .await
+            .unwrap();
+        let post_reply2 = db
+            .add_post_comment(
+                4,
+                user.id.clone(),
+                post2.id.key.clone(),
+                Some(post_comment2.id.key.clone().to_sql()),
+                "wowza2",
+            )
+            .await
+            .unwrap();
+
+        db.add_post_like(4, user.id.clone(), post.id.key.to_sql()).await.unwrap();
+        db.add_post_like(4, user.id.clone(), post2.id.key.to_sql()).await.unwrap();
+
+        db.delete_post(user.id.clone(), post.id.key.clone())
+            .await
+            .unwrap();
+        let post_all = db.get_post_all().await.unwrap();
+        assert_eq!(post_all.len(), 1);
+        assert_eq!(post_all[0].title, "title2");
+
+        let comments_all = db.get_post_comments_all().await.unwrap();
+        assert_eq!(comments_all.len(), 2);
+        assert_eq!(comments_all[0].text, "wow2");
+        assert_eq!(comments_all[1].text, "wowza2");
+
+        let post_likes_all = db.get_post_like_all().await.unwrap();
+
+        assert_eq!(post_likes_all[0].post, post2.id);
     }
 
     #[tokio::test]

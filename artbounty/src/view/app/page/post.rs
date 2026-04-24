@@ -5,6 +5,10 @@ use crate::api::{Api, ApiWeb, Server404Err, ServerErr};
 use crate::path::{PATH_LOGIN, link_home, link_img, link_user};
 use crate::view::app::GlobalState;
 use crate::view::app::components::nav::Nav;
+use crate::view::app::hook::api_post::PostApi;
+use crate::view::app::hook::api_post_comments::{
+    CommentKind, CommentKind2, CommentsApi, CommentsApi2,
+};
 use crate::view::app::hook::use_event_listener::EventListener;
 use crate::view::app::hook::use_future::FutureFn;
 use crate::view::app::hook::use_infinite_scroll_fn::InfiniteScrollFn;
@@ -13,9 +17,6 @@ use crate::view::app::hook::use_infinite_scroll_virtual::{
 };
 use crate::view::app::hook::use_post_comment::use_post_comment;
 use crate::view::app::hook::use_post_comments_baisc::CommentsBaisc;
-use crate::view::app::hook::api_post_comments::{
-    CommentKind, CommentKind2, CommentsApi, CommentsApi2,
-};
 use crate::view::app::hook::use_post_like::{self, PostLikeStage, use_post_like};
 use crate::view::app::hook::use_spawner::Spawner;
 use crate::view::toolbox::prelude::{set_timeout, *};
@@ -39,18 +40,19 @@ pub struct PostParams {
 #[component]
 pub fn Page() -> impl IntoView {
     let main_ref = NodeRef::new();
-    let api = ApiWeb::new();
+    let api_post = ApiWeb::new();
+    let api_comments = ApiWeb::new();
     let global_state = expect_context::<GlobalState>();
 
     let param = use_params::<PostParams>();
     let param_username = move || param.read().as_ref().ok().and_then(|v| v.username.clone());
     let param_post = Memo::new(move |_| param.read().as_ref().ok().and_then(|v| v.post.clone()));
-    let imgs_links = RwSignal::new(Vec::<(String, f64)>::new());
-    let title = RwSignal::new(String::new());
-    let author = RwSignal::new(String::new());
-    let description = RwSignal::new(String::from("loading..."));
-    let favorites = RwSignal::new(0_u64);
-    let not_found = RwSignal::new(false);
+    // let imgs_links = RwSignal::new(Vec::<(String, f64)>::new());
+    // let title = RwSignal::new(String::new());
+    // let author = RwSignal::new(String::new());
+    // let description = RwSignal::new(String::from("loading..."));
+    // let favorites = RwSignal::new(0_u64);
+    // let not_found = RwSignal::new(false);
     let location = use_location();
 
     // let rw_signal_tree = RwSignalTree::<String, Vec<UserPostComment>>::new_root();
@@ -66,8 +68,8 @@ pub fn Page() -> impl IntoView {
     //
     //     (infinite_fn.on.to_fn())(elm.into());
     // });
-    let virt_comment_input_ref = NodeRef::<html::Textarea>::new();
-    let virt_comment_container_ref = NodeRef::<html::Div>::new();
+    // let virt_comment_input_ref = NodeRef::<html::Textarea>::new();
+    // let virt_comment_container_ref = NodeRef::<html::Div>::new();
     // let post_comments = use_post_comment(
     //     false,
     //     10,
@@ -76,17 +78,19 @@ pub fn Page() -> impl IntoView {
     //     param_post,
     //     None::<String>,
     // );
-    let spawner = Spawner::new();
+    let spawner_post = Spawner::new();
+    let post_api = PostApi::new(api_post);
 
+    let spawner_comments = Spawner::new();
     let comment_container_ref = NodeRef::<html::Div>::new();
     let comment_input_ref = NodeRef::<html::Textarea>::new();
-    let comment_basic = CommentsBaisc::new(api, spawner);
+    let comment_basic = CommentsBaisc::new(api_comments, spawner_post);
     let post_comment = move |e: SubmitEvent| {
         e.prevent_default();
         let Some(input_elm) = comment_input_ref.get() else {
             return;
         };
-        spawner.spawn(async move {
+        spawner_comments.spawn(async move {
             let text = input_elm.value();
             comment_basic.comments_manual.post(text).await;
             let post_err = comment_basic.err_post.get_untracked();
@@ -108,7 +112,7 @@ pub fn Page() -> impl IntoView {
         };
 
         trace!("comments basic observe");
-        spawner.spawn(comment_basic.observe_only(
+        spawner_comments.spawn(comment_basic.observe_only(
             // comment_input,
             comment_container_ref.into(),
             post_id,
@@ -150,82 +154,84 @@ pub fn Page() -> impl IntoView {
         PostLikeStage::Loading => "Loading",
     };
 
-    let fn_link = move || {
-        let author = author.get();
-        if author.is_empty() {
-            link_home()
-        } else {
-            link_user(author)
-        }
-    };
-    let fn_title = move || {
-        let title = title.get();
-        if title.is_empty() {
-            "loading...".to_string()
-        } else {
-            title
-        }
-    };
-    let fn_author = move || {
-        let author = author.get();
-        if author.is_empty() {
-            "loading...".to_string()
-        } else {
-            author
-        }
-    };
-    let fn_description_is_empty = move || description.with(|v| v.is_empty());
-    let fn_description = move || {
-        let description = description.get();
-
-        if description.is_empty() {
-            return "No description.".to_string();
-        }
-
-        description
-    };
-    let fn_favorites = move || favorites.get();
+    // let fn_link = move || {
+    //     let author = author.get();
+    //     if author.is_empty() {
+    //         link_home()
+    //     } else {
+    //         link_user(author)
+    //     }
+    // };
+    // let fn_title = move || {
+    //     let title = title.get();
+    //     if title.is_empty() {
+    //         "loading...".to_string()
+    //     } else {
+    //         title
+    //     }
+    // };
+    // let fn_author = move || {
+    //     let author = author.get();
+    //     if author.is_empty() {
+    //         "loading...".to_string()
+    //     } else {
+    //         author
+    //     }
+    // };
+    // let fn_description_is_empty = move || description.with(|v| v.is_empty());
+    // let fn_description = move || {
+    //     let description = description.get();
+    //
+    //     if description.is_empty() {
+    //         return "No description.".to_string();
+    //     }
+    //
+    //     description
+    // };
+    // let fn_favorites = move || favorites.get();
 
     Effect::new(move || {
-        let (Some(username), Some(post_id)) = (param_username(), param_post.get()) else {
+        let Some(post_id) = param_post.get() else {
             return;
         };
 
-        api.get_post(post_id).send_web(move |result| async move {
-            match result {
-                Ok(crate::api::ServerRes::Post(post)) => {
-                    title.set(post.title);
-                    author.set(post.user.username);
-                    description.set(post.description);
-                    favorites.set(post.favorites);
-                    imgs_links.set(
-                        post.file
-                            .into_iter()
-                            .map(|file| {
-                                (
-                                    link_img(file.hash, file.extension),
-                                    file.width as f64 / file.height as f64,
-                                )
-                            })
-                            .collect(),
-                    );
-                }
-                Ok(res) => {
-                    error!("wrong res, expected Post, got {:?}", res);
-                }
-                Err(ServerErr::NotFoundErr(Server404Err::NotFound)) => {
-                    not_found.set(true);
-                }
-                Err(err) => {
-                    error!("unexpected err {:#?}", { err });
-                }
-            }
-        });
+        spawner_post.spawn(post_api.get(post_id));
+
+        // api.get_post(post_id).send_web(move |result| async move {
+        //     match result {
+        //         Ok(crate::api::ServerRes::Post(post)) => {
+        //             title.set(post.title);
+        //             author.set(post.user.username);
+        //             description.set(post.description);
+        //             favorites.set(post.favorites);
+        //             imgs_links.set(
+        //                 post.file
+        //                     .into_iter()
+        //                     .map(|file| {
+        //                         (
+        //                             link_img(file.hash, file.extension),
+        //                             file.width as f64 / file.height as f64,
+        //                         )
+        //                     })
+        //                     .collect(),
+        //             );
+        //         }
+        //         Ok(res) => {
+        //             error!("wrong res, expected Post, got {:?}", res);
+        //         }
+        //         Err(ServerErr::NotFoundErr(Server404Err::NotFound)) => {
+        //             not_found.set(true);
+        //         }
+        //         Err(err) => {
+        //             error!("unexpected err {:#?}", { err });
+        //         }
+        //     }
+        // });
     });
 
     let selected_img = move || {
         let hash = location.hash.get();
-        let imgs_links = imgs_links.get();
+        let imgs_links = post_api.imgs_links.get();
         let selected_n = if hash.len() > 3 {
             usize::from_str_radix(&hash[3..], 10).unwrap_or_default()
         } else {
@@ -245,7 +251,7 @@ pub fn Page() -> impl IntoView {
     };
 
     let imgs = move || {
-        imgs_links
+        post_api.imgs_links
                 .get()
                 .into_iter()
                 .enumerate()
@@ -258,7 +264,7 @@ pub fn Page() -> impl IntoView {
     };
 
     let previews = move || {
-        imgs_links
+        post_api.imgs_links
                 .get()
                 .into_iter()
                 .enumerate()
@@ -278,13 +284,133 @@ pub fn Page() -> impl IntoView {
                 .collect_view()
     };
 
+    let delete_post = move |_| {
+        let Some(post_id) = param_post.get() else {
+            return;
+        };
+        spawner_post.spawn(post_api.delete(post_id));
+    };
+
     view! {
         <main node_ref=main_ref class="relative font-hi grid grid-rows-[auto_1fr] h-screen text-base05">
             <Nav/>
 
-            <div class=move || format!("place-items-center text-[1.5rem] {}", if not_found.get() {"grid"} else {"hidden"})>
-                "Not Found"
-            </div>
+            <Show when=move|| post_api.post_state.get().is_not_found() >
+                <div class=move || format!("grid place-items-center text-[1.5rem] ")>
+                    "Not Found"
+                </div>
+            </Show>
+
+            <Show when=move|| post_api.post_state.get().is_deleted() >
+                <div class=move || format!("grid place-items-center text-[1.5rem] ")>
+                    "deleted"
+                </div>
+            </Show>
+
+            <Show when=move|| {
+                let state = post_api.post_state.get();
+                state.is_normal() || state.is_loading()
+            } >
+                <div class=move || format!("flex flex-col lg:grid grid-cols-[2fr_1fr] grid-cols-[2fr_1fr] lg:max-h-[calc(100vh-3rem)] gap-2 px-4 md:gap-6 md:px-6 flex")>
+                    <div class="col-span-2 flex justify-between">
+                        <div></div>
+                        <div>
+                            <button on:click=delete_post>
+                                <SVGTrash class="size-[1.1rem] text-base08 "/>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="lg:hidden h-[50vh] flex justify-center place-items-center bg-base02" >
+                        { selected_img }
+                    </div>
+                    <div class="hidden lg:flex flex-col gap-2 lg:overflow-y-scroll" >
+                        { imgs }
+                    </div>
+                    <div class="flex flex-col gap-2 md:gap-6 lg:overflow-y-scroll">
+                        <div class="flex justify-start gap-2 flex flex-wrap">
+                            { previews }
+                        </div>
+
+
+                        <div class="flex flex-col gap-2">
+                            <div class="flex justify-between">
+                                <h1 class="text-[1.5rem] text-ellipsis text-base0F">{ move || post_api.title.get() }</h1>
+                                <button on:click=post_like.on_like.to_fn() disabled=move || post_like.stage.run() == PostLikeStage::Loading class=post_like_btn_style >{ post_like_btn_text }</button>
+                            </div>
+                            <div class="flex justify-between">
+                                <div class="flex gap-2">
+                                    <p class="text-[1rem] rounded-full h-[3rem] w-[3rem] bg-base05"></p>
+                                    <div class="flex flex-col gap-1">
+                                        <div class="flex gap-1">
+                                            <p class="text-[1rem] text-base03">"by"</p>
+                                            <a href=move || post_api.author_link.get() class="text-[1rem] font-bold text-base0B">{ move || post_api.author.get() }</a>
+                                        </div>
+                                        <p class="text-[1rem]">"9999 followers"</p>
+                                    </div>
+                                </div>
+                                <div>{move || post_api.favorites.get() }" favorites"</div>
+                            </div>
+                        </div>
+                        <div class="flex flex-col gap-2 md:gap-4 justify-between mt-4">
+                            <h1 class="text-[1.3rem] text-base0F">"Description"</h1>
+                            <div class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}", if post_api.description_is_empty.get() {"text-base03"} else {"text-base05"} )>{ move || post_api.description.get() }</div>
+                        </div>
+                        <div  class="flex flex-col gap-2 md:gap-4 justify-between mt-4 pb-1">
+                            <h1 class="text-[1.3rem] text-base0F ">"Comments"</h1>
+                            <div class=move || format!( "bg-base01 rounded-xl grid place-items-center py-5 px-2 {}", if  global_state.acc_pending() { "" } else { "hidden" })>
+                                <div class="flex flex-col gap-2">
+                                    <div class="text-base03">"loading..."</div>
+                                </div>
+                            </div>
+                            <div class=move || format!( "bg-base01 rounded-xl grid place-items-center py-5 px-2 {}", if global_state.is_logged_in().unwrap_or_default() || global_state.acc_pending() { "hidden" } else { "" })>
+                                <div class="flex flex-col gap-2">
+                                    <div class="text-base03">"You must login to comment"</div>
+                                    <a class="mx-auto rounded-full font-semibold text-[1rem] font-medium px-[0.8rem] py-[0.2rem] hover:bg-base05 bg-base0D text-base01" href=PATH_LOGIN >"Login"</a>
+                                </div>
+                            </div>
+                            // <form class=move || format!("flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 {}", if global_state.is_logged_in().unwrap_or_default()  { "" } else { "hidden" }) on:submit=post_comments.on_comment.to_fn() >
+                            <form class=move || format!("flex bg-base01 rounded-xl flex-col gap-1 py-2 px-4 {}", if global_state.is_logged_in().unwrap_or_default()  { "" } else { "hidden" })  on:submit=post_comment>
+                                <textarea placeholder="Comment" node_ref=comment_input_ref class="focus:outline-none! appearance-none border-none resize text-[1.1rem]" id="story" name="story" rows="3" cols="5" ></textarea>
+                                <ul class="text-base08 list-disc ml-[1rem]">
+                                    {move || comment_basic.err_post.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                </ul>
+                                <div class="flex justify-between place-items-center">
+                                    <p class="text-[1rem]">"0/2000"</p>
+                                    <input type="submit" value="Post" class="ml-auto rounded-full font-medium text-[1rem] font-bold px-[0.8rem] py-[0.2rem] hover:bg-base05 bg-base0D text-base01"/>
+                                </div>
+                            </form>
+
+                            <div class="flex flex-col gap-2">
+                                <div node_ref=comment_container_ref class=" flex flex-col gap-2 relative 0h-[20rem] 0overflow-y-scroll">
+                                    <For
+                                        each=move || comment_basic.items.get()
+                                        key=|state| state.key.clone()
+                                        let(data)
+                                    >
+                                        {
+                                            view!{
+                                                <PostCommentElm
+                                                    parent_key=String::new()
+                                                    parent_items=comment_basic.items
+                                                    parent_reply_count=comment_basic.replies_count
+                                                    comment=data
+                                                    param_post
+                                                    max_depth=2
+                                                    parent_depth=0 />
+                                            }.into_any()
+                                        }
+                                    </For>
+                                </div>
+                                <Show when=move || comment_basic.comments_manual.err_fetch.with(|v| !v.is_empty()) >
+                                    <ul class="ml-[1rem] text-base08 list-disc">
+                                        {move || comment_basic.comments_manual.err_fetch.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                    </ul>
+                                </Show>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </Show>
 
             // <div class="z-20 fixed bg-base00 w-[100dvw] h-[100dvh] grid grid-rows-1">
             //     <div node_ref=virt_comment_container_ref class=" flex flex-col gap-2 relative overflow-y-scroll">
@@ -304,97 +430,7 @@ pub fn Page() -> impl IntoView {
             //
             // </div>
 
-            <div class=move || format!("flex flex-col lg:grid grid-cols-[2fr_1fr] grid-cols-[2fr_1fr] lg:max-h-[calc(100vh-3rem)] gap-2 px-4 md:gap-6 md:px-6 {}", if not_found.get() {"hidden"} else {"flex"})>
-                <div class="lg:hidden h-[50vh] flex justify-center place-items-center bg-base02" >
-                    { selected_img }
-                </div>
-                <div class="hidden lg:flex flex-col gap-2 lg:overflow-y-scroll" >
-                    { imgs }
-                </div>
-                <div class="flex flex-col gap-2 md:gap-6 lg:overflow-y-scroll">
-                    <div class="flex justify-start gap-2 flex flex-wrap">
-                        { previews }
-                    </div>
-
-
-                    <div class="flex flex-col gap-2">
-                        <div class="flex justify-between">
-                            <h1 class="text-[1.5rem] text-ellipsis text-base0F">{ fn_title }</h1>
-                            <button on:click=post_like.on_like.to_fn() disabled=move || post_like.stage.run() == PostLikeStage::Loading class=post_like_btn_style >{ post_like_btn_text }</button>
-                        </div>
-                        <div class="flex justify-between">
-                            <div class="flex gap-2">
-                                <p class="text-[1rem] rounded-full h-[3rem] w-[3rem] bg-base05"></p>
-                                <div class="flex flex-col gap-1">
-                                    <div class="flex gap-1">
-                                        <p class="text-[1rem] text-base03">"by"</p>
-                                        <a href=fn_link class="text-[1rem] font-bold text-base0B">{ fn_author }</a>
-                                    </div>
-                                    <p class="text-[1rem]">"9999 followers"</p>
-                                </div>
-                            </div>
-                            <div>{fn_favorites}" favorites"</div>
-                        </div>
-                    </div>
-                    <div class="flex flex-col gap-2 md:gap-4 justify-between mt-4">
-                        <h1 class="text-[1.3rem] text-base0F">"Description"</h1>
-                        <div class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}", if fn_description_is_empty() {"text-base03"} else {"text-base05"} )>{fn_description}</div>
-                    </div>
-                    <div  class="flex flex-col gap-2 md:gap-4 justify-between mt-4 pb-1">
-                        <h1 class="text-[1.3rem] text-base0F ">"Comments"</h1>
-                        <div class=move || format!( "bg-base01 rounded-xl grid place-items-center py-5 px-2 {}", if  global_state.acc_pending() { "" } else { "hidden" })>
-                            <div class="flex flex-col gap-2">
-                                <div class="text-base03">"loading..."</div>
-                            </div>
-                        </div>
-                        <div class=move || format!( "bg-base01 rounded-xl grid place-items-center py-5 px-2 {}", if global_state.is_logged_in().unwrap_or_default() || global_state.acc_pending() { "hidden" } else { "" })>
-                            <div class="flex flex-col gap-2">
-                                <div class="text-base03">"You must login to comment"</div>
-                                <a class="mx-auto rounded-full font-semibold text-[1rem] font-medium px-[0.8rem] py-[0.2rem] hover:bg-base05 bg-base0D text-base01" href=PATH_LOGIN >"Login"</a>
-                            </div>
-                        </div>
-                        // <form class=move || format!("flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 {}", if global_state.is_logged_in().unwrap_or_default()  { "" } else { "hidden" }) on:submit=post_comments.on_comment.to_fn() >
-                        <form class=move || format!("flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 {}", if global_state.is_logged_in().unwrap_or_default()  { "" } else { "hidden" })  on:submit=post_comment>
-                            <textarea placeholder="Comment" node_ref=comment_input_ref class="focus:outline-none! appearance-none border-none resize text-[1.1rem]" id="story" name="story" rows="5" cols="5" ></textarea>
-                            <ul class="text-base08 list-disc ml-[1rem]">
-                                {move || comment_basic.err_post.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
-                            </ul>
-                            <div class="flex justify-between place-items-center">
-                                <p>"0/2000"</p>
-                                <input type="submit" value="Post" class="ml-auto rounded-full font-medium text-[1.2rem] font-bold px-[0.9rem] py-[0.3rem] hover:bg-base05 bg-base0D text-base01"/>
-                            </div>
-                        </form>
-
-                        <div class="flex flex-col gap-2">
-                            <div node_ref=comment_container_ref class=" flex flex-col gap-2 relative 0h-[20rem] 0overflow-y-scroll">
-                                <For
-                                    each=move || comment_basic.items.get()
-                                    key=|state| state.key.clone()
-                                    let(data)
-                                >
-                                    {
-                                        view!{
-                                            <PostCommentElm
-                                                parent_key=String::new()
-                                                parent_items=comment_basic.items
-                                                parent_reply_count=comment_basic.replies_count
-                                                comment=data
-                                                param_post
-                                                max_depth=2
-                                                parent_depth=0 />
-                                        }.into_any()
-                                    }
-                                </For>
-                            </div>
-                            <Show when=move || comment_basic.comments_manual.err_fetch.with(|v| !v.is_empty()) >
-                                <ul class="ml-[1rem] text-base08 list-disc">
-                                    {move || comment_basic.comments_manual.err_fetch.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
-                                </ul>
-                            </Show>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            // TODO probably change 1fr to fixed size or auto or minmax bs
         </main>
     }
 }
@@ -673,10 +709,7 @@ pub fn PostCommentElm(
     };
 
     let click_cancel = move |_| {
-
-        let Some(elm) = comment_edit_ref
-            .get_untracked() as Option<HtmlDivElement>
-        else {
+        let Some(elm) = comment_edit_ref.get_untracked() as Option<HtmlDivElement> else {
             return;
         };
 

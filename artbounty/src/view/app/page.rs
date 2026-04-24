@@ -414,7 +414,7 @@ pub mod upload {
                             match res {
                                 Ok(crate::api::ServerRes::Post(post)) => {
                                     navigate(
-                                        &link_post(post.user.username, post.id),
+                                        &link_post(post.user.username, post.key),
                                         Default::default(),
                                     );
                                 }

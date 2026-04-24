@@ -12,7 +12,8 @@ impl Spawner {
     }
 
 
-    pub fn spawn<Fut, T>(&self, callback: Fut)
+    #[track_caller]
+    pub fn spawn<Fut, T>(self, callback: Fut)
         where
             Fut: Future<Output = T> + 'static
     {
@@ -20,13 +21,17 @@ impl Spawner {
         let is_busy = self.is_busy.clone();
         if is_busy.get_untracked() {
             warn!("trying to spawn while busy");
+            return;
         }
         is_busy.set(true);
         spawn_local(async move {
             trace!("executing callback");
             let _ = callback.await;
             trace!("finished callback");
-            is_busy.set(false);
+            let result = is_busy.try_set(false);
+            if result.is_some() {
+                warn!("spawner already disposed");
+            }
         });
 
 

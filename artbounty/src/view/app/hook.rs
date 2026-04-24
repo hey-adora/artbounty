@@ -14,7 +14,9 @@ pub mod use_event_listener;
 pub mod use_post_comment;
 pub mod use_post_comments_baisc;
 pub mod api_post_comments;
+pub mod api_post_like;
 pub mod api_post;
+pub mod api_gallery;
 pub mod use_flag;
 pub mod use_spawner;
 

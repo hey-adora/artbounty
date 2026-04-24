@@ -6,12 +6,16 @@ pub mod nav {
         view::{app::GlobalState, toolbox::prelude::*},
     };
     use leptos::prelude::*;
+    use leptos_router::hooks::query_signal;
     use log::error;
-    use web_sys::SubmitEvent;
+    use tracing::trace;
+    use web_sys::{HtmlInputElement, SubmitEvent};
 
     #[component]
     pub fn Nav() -> impl IntoView {
         let global_state = expect_context::<GlobalState>();
+        let (get_query_tags, set_query_tags) = query_signal::<String>("tags");
+        let search_ref = NodeRef::new();
         let api = ApiWeb::new();
         let logout_or_loading = move || {
             if api.is_pending_tracked() {
@@ -32,6 +36,18 @@ pub mod nav {
             global_state.logout();
         };
 
+        let post_comment = move |e: SubmitEvent| {
+            e.prevent_default();
+            trace!("wowza");
+            let search_text = search_ref
+                .get_untracked()
+                .map(|v: HtmlInputElement| v.value())
+                .unwrap_or_default();
+
+            set_query_tags.set(if search_text.is_empty() { None } else { Some(search_text) });
+            //
+        };
+
         view! {
             <nav class="text-gray-200 flex gap-2 px-4 h-[3rem] items-center justify-between">
                 <a href="/" class="font-black text-[1.3rem]">
@@ -40,6 +56,9 @@ pub mod nav {
                 <div class=move||format!("{}", if global_state.acc_pending() { "" } else { "hidden" })>
                     <p>"loading..."</p>
                 </div>
+                <form class=move||format!("") on:submit=post_comment>
+                    <input node_ref=search_ref type="text" placeholder="search tags" class="rounded text-[1rem] px-[0.8rem] py-[0.2rem] text-base05 bg-base01 "/>
+                </form>
                 <div class=move||format!("{}", if global_state.is_logged_in().unwrap_or_default() || global_state.acc_pending() { "hidden" } else { "" })>
                     <a href=PATH_LOGIN>"Login"</a>
                 </div>
@@ -59,6 +78,8 @@ pub mod gallery {
 
     use crate::api::{Api, ApiWeb, UserPost, UserPostFile};
     use crate::path::{link_img, link_post, link_post_with_history};
+    use crate::view::app::hook::api_gallery::{GalleryApi, GalleryContainerSize};
+    use crate::view::app::hook::use_spawner::Spawner;
     use crate::view::toolbox::prelude::*;
     // use chrono::Utc;
     use leptos::html;
@@ -89,7 +110,10 @@ pub mod gallery {
         #[prop(default = 250)] row_height: u32,
         #[prop(optional)] username: Option<RwSignal<Option<String>>>,
     ) -> impl IntoView {
-        let gallery = RwSignal::<Vec<Img>>::new(Vec::new());
+        let api = ApiWeb::new();
+        let spawner = Spawner::new();
+        let gallery_api = GalleryApi::new(api, 50);
+        // let gallery = RwSignal::<Vec<Img>>::new(Vec::new());
         let delayed_scroll = RwSignal::new(0_usize);
         let gallery_ref = NodeRef::<Div>::new();
         let api_top = ApiWeb::new();
@@ -99,98 +123,139 @@ pub mod gallery {
         let (get_query_gallery_count, set_query_gallery_count) = query_signal::<usize>("img_count");
         let (get_query_direction, set_query_direction) = query_signal::<String>("direction");
         let (get_query_time, set_query_time) = query_signal::<u128>("time");
+        let (get_query_tags, set_query_tags) = query_signal::<String>("tags");
 
         let set_gallery = move |bottom: bool,
                                 width: u32,
                                 height: f64,
-                                time: u128,
+                                // time: u128,
                                 count: u32,
                                 username: Option<String>| {
-            let current_img_count = gallery.with_untracked(|v| v.len());
+            // let current_img_count = gallery.with_untracked(|v| v.len());
 
-            if let Some(username) = username {
-                if bottom {
-                    if current_img_count == 0 {
-                        trace!("running get_user_posts_older_or_equal");
-                        api_btm.get_user_posts_older_or_equal(time, count, username)
-                    } else {
-                        trace!("running get_user_posts_older");
-                        api_btm.get_user_posts_older(time, count, username)
-                    }
-                } else {
-                    if current_img_count == 0 {
-                        trace!("running get_user_posts_newer_or_equal");
-                        api_top.get_user_posts_newer_or_equal(time, count, username)
-                    } else {
-                        trace!("running get_user_posts_newer");
-                        api_top.get_user_posts_newer(time, count, username)
-                    }
+            let Some(gallery_elm) = gallery_ref.try_get_untracked().flatten() else {
+                return;
+            };
+            let time = get_query_time
+                .get_untracked()
+                .unwrap_or_else(|| time_now_ns());
+
+            let tags = get_query_tags.get_untracked();
+            trace!("wheres my super suit?");
+
+            spawner.spawn(async move {
+                let scroll = gallery_api
+                    .fetch_btm_or_top(
+                        bottom,
+                        GalleryContainerSize {
+                            width,
+                            height,
+                            row_height,
+                        },
+                        time,
+                        tags.clone().unwrap_or_default(),
+                        username.unwrap_or_default(),
+                    )
+                    .await;
+
+                let first_img_time = gallery_api
+                    .items
+                    .with_untracked(|v| v.first().map(|v| v.created_at));
+                let imgs_len = gallery_api.items.with_untracked(|v| v.len());
+
+                if scroll > 0.0 {
+                    gallery_elm.scroll_by_with_x_and_y(0.0, scroll);
                 }
-            } else {
-                if bottom {
-                    if current_img_count == 0 {
-                        trace!("running get_posts_older_or_equal");
-                        api_btm.get_posts_older_or_equal(time, count)
-                    } else {
-                        trace!("running get_posts_older");
-                        api_btm.get_posts_older(time, count)
-                    }
-                } else {
-                    if current_img_count == 0 {
-                        trace!("running get_posts_newer_or_equal");
-                        api_top.get_posts_newer_or_equal(time, count)
-                    } else {
-                        trace!("running get_posts_newer");
-                        api_top.get_posts_newer(time, count)
-                    }
-                }
-            }
-            .send_web(move |result| async move {
-                match result {
-                    Ok(crate::api::ServerRes::Posts(files)) => {
-                        let (Some(prev_imgs), Some(gallery_elm)) = (
-                            gallery.try_get_untracked(),
-                            gallery_ref.try_get_untracked().flatten(),
-                        ) else {
-                            return;
-                        };
 
-                        let new_imgs = files.into_iter().map(Img::from).collect::<Vec<Img>>();
-
-                        if new_imgs.is_empty() {
-                            trace!("RECEIVED EMPTY");
-                            return;
-                        }
-
-                        let (resized_imgs, scroll_by) = if bottom {
-                            add_imgs_to_bottom(prev_imgs, new_imgs, width, height, row_height)
-                        } else {
-                            add_imgs_to_top(prev_imgs, new_imgs, width, height, row_height)
-                        };
-
-                        let first_img_time = (if bottom {
-                            resized_imgs.first()
-                        } else {
-                            resized_imgs.last()
-                        })
-                        .map(|v| v.created_at);
-                        let new_img_count = resized_imgs.len();
-
-                        trace!("using new scroll: {scroll_by}");
-                        gallery.set(resized_imgs);
-                        if current_img_count > 0 {
-                            gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
-                        }
-
-                        set_query_direction
-                            .set(Some(if bottom { "down" } else { "up" }.to_string()));
-                        set_query_time.set(first_img_time);
-                        set_query_gallery_count.set(Some(new_img_count));
-                    }
-                    Ok(_) => unreachable!(),
-                    Err(err) => error!("{}", err.to_string()),
-                }
+                set_query_direction.set(Some(if bottom { "down" } else { "up" }.to_string()));
+                set_query_time.set(first_img_time);
+                set_query_gallery_count.set(Some(imgs_len));
+                set_query_tags.set(tags);
             });
+
+            // if let Some(username) = username {
+            //     if bottom {
+            //         if current_img_count == 0 {
+            //             trace!("running get_user_posts_older_or_equal");
+            //             api_btm.get_user_posts_older_or_equal(time, count, username)
+            //         } else {
+            //             trace!("running get_user_posts_older");
+            //             api_btm.get_user_posts_older(time, count, username)
+            //         }
+            //     } else {
+            //         if current_img_count == 0 {
+            //             trace!("running get_user_posts_newer_or_equal");
+            //             api_top.get_user_posts_newer_or_equal(time, count, username)
+            //         } else {
+            //             trace!("running get_user_posts_newer");
+            //             api_top.get_user_posts_newer(time, count, username)
+            //         }
+            //     }
+            // } else {
+            //     if bottom {
+            //         if current_img_count == 0 {
+            //             trace!("running get_posts_older_or_equal");
+            //             api_btm.get_posts_older_or_equal(time, count)
+            //         } else {
+            //             trace!("running get_posts_older");
+            //             api_btm.get_posts_older(time, count)
+            //         }
+            //     } else {
+            //         if current_img_count == 0 {
+            //             trace!("running get_posts_newer_or_equal");
+            //             api_top.get_posts_newer_or_equal(time, count)
+            //         } else {
+            //             trace!("running get_posts_newer");
+            //             api_top.get_posts_newer(time, count)
+            //         }
+            //     }
+            // }
+            // .send_web(move |result| async move {
+            //     match result {
+            //         Ok(crate::api::ServerRes::Posts(files)) => {
+            //             let (Some(prev_imgs), Some(gallery_elm)) = (
+            //                 gallery.try_get_untracked(),
+            //                 gallery_ref.try_get_untracked().flatten(),
+            //             ) else {
+            //                 return;
+            //             };
+            //
+            //             let new_imgs = files.into_iter().map(Img::from).collect::<Vec<Img>>();
+            //
+            //             if new_imgs.is_empty() {
+            //                 trace!("RECEIVED EMPTY");
+            //                 return;
+            //             }
+            //
+            //             let (resized_imgs, scroll_by) = if bottom {
+            //                 add_imgs_to_bottom(prev_imgs, new_imgs, width, height, row_height)
+            //             } else {
+            //                 add_imgs_to_top(prev_imgs, new_imgs, width, height, row_height)
+            //             };
+            //
+            //             let first_img_time = (if bottom {
+            //                 resized_imgs.first()
+            //             } else {
+            //                 resized_imgs.last()
+            //             })
+            //             .map(|v| v.created_at);
+            //             let new_img_count = resized_imgs.len();
+            //
+            //             trace!("using new scroll: {scroll_by}");
+            //             gallery.set(resized_imgs);
+            //             if current_img_count > 0 {
+            //                 gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
+            //             }
+            //
+            //             set_query_direction
+            //                 .set(Some(if bottom { "down" } else { "up" }.to_string()));
+            //             set_query_time.set(first_img_time);
+            //             set_query_gallery_count.set(Some(new_img_count));
+            //         }
+            //         Ok(_) => unreachable!(),
+            //         Err(err) => error!("{}", err.to_string()),
+            //     }
+            // });
         };
 
         gallery_ref.add_resize_observer(move |entry, _observer| {
@@ -200,6 +265,7 @@ pub mod gallery {
             };
             let width = entry.content_rect().width() as u32;
 
+            let gallery = gallery_api.items;
             let prev_imgs = gallery.get_untracked();
             trace!("stage r1: width:{width} {prev_imgs:#?} ");
             let resized_imgs = resize_v2(prev_imgs, width, row_height);
@@ -220,22 +286,23 @@ pub mod gallery {
             let user_username = user_username.flatten();
 
             trace!("gallery elm found");
+            // let gallery = post_api.items;
             let width = gallery_elm.client_width() as u32;
             let height = gallery_elm.client_height() as f64;
-            let is_empty = gallery.with_untracked(|v| v.is_empty());
+            // let is_empty = gallery.with_untracked(|v| v.is_empty());
             let count = calc_fit_count(width, height, row_height) as u32;
-            if is_empty || count == 0 {
+            if gallery_api.is_empty() || count == 0 {
                 return;
             }
-            let gallery = gallery.get_untracked();
-            let Some(img) = gallery.first() else {
-                return;
-            };
+            // let gallery = gallery.get_untracked();
+            // let Some(img) = gallery.first() else {
+            //     return;
+            // };
             set_gallery(
                 false,
                 width,
                 height * 8.0,
-                img.created_at,
+                // img.created_at,
                 count,
                 user_username,
             );
@@ -255,22 +322,23 @@ pub mod gallery {
             let user_username = user_username.flatten();
 
             trace!("gallery elm found");
+            // let gallery = post_api.items;
             let width = gallery_elm.client_width() as u32;
             let height = gallery_elm.client_height() as f64;
-            let is_empty = gallery.with_untracked(|v| v.is_empty());
+            // let is_empty = gallery.with_untracked(|v| v.is_empty());
             let count = calc_fit_count(width, height, row_height) as u32;
-            if is_empty || count == 0 {
+            if gallery_api.is_empty() || count == 0 {
                 return;
             }
-            let gallery = gallery.get_untracked();
-            let Some(img) = gallery.last() else {
-                return;
-            };
+            // let gallery = gallery.get_untracked();
+            // let Some(img) = gallery.last() else {
+            //     return;
+            // };
             set_gallery(
                 true,
                 width,
                 height * 8.0,
-                img.created_at,
+                // img.created_at,
                 count,
                 user_username,
             );
@@ -295,17 +363,17 @@ pub mod gallery {
                 let width = gallery_elm.client_width() as u32;
                 let height = gallery_elm.client_height() as u32;
 
+                // TODO i dont like this, doesnt make sense
+                // second one will never?
                 if scroll_top < row_height {
                     trace!("INTERVAL FETCH TOP");
                     run_fetch_top();
-                }
-
-                if scroll_height.saturating_sub(scroll_top + height) < row_height {
+                } else if scroll_height.saturating_sub(scroll_top + height) < row_height {
                     trace!("INTERVAL FETCH BTM");
                     run_fetch_bottom();
                 }
             },
-            Duration::from_secs(2),
+            Duration::from_secs(5),
         );
 
         let _ = interval::new(
@@ -314,6 +382,7 @@ pub mod gallery {
                     trace!("gallery NOT found");
                     return;
                 };
+                let gallery = gallery_api.items;
                 if gallery.with_untracked(|v| v.is_empty()) {
                     return;
                 }
@@ -325,7 +394,7 @@ pub mod gallery {
         );
 
         let get_imgs = move || {
-            let imgs = gallery.get();
+            let imgs = gallery_api.items.get();
             let total_count = imgs.len();
 
             imgs.into_iter()
@@ -373,16 +442,16 @@ pub mod gallery {
             ) else {
                 let count = calc_fit_count(width, height, row_height) as u32;
                 let direction_is_bottom = true;
-                let time = time_now_ms() as u128 * 1000_000;
+                // let time = time_now_ms() as u128 * 1000_000;
                 trace!(
-                    "initial gallery init - using new params {} {} {} {} {}",
-                    direction_is_bottom, width, height, time, count
+                    "initial gallery init - using new params {} {} {} {}",
+                    direction_is_bottom, width, height, count
                 );
                 set_gallery(
                     direction_is_bottom,
                     width,
                     height,
-                    time,
+                    // time,
                     count,
                     user_username,
                 );
@@ -398,7 +467,7 @@ pub mod gallery {
                 !direction_is_up,
                 width,
                 height,
-                time,
+                // time,
                 gallery_count as u32,
                 user_username,
             );
@@ -414,29 +483,30 @@ pub mod gallery {
             trace!("running gallery reset");
 
             let user_username = username.get();
+            let tags = get_query_tags.get();
             trace!("gallery reset username state: {user_username:?}");
             let user_username = user_username.flatten();
-            if username.is_some() && user_username.is_none() {
+            if username.is_some() && user_username.is_none() && tags.is_none() {
                 return;
             }
 
-            let gallery_count = get_query_gallery_count.with(|v| v.is_some());
-            let direction_is_bottom = get_query_direction.with(|v| v.is_some());
-            let time = get_query_time.with(|v| v.is_some());
-            let current_gallery_count = gallery.with_untracked(|v| v.len());
+            // let gallery_count = get_query_gallery_count.with_untracked(|v| v.is_some());
+            // let direction_is_bottom = get_query_direction.with_untracked(|v| v.is_some());
+            // let time = get_query_time.with_untracked(|v| v.is_some());
+            // let current_gallery_count = gallery.with_untracked(|v| v.len());
 
-            if current_gallery_count == 0 || (gallery_count || direction_is_bottom || time) {
-                return;
-            }
+            // if gallery_api.is_empty() || (gallery_count || direction_is_bottom || time) {
+            //     return;
+            // }
 
             let width = gallery_elm.client_width() as u32;
             let height = gallery_elm.client_height() as f64;
             let count = calc_fit_count(width, height, row_height) as u32;
-            let time = time_now_ms() as u128 * 1000_000;
+            // let time = time_now_ms() as u128 * 1000_000;
 
-            gallery.set(Vec::new());
+            gallery_api.reset();
 
-            set_gallery(true, width, height, time, count, user_username);
+            set_gallery(true, width, height, count, user_username);
         });
 
         gallery_ref.add_mutation_observer(
@@ -530,7 +600,7 @@ pub mod gallery {
         let view_height = img.view_height;
         let img_width = img.width;
         let img_height = img.height;
-        let img_id = img.id.clone();
+        let img_id = img.key.clone();
         let img_username = img.username.clone();
         let post_link = img.get_post_link();
         // let post_link_with_history = img.get_post_link_with_history(9999);
@@ -567,7 +637,7 @@ pub mod gallery {
 
     #[derive(Debug, Clone)]
     pub struct Img {
-        pub id: String,
+        pub key: String,
         pub username: String,
         pub hash: String,
         pub extension: String,
@@ -589,7 +659,7 @@ pub mod gallery {
                 extension: "webp".to_string(),
             });
             Self {
-                id: user_post.id,
+                key: user_post.key,
                 username: user_post.user.username,
                 width: post_thumbnail.width,
                 height: post_thumbnail.height,
@@ -610,7 +680,7 @@ pub mod gallery {
                 f,
                 "Img::new_full({}, {}, {}, {:.64}, {:.64}, {:.64}, {:.64})",
                 // "Img::new_full({}, {}, {}, {:.32}, {:.32}, {:.32}, {:.32})",
-                self.id,
+                self.key,
                 self.width,
                 self.height,
                 self.view_width,
@@ -623,10 +693,10 @@ pub mod gallery {
 
     impl ResizableImage for Img {
         fn get_id(&self) -> String {
-            self.id.clone()
+            self.key.clone()
         }
         fn get_post_link(&self) -> String {
-            link_post(&self.username, &self.id)
+            link_post(&self.username, &self.key)
         }
         fn get_img_link(&self) -> String {
             link_img(&self.hash, &self.extension)
@@ -672,7 +742,7 @@ pub mod gallery {
             let id = random_u64();
 
             Self {
-                id: id.to_string(),
+                key: id.to_string(),
                 username: "bot".to_string(),
                 hash: "404".to_string(),
                 extension: "webp".to_string(),
@@ -691,7 +761,7 @@ pub mod gallery {
             let height = random_u32_ranged(500, 1000);
 
             Self {
-                id,
+                key: id,
                 username: "bot".to_string(),
                 hash: "404".to_string(),
                 extension: "webp".to_string(),

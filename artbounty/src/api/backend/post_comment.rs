@@ -253,7 +253,7 @@ mod tests {
         debug!("wtf is that {post:#?}");
 
         let comment = app
-            .add_post_comment(0, &auth_token, post.id.clone(), None, "wowza1".to_string())
+            .add_post_comment(0, &auth_token, post.key.clone(), None, "wowza1".to_string())
             .await
             .unwrap();
 
@@ -298,12 +298,12 @@ mod tests {
         debug!("wtf is that {post:#?}");
 
         let comment = app
-            .add_post_comment(0, &auth_token, post.id.clone(), None, "wowza".to_string())
+            .add_post_comment(0, &auth_token, post.key.clone(), None, "wowza".to_string())
             .await
             .unwrap();
 
         let comment = app
-            .add_post_comment(1, &auth_token, post.id.clone(), None, "wowza2".to_string())
+            .add_post_comment(1, &auth_token, post.key.clone(), None, "wowza2".to_string())
             .await
             .unwrap();
 
@@ -311,7 +311,7 @@ mod tests {
             .get_post_comments(
                 2,
                 &auth_token,
-                post.id.clone(),
+                post.key.clone(),
                 None::<String>,
                 2,
                 TimeRange::None,
@@ -342,7 +342,7 @@ mod tests {
         debug!("wtf is that {post:#?}");
 
         let comment = app
-            .add_post_comment(0, &auth_token, post.id.clone(), None, "wowza".to_string())
+            .add_post_comment(0, &auth_token, post.key.clone(), None, "wowza".to_string())
             .await
             .unwrap();
 
@@ -350,7 +350,7 @@ mod tests {
             .add_post_comment(
                 1,
                 &auth_token,
-                post.id.clone(),
+                post.key.clone(),
                 Some(comment.key.clone()),
                 "wowza2".to_string(),
             )
@@ -361,7 +361,7 @@ mod tests {
             .get_post_comments(
                 2,
                 &auth_token,
-                post.id.clone(),
+                post.key.clone(),
                 None::<String>,
                 2,
                 TimeRange::None,
@@ -378,7 +378,7 @@ mod tests {
             .get_post_comments(
                 2,
                 &auth_token,
-                post.id.clone(),
+                post.key.clone(),
                 Some(comment_first.key.clone()),
                 2,
                 TimeRange::None,

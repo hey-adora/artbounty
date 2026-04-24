@@ -1386,7 +1386,7 @@ pub mod tests {
         let post = app.add_post(t(), &auth_token, "title1", "cat", "one").await.unwrap();
 
         let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
-        hook_root.observe_only(post.id.clone());
+        hook_root.observe_only(post.key.clone());
         // assert!(!hook_root.has_reply_bubble);
 
         (app.set_time(t()).await, hook_root.post("c0").await);
@@ -1405,7 +1405,7 @@ pub mod tests {
                 comment: c0.clone(),
             },
         );
-        hook_reply.observe_only(post.id.clone());
+        hook_reply.observe_only(post.key.clone());
         // assert!(!hook_reply.has_reply_bubble);
 
         (app.set_time(t()).await, hook_reply.post("c0_r0x1").await);
@@ -1424,7 +1424,7 @@ pub mod tests {
                 comment: c0_r0x1.clone(),
             },
         );
-        hook_flat.observe_only(post.id.clone());
+        hook_flat.observe_only(post.key.clone());
         // assert!(!hook_flat.has_reply_bubble);
 
         (app.set_time(t()).await, hook_flat.post("c0_r0x2").await);
@@ -1443,7 +1443,7 @@ pub mod tests {
                 comment: c0_r0x2.clone(),
             },
         );
-        hook_none.observe_only(post.id.clone());
+        hook_none.observe_only(post.key.clone());
         // assert!(!hook_none.has_reply_bubble);
 
         (app.set_time(t()).await, hook_none.post("c0_r0x3").await);
@@ -1492,7 +1492,7 @@ pub mod tests {
         // panic!("wtf");
 
         let hook_root = CommentsApi2::new(&app.api, 4, CommentKind2::Root);
-        hook_root.observe_only(post.id.clone());
+        hook_root.observe_only(post.key.clone());
         hook_root.fetch().await;
         let items_root = hook_root.items.get_untracked();
 
@@ -1511,7 +1511,7 @@ pub mod tests {
                 comment: c0.clone(),
             },
         );
-        hook_reply.observe_only(post.id.clone());
+        hook_reply.observe_only(post.key.clone());
         hook_reply.fetch().await;
         let items_reply = hook_reply.items.get_untracked();
 
@@ -1530,7 +1530,7 @@ pub mod tests {
                 comment: c0_r0x1.clone(),
             },
         );
-        hook_flat.observe_only(post.id.clone());
+        hook_flat.observe_only(post.key.clone());
         hook_flat.fetch().await;
         let items_flat = hook_flat.items.get_untracked();
 
@@ -1559,7 +1559,7 @@ pub mod tests {
         app.api.pre_load_token = auth_token.clone();
         let post = app.add_post(1, &auth_token, "title1", "cat", "one").await.unwrap();
         let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
-        hook_root.observe_only(post.id.clone());
+        hook_root.observe_only(post.key.clone());
 
         (app.set_time(2).await, hook_root.post("c0").await);
 
@@ -1574,7 +1574,7 @@ pub mod tests {
                 comment: c0.clone(),
             },
         );
-        hook_reply.observe_only(post.id.clone());
+        hook_reply.observe_only(post.key.clone());
         hook_reply.edit_mode.set(true);
 
         assert_eq!(hook_reply.text.get_untracked(), "c0");
@@ -1585,7 +1585,7 @@ pub mod tests {
         assert_eq!(hook_reply.edit_mode.get_untracked(), false);
 
         let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
-        hook_root.observe_only(post.id.clone());
+        hook_root.observe_only(post.key.clone());
         hook_root.fetch().await;
 
         let items_root = hook_root.items.get_untracked();
@@ -1621,7 +1621,7 @@ pub mod tests {
         let post = app.add_post(t(), &auth_token, "title1", "cat", "one").await.unwrap();
 
         let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
-        hook_root.observe_only(post.id.clone());
+        hook_root.observe_only(post.key.clone());
 
         (app.set_time(t()).await, hook_root.post("c0").await);
         (app.set_time(t()).await, hook_root.post("c1").await);
@@ -1642,7 +1642,7 @@ pub mod tests {
                 comment: c0.clone(),
             },
         );
-        hook_reply.observe_only(post.id.clone());
+        hook_reply.observe_only(post.key.clone());
 
         (app.set_time(t()).await, hook_reply.post("c0_r0x1").await);
         (app.set_time(t()).await, hook_reply.post("c0_r1x1").await);
@@ -1662,7 +1662,7 @@ pub mod tests {
                 comment: c0_r0x1.clone(),
             },
         );
-        hook_flat.observe_only(post.id.clone());
+        hook_flat.observe_only(post.key.clone());
 
         (app.set_time(t()).await, hook_flat.post("c0_r0x2").await);
         (app.set_time(t()).await, hook_flat.post("c0_r1x2").await);
@@ -1682,7 +1682,7 @@ pub mod tests {
                 comment: c0_r0x2,
             },
         );
-        hook_none.observe_only(post.id.clone());
+        hook_none.observe_only(post.key.clone());
 
         (app.set_time(t()).await, hook_none.post("c0_r0x3").await);
         (app.set_time(t()).await, hook_none.post("c0_r1x3").await);
@@ -1775,13 +1775,13 @@ pub mod tests {
             let post = app.add_post(0, &auth_token, "title1", "cat", "one").await.unwrap();
 
             let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
-            hook_root.post_key.set_value(post.id.clone());
+            hook_root.post_key.set_value(post.key.clone());
 
             // (app.set_time(0).await, hook_root.post("comment0").await);
             // let comment0 = hook_root.items.with_untracked(|v| v[0].clone());
 
             let comment0 = app
-                .add_post_comment(0, &auth_token, post.id.clone(), None, "wowza".to_string())
+                .add_post_comment(0, &auth_token, post.key.clone(), None, "wowza".to_string())
                 .await
                 .unwrap();
 
@@ -1795,7 +1795,7 @@ pub mod tests {
                 .add_post_comment(
                     get_time(),
                     &auth_token,
-                    post.id.clone(),
+                    post.key.clone(),
                     Some(comment0.key.clone()),
                     "comment0_reply0".to_string(),
                 )
@@ -1806,7 +1806,7 @@ pub mod tests {
                 .add_post_comment(
                     get_time(),
                     &auth_token,
-                    post.id.clone(),
+                    post.key.clone(),
                     Some(comment0_reply0.key.clone()),
                     "comment0_reply0_reply0".to_string(),
                 )
@@ -1817,7 +1817,7 @@ pub mod tests {
                 .add_post_comment(
                     get_time(),
                     &auth_token,
-                    post.id.clone(),
+                    post.key.clone(),
                     Some(comment0_reply0_reply0.key.clone()),
                     "comment0_reply0_times_3".to_string(),
                 )
@@ -1828,7 +1828,7 @@ pub mod tests {
                 .add_post_comment(
                     get_time(),
                     &auth_token,
-                    post.id.clone(),
+                    post.key.clone(),
                     Some(comment0_reply0_times_3.key.clone()),
                     "comment0_reply0_times_4".to_string(),
                 )
@@ -1839,7 +1839,7 @@ pub mod tests {
                 .add_post_comment(
                     get_time(),
                     &auth_token,
-                    post.id.clone(),
+                    post.key.clone(),
                     Some(comment0_reply0_times_4.key.clone()),
                     "comment0_reply0_times_5".to_string(),
                 )
@@ -1850,7 +1850,7 @@ pub mod tests {
                 .add_post_comment(
                     get_time(),
                     &auth_token,
-                    post.id.clone(),
+                    post.key.clone(),
                     Some(comment0_reply0_times_5.key.clone()),
                     "comment0_reply0_times_6".to_string(),
                 )
@@ -1861,7 +1861,7 @@ pub mod tests {
                 .add_post_comment(
                     get_time(),
                     &auth_token,
-                    post.id.clone(),
+                    post.key.clone(),
                     Some(comment0_reply0.key.clone()),
                     "comment0_reply0_reply1".to_string(),
                 )
@@ -1872,7 +1872,7 @@ pub mod tests {
                 .add_post_comment(
                     get_time(),
                     &auth_token,
-                    post.id.clone(),
+                    post.key.clone(),
                     Some(comment0_reply0.key.clone()),
                     "comment0_reply0_reply2".to_string(),
                 )
@@ -1883,7 +1883,7 @@ pub mod tests {
                 .add_post_comment(
                     get_time(),
                     &auth_token,
-                    post.id.clone(),
+                    post.key.clone(),
                     Some(comment0_reply0.key.clone()),
                     "comment0_reply0_reply3".to_string(),
                 )
@@ -1894,7 +1894,7 @@ pub mod tests {
                 .add_post_comment(
                     get_time(),
                     &auth_token,
-                    post.id.clone(),
+                    post.key.clone(),
                     Some(comment0.key.clone()),
                     "comment0_reply1".to_string(),
                 )
@@ -1905,7 +1905,7 @@ pub mod tests {
                 .add_post_comment(
                     get_time(),
                     &auth_token,
-                    post.id.clone(),
+                    post.key.clone(),
                     Some(comment0.key.clone()),
                     "comment0_reply2".to_string(),
                 )
@@ -1916,7 +1916,7 @@ pub mod tests {
                 .add_post_comment(
                     get_time(),
                     &auth_token,
-                    post.id.clone(),
+                    post.key.clone(),
                     Some(comment0.key.clone()),
                     "comment0_reply3".to_string(),
                 )
@@ -1927,7 +1927,7 @@ pub mod tests {
                 .add_post_comment(
                     get_time(),
                     &auth_token,
-                    post.id.clone(),
+                    post.key.clone(),
                     None,
                     "comment1".to_string(),
                 )
@@ -1938,7 +1938,7 @@ pub mod tests {
                 .add_post_comment(
                     get_time(),
                     &auth_token,
-                    post.id.clone(),
+                    post.key.clone(),
                     None,
                     "comment2".to_string(),
                 )
@@ -1949,7 +1949,7 @@ pub mod tests {
                 .add_post_comment(
                     get_time(),
                     &auth_token,
-                    post.id.clone(),
+                    post.key.clone(),
                     None,
                     "comment3".to_string(),
                 )
@@ -1982,7 +1982,7 @@ pub mod tests {
                 .add_post_comment(
                     4,
                     &auth_token,
-                    post.id.clone(),
+                    post.key.clone(),
                     None,
                     "comment4".to_string(),
                 )
@@ -2008,7 +2008,7 @@ pub mod tests {
                     comment: comment0.clone(),
                 },
             );
-            hook_comment.post_key.set_value(post.id.clone());
+            hook_comment.post_key.set_value(post.key.clone());
 
             hook_comment.fetch().await;
             let comment0_replies = hook_comment.items.get_untracked();
@@ -2038,7 +2038,7 @@ pub mod tests {
                     comment: comment0_reply0.clone(),
                 },
             );
-            hook_reply.post_key.set_value(post.id.clone());
+            hook_reply.post_key.set_value(post.key.clone());
 
             // trace!("yo yo yo yo did u run or no");
             hook_reply.fetch().await;
@@ -2073,7 +2073,7 @@ pub mod tests {
                     comment: comment0_reply0_reply0.clone(),
                 },
             );
-            hook_flat.post_key.set_value(post.id.clone());
+            hook_flat.post_key.set_value(post.key.clone());
 
             trace!("comment0_reply0_reply0 {comment0_reply0_reply0:#?}");
 

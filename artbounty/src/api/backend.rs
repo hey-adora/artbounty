@@ -113,7 +113,7 @@ pub async fn get_post(
     State(app_state): State<AppState>,
     req: ServerReq,
 ) -> Result<ServerRes, ServerErr> {
-    let ServerReq::PostId { post_id } = req else {
+    let ServerReq::PostId { post_key: post_id } = req else {
         return Err(
             ServerDesErr::ServerWrongInput(format!("expected GetPost, received: {req:?}")).into(),
         );
@@ -366,6 +366,26 @@ pub async fn get_posts_older(
         .collect::<Vec<UserPost>>();
 
     Ok(ServerRes::Posts(posts))
+}
+pub async fn delete_post(
+    State(app): State<AppState>,
+    auth_token: axum::Extension<AuthToken>,
+    db_user: Extension<DBUser>,
+    req: ServerReq,
+) -> Result<ServerRes, ServerErr> {
+    let ServerReq::PostId { post_key } = req else {
+        return Err(
+            ServerDesErr::ServerWrongInput(format!("expected PostId, received: {req:?}")).into(),
+        );
+    };
+
+    app.db
+        .delete_post(db_user.id.clone(), post_key)
+        .await
+        .map_err(|_| ServerErr::DbErr)?;
+    //
+
+    Ok(ServerRes::Ok)
 }
 
 pub async fn add_post(

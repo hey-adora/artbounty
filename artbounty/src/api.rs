@@ -434,7 +434,7 @@ pub enum ServerReq {
         flatten: bool,
     },
     PostId {
-        post_id: String,
+        post_key: String,
     },
     GetPosts {
         time: u128,
@@ -1026,7 +1026,7 @@ impl From<crate::db::DBUser> for User {
     rkyv::Deserialize,
 )]
 pub struct UserPost {
-    pub id: String,
+    pub key: String,
     pub user: User,
     pub show: bool,
     pub title: String,
@@ -1239,7 +1239,7 @@ impl From<crate::db::DBUserPost> for UserPost {
         use surrealdb::types::ToSql;
 
         Self {
-            id: value.id.key.to_sql(),
+            key: value.id.key.to_sql(),
             user: value.user.into(),
             file: value.file.into_iter().map(UserPostFile::from).collect(),
             title: value.title,
@@ -1614,7 +1614,7 @@ pub trait Api {
         self.into_req(
             crate::path::PATH_API_POST_LIKE_ADD,
             ServerReq::PostId {
-                post_id: post_id.into(),
+                post_key: post_id.into(),
             },
         )
     }
@@ -1623,7 +1623,7 @@ pub trait Api {
         self.into_req(
             crate::path::PATH_API_POST_LIKE_CHECK,
             ServerReq::PostId {
-                post_id: post_id.into(),
+                post_key: post_id.into(),
             },
         )
     }
@@ -1632,7 +1632,7 @@ pub trait Api {
         self.into_req(
             crate::path::PATH_API_POST_LIKE_DELETE,
             ServerReq::PostId {
-                post_id: post_id.into(),
+                post_key: post_id.into(),
             },
         )
     }
@@ -1711,7 +1711,7 @@ pub trait Api {
     fn get_post(&self, post_id: impl Into<String>) -> ApiReq {
         let builder = self.provide_builder(crate::path::PATH_API_POST_GET);
         let server_req = ServerReq::PostId {
-            post_id: post_id.into(),
+            post_key: post_id.into(),
         };
         let result_signal = self.provide_signal_result();
         let busy_signal = self.provide_signal_busy();
@@ -1863,6 +1863,15 @@ pub trait Api {
             result: result_signal,
             busy: busy_signal,
         }
+    }
+
+    fn delete_post(&self, post_key: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_POST_DELETE,
+            ServerReq::PostId {
+                post_key: post_key.into(),
+            },
+        )
     }
 
     fn add_post(
@@ -2427,6 +2436,28 @@ pub mod tests {
 
         pub async fn set_time(&self, time: u128) {
             *self.time.lock().await = time;
+        }
+
+        pub async fn delete_post(
+            &self,
+            time: u128,
+            auth_token: impl Into<String>,
+            post_key: impl Into<String>,
+        ) -> Option<()> {
+            self.set_time(time).await;
+            let auth_token = auth_token.into();
+
+            let result = self
+                .api
+                .delete_post(post_key)
+                .send_native_with_token(auth_token.clone())
+                .await;
+            trace!("{result:#?}");
+
+            match result {
+                Ok(crate::api::ServerRes::Ok) => Some(()),
+                _ => None,
+            }
         }
 
         pub async fn add_post(
@@ -3627,6 +3658,32 @@ pub mod tests {
             .unwrap();
 
         assert_eq!(posts.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn api_post_delete_test() {
+        crate::init_test_log();
+
+        let app = ApiTestApp::new(1).await;
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+
+        let post0 = app
+            .add_post(0, &auth_token, "title1", "cat", "one")
+            .await
+            .unwrap();
+
+        let posts = app.state.db.get_post_all().await.unwrap();
+        assert_eq!(posts.len(), 1);
+
+        app.delete_post(1, auth_token, post0.key.to_sql())
+            .await
+            .unwrap();
+
+        let posts = app.state.db.get_post_all().await.unwrap();
+        assert_eq!(posts.len(), 0);
     }
 
     #[tokio::test]
