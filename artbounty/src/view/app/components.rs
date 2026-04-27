@@ -44,7 +44,11 @@ pub mod nav {
                 .map(|v: HtmlInputElement| v.value())
                 .unwrap_or_default();
 
-            set_query_tags.set(if search_text.is_empty() { None } else { Some(search_text) });
+            set_query_tags.set(if search_text.is_empty() {
+                None
+            } else {
+                Some(search_text)
+            });
             //
         };
 
@@ -53,12 +57,12 @@ pub mod nav {
                 <a href="/" class="font-black text-[1.3rem]">
                     "ArtBounty"
                 </a>
-                <div class=move||format!("{}", if global_state.acc_pending() { "" } else { "hidden" })>
-                    <p>"loading..."</p>
-                </div>
                 <form class=move||format!("") on:submit=post_comment>
                     <input node_ref=search_ref type="text" placeholder="search tags" class="rounded text-[1rem] px-[0.8rem] py-[0.2rem] text-base05 bg-base01 "/>
                 </form>
+                <div class=move||format!("{}", if global_state.acc_pending() { "" } else { "hidden" })>
+                    <p>"loading..."</p>
+                </div>
                 <div class=move||format!("{}", if global_state.is_logged_in().unwrap_or_default() || global_state.acc_pending() { "hidden" } else { "" })>
                     <a href=PATH_LOGIN>"Login"</a>
                 </div>
@@ -161,16 +165,23 @@ pub mod gallery {
                 let first_img_time = gallery_api
                     .items
                     .with_untracked(|v| v.first().map(|v| v.created_at));
+                let last_img_time = gallery_api
+                    .items
+                    .with_untracked(|v| v.last().map(|v| v.created_at));
                 let imgs_len = gallery_api.items.with_untracked(|v| v.len());
 
                 if scroll > 0.0 {
                     gallery_elm.scroll_by_with_x_and_y(0.0, scroll);
                 }
 
-                set_query_direction.set(Some(if bottom { "down" } else { "up" }.to_string()));
-                set_query_time.set(first_img_time);
-                set_query_gallery_count.set(Some(imgs_len));
-                set_query_tags.set(tags);
+                // set_query_direction.set(Some(if bottom { "down" } else { "up" }.to_string()));
+                // set_query_time.set(if bottom {
+                //     first_img_time
+                // } else {
+                //     last_img_time
+                // });
+                // set_query_gallery_count.set(Some(imgs_len));
+                // set_query_tags.set(tags);
             });
 
             // if let Some(username) = username {
@@ -365,12 +376,12 @@ pub mod gallery {
 
                 // TODO i dont like this, doesnt make sense
                 // second one will never?
-                if scroll_top < row_height {
-                    trace!("INTERVAL FETCH TOP");
-                    run_fetch_top();
-                } else if scroll_height.saturating_sub(scroll_top + height) < row_height {
+                if scroll_height.saturating_sub(scroll_top + height) < row_height {
                     trace!("INTERVAL FETCH BTM");
                     run_fetch_bottom();
+                } else if scroll_top < row_height {
+                    trace!("INTERVAL FETCH TOP");
+                    run_fetch_top();
                 }
             },
             Duration::from_secs(5),
@@ -505,6 +516,9 @@ pub mod gallery {
             // let time = time_now_ms() as u128 * 1000_000;
 
             gallery_api.reset();
+            set_query_gallery_count.set(None);
+            set_query_direction.set(None);
+            set_query_time.set(None);
 
             set_gallery(true, width, height, count, user_username);
         });
@@ -517,6 +531,7 @@ pub mod gallery {
                     return;
                 };
                 let delayed_scroll_value = delayed_scroll.get_untracked();
+                trace!("delayed scroll value {delayed_scroll_value}");
                 if delayed_scroll_value == 0 {
                     return;
                 }
