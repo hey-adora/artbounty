@@ -170,6 +170,7 @@ pub mod gallery {
                     .with_untracked(|v| v.last().map(|v| v.created_at));
                 let imgs_len = gallery_api.items.with_untracked(|v| v.len());
 
+                // delayed_scroll.set(scroll);
                 if scroll > 0.0 {
                     gallery_elm.scroll_by_with_x_and_y(0.0, scroll);
                 }
@@ -423,74 +424,96 @@ pub mod gallery {
             let Some(gallery_elm) = gallery_ref.get() else {
                 return;
             };
-            if api_top.busy.get_untracked() {
-                return;
-            }
+            // if api_top.busy.get_untracked() {
+            //     return;
+            // }
+            // let user_username = user_username.flatten();
+            // let query_time = get_query_time.get_untracked();
+            // let count = calc_fit_count(width, height, row_height) as u32;
             trace!("running gallery init");
-
-            let user_username = username.get();
+            let user_username = username.get().flatten();
             trace!("gallery init username state: {user_username:?}");
-            let user_username = user_username.flatten();
-            if username.is_some() && user_username.is_none() {
-                return;
-            }
+
+            // if username.is_some() && user_username.is_none() {
+            //     return;
+            // }
 
             let width = gallery_elm.client_width() as u32;
             let height = gallery_elm.client_height() as f64;
 
-            let query_gallery_count = get_query_gallery_count
+            let count = get_query_gallery_count
                 .get_untracked()
-                .and_then(|v| if v == 0 { None } else { Some(v) });
-            let query_direction_is_up = get_query_direction.get_untracked().map(|v| v == "up");
-            let query_time = get_query_time.get_untracked();
+                .and_then(|v| if v == 0 { None } else { Some(v) })
+                .unwrap_or_else(|| calc_fit_count(width, height, row_height));
+
+            let is_bottom = get_query_direction
+                .get_untracked()
+                .map(|v| v == "down")
+                .unwrap_or(true);
+
             let query_scroll = get_query_scroll.get_untracked();
 
-            let (Some(gallery_count), Some(direction_is_up), Some(time), Some(scroll)) = (
-                query_gallery_count,
-                query_direction_is_up,
-                query_time,
-                query_scroll,
-            ) else {
-                let count = calc_fit_count(width, height, row_height) as u32;
-                let direction_is_bottom = true;
-                // let time = time_now_ms() as u128 * 1000_000;
-                trace!(
-                    "initial gallery init - using new params {} {} {} {}",
-                    direction_is_bottom, width, height, count
-                );
-                set_gallery(
-                    direction_is_bottom,
-                    width,
-                    height,
-                    // time,
-                    count,
-                    user_username,
-                );
-                return;
-            };
+            if let Some(scroll) = query_scroll {
+                delayed_scroll.set(scroll);
+            }
 
-            delayed_scroll.set(scroll);
-            trace!(
-                "initial gallery init - using old params {} {} {} {} {}",
-                !direction_is_up, width, height, time, gallery_count as u32
-            );
+            gallery_api.reset();
+
             set_gallery(
-                !direction_is_up,
+                is_bottom,
                 width,
                 height,
                 // time,
-                gallery_count as u32,
+                count as u32,
                 user_username,
             );
+
+            // let (Some(gallery_count), Some(direction_is_up), Some(time), Some(scroll)) = (
+            //     query_gallery_count,
+            //     query_direction_is_up,
+            //     query_time,
+            //     query_scroll,
+            // ) else {
+            //     let count = calc_fit_count(width, height, row_height) as u32;
+            //     let direction_is_bottom = true;
+            //     // let time = time_now_ms() as u128 * 1000_000;
+            //     trace!(
+            //         "initial gallery init - using new params {} {} {} {}",
+            //         direction_is_bottom, width, height, count
+            //     );
+            //     set_gallery(
+            //         direction_is_bottom,
+            //         width,
+            //         height,
+            //         // time,
+            //         count,
+            //         user_username,
+            //     );
+            //     return;
+            // };
+
+            // delayed_scroll.set(scroll);
+            // trace!(
+            //     "initial gallery init - using old params {} {} {} {} {}",
+            //     !direction_is_up, width, height, time, gallery_count as u32
+            // );
+            // set_gallery(
+            //     !direction_is_up,
+            //     width,
+            //     height,
+            //     // time,
+            //     gallery_count as u32,
+            //     user_username,
+            // );
         });
 
         Effect::new(move || {
             let Some(gallery_elm) = gallery_ref.get() else {
                 return;
             };
-            if api_top.busy.get_untracked() {
-                return;
-            }
+            // if api_top.busy.get_untracked() {
+            //     return;
+            // }
             trace!("running gallery reset");
 
             let user_username = username.get();
@@ -532,7 +555,7 @@ pub mod gallery {
                 };
                 let delayed_scroll_value = delayed_scroll.get_untracked();
                 trace!("delayed scroll value {delayed_scroll_value}");
-                if delayed_scroll_value == 0 {
+                if delayed_scroll_value == 0 || gallery_api.is_empty() {
                     return;
                 }
                 gallery_elm.scroll_by_with_x_and_y(0.0, delayed_scroll_value as f64);
