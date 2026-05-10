@@ -1,6 +1,10 @@
 use leptos::{logging, prelude::*};
+#[cfg(feature = "ssr")]
+use tokio::fs;
 use tracing::trace;
 
+#[cfg(feature = "ssr")]
+use crate::api::{ServerReq, app_state::AppState};
 use crate::path::{
     PATH_API, PATH_API_ACC, PATH_API_INVITE_DECODE, PATH_API_LOGIN, PATH_API_LOGOUT,
     PATH_API_POST_ADD, PATH_API_POST_GET_OLDER, PATH_API_REGISTER, PATH_API_SEND_EMAIL_INVITE,
@@ -48,7 +52,7 @@ pub async fn server() {
     let conf = get_configuration(Some("leptos.toml")).unwrap();
     let leptos_options = conf.leptos_options;
     let addr = leptos_options.site_addr;
-    let routes = generate_route_list(App);
+    // let routes = generate_route_list(App);
 
     let comppression_layer = CompressionLayer::new()
         .br(true)
@@ -62,20 +66,28 @@ pub async fn server() {
         .allow_methods([Method::GET, Method::POST])
         .allow_origin(cors::Any);
 
-    let leptos_router = Router::new()
-        .leptos_routes(&leptos_options, routes, {
-            let leptos_options = leptos_options.clone();
-            move || shell(leptos_options.clone())
-        })
-        .fallback(leptos_axum::file_and_error_handler(shell))
-        .with_state(leptos_options);
+    // let leptos_router = Router::new()
+    //     .leptos_routes(&leptos_options, routes, {
+    //         let leptos_options = leptos_options.clone();
+    //         move || shell(leptos_options.clone())
+    //     })
+    //     .fallback(leptos_axum::file_and_error_handler(shell))
+    //     .with_state(leptos_options);
 
     let api_router = create_api_router(app_state.clone()).with_state(app_state.clone());
+    // let fallback_router = Router::new();
 
     let app = Router::new()
         .nest_service("/file", ServeDir::new(&file_path))
-        .merge(leptos_router)
+        // .merge(leptos_router)
         .merge(api_router)
+        // .fallback(ServeDir::new(&file_path))
+        .fallback(fallback_api)
+        // .route_layer(middleware::from_fn_with_state(
+        //     app_state,
+        //     auth_optional_middleware,
+        // ))
+        // .fallback_service(ServeDir::new(&file_path))
         .layer(cors)
         .layer(comppression_layer);
 
@@ -84,6 +96,90 @@ pub async fn server() {
     axum::serve(listener, app.into_make_service())
         .await
         .unwrap();
+}
+
+#[cfg(feature = "ssr")]
+use axum::{
+    extract::State,
+    http::{
+        Request, Response, StatusCode, Uri,
+        header::{self, HeaderMap, HeaderName},
+    },
+    response::IntoResponse,
+};
+// #[cfg(feature = "ssr")]
+// use http::Uri;
+
+#[cfg(feature = "ssr")]
+pub async fn fallback_api(
+    uri: Uri,
+    // State(app_state): State<AppState>,
+    // req: ServerReq,
+) -> impl IntoResponse {
+    // uri.ex
+    let a = uri.path();
+
+    trace!("fallback uri path: {a}");
+
+    // uri.
+
+    // let req = Request::builder()
+    //     .uri(uri.clone())
+    //     .body(Body::empty())
+    //     .unwrap();
+    // let read_file = async move |name: String| {
+    //
+    // };
+
+    // TODO make sure people cant path inject
+
+    let (headers, name) = match a {
+        "/" => ([(header::CONTENT_TYPE, "text/html")], "/index.html"),
+        "/pkg/artbounty_1_bg.wasm" => (
+            [(header::CONTENT_TYPE, "application/wasm")],
+            "/pkg/artbounty_1_bg.wasm",
+        ),
+        "/pkg/artbounty_1.css" => (
+            [(header::CONTENT_TYPE, "text/css")],
+            "/pkg/artbounty_1.css",
+        ),
+        // "/pkg/artbounty_1.js"
+        "/pkg/artbounty_1.js" => (
+            [(header::CONTENT_TYPE, "text/javascript")],
+            "/pkg/artbounty_1.js",
+        ),
+        "/atkinson_hyperlegible_next/atkinson_hyperlegible_next_vf-variable.woff2" => (
+            [(header::CONTENT_TYPE, "application/font-woff2")],
+            "/atkinson_hyperlegible_next/atkinson_hyperlegible_next_vf-variable.woff2",
+        ),
+        "/upload.svg" => ([(header::CONTENT_TYPE, "image/svg+xml")], "/upload.svg"),
+        "/favicon.ico" => ([(header::CONTENT_TYPE, "image/x-icon")], "/favicon.ico"),
+        // artbounty_1.css
+        v => {
+            trace!("not found {v}");
+            return Err((StatusCode::NOT_FOUND, v.to_string()));
+        }
+    };
+
+    let path = format!("target/site{}", name);
+    let file = match fs::read(path.clone()).await {
+        Ok(file) => file,
+        Err(err) => {
+            return Err((StatusCode::NOT_FOUND, path));
+        }
+    };
+
+    Ok((headers, file))
+
+    // let headers = Headers([
+    //     (header::CONTENT_TYPE, "text/toml; charset=utf-8"),
+    //     (
+    //         header::CONTENT_DISPOSITION,
+    //         "attachment; filename=\"Cargo.toml\"",
+    //     ),
+    // ]);
+    //
+    // a
 }
 
 #[cfg(feature = "ssr")]
@@ -162,7 +258,11 @@ pub fn create_api_router(
         .route(
             path::PATH_API_USER_POST_GET_NEWER_OR_EQUAL,
             post(api::backend::get_posts_newer_or_equal_for_user),
-        );
+        )
+
+        // .fallback(fallback_api)
+        // .fallback(ServeDir::new(&file_path))
+        ;
     let api_router_auth = Router::new()
         .route(
             path::PATH_API_POST_COMMENT_UPDATE,

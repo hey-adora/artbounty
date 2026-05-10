@@ -16,12 +16,36 @@ rustflags = [
     "--cfg",
     "erase_components",
 ]
-# rustflags = ["-C", "link-arg=-fuse-ld=mold", "-C", "target-feature=+aes,+sse2", "-Z", "share-generics=y", "--cfg", "erase_components"]
+# rustflags = ["-C", "link-arg=-fuse-ld=mold", "-C", "target-feature=+aes,+sse2", "-Z", "share-generics=y", "--cfg", "erase_components"] +atomics
 
 [target.wasm32-unknown-unknown]
 # linker = "clang"
 runner = 'wasm-bindgen-test-runner'
-rustflags = ["-Z", "share-generics=y"]
+rustflags = [
+    # "-Z",
+    # "build-std",
+    "-Z",
+    "share-generics=y",
+    "-C",
+    "target-feature=+atomics,+bulk-memory,+mutable-globals",
+    "-C",
+    "link-args=--shared-memory",
+    "-C",
+    "link-args=--max-memory=1073741824",
+    "-C",
+    "link-args=--import-memory",
+    "-C",
+    "link-args=--export=__wasm_init_tls",
+    "-C",
+    "link-args=--export=__tls_size",
+    "-C",
+    "link-args=--export=__tls_align",
+    "-C",
+    "link-args=--export=__tls_base",
+    "--cfg",
+    "erase_components",
+
+]
 # rustflags = ["-C", "link-arg=-fuse-ld=mold", "-Z", "share-generics=y", "--cfg", "erase_components"]
 
 [unstable]

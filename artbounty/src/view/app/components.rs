@@ -52,13 +52,32 @@ pub mod nav {
             //
         };
 
+        // let callback = move || {
+        //     use crate::view::{app::GlobalState, toolbox::prelude::*};
+        //     // let mut wtf = KILLME.write().unwrap();
+        //     // *wtf = true;
+        //
+        //     // let wtf = KILLME.with(|v| {
+        //     //     let mut a = v.write().unwrap();
+        //     //     *a = true;
+        //     //     *a
+        //     // });
+        //
+        //     // let global_state = expect_context::<GlobalState>();
+        //     // let acc = global_state.acc.get_untracked();
+        //     tracing::trace!("wowza {}", wtf);
+        //     // tracing::trace!("wowza {acc:#?}");
+        //     //
+        // };
+
         view! {
             <nav class="text-gray-200 flex gap-2 px-4 h-[3rem] items-center justify-between">
                 <a href="/" class="font-black text-[1.3rem]">
                     "ArtBounty"
                 </a>
+                // <button on:click=move |_| callback() >"wow"</button>
                 <form class=move||format!("") on:submit=post_comment>
-                    <input node_ref=search_ref type="text" placeholder="search tags" class="rounded text-[1rem] px-[0.8rem] py-[0.2rem] text-base05 bg-base01 "/>
+                    <input node_ref=search_ref type="text" placeholder="search tags" class="w-full rounded text-[1rem] px-[0.8rem] py-[0.2rem] text-base05 bg-base01 "/>
                 </form>
                 <div class=move||format!("{}", if global_state.acc_pending() { "" } else { "hidden" })>
                     <p>"loading..."</p>
@@ -82,7 +101,11 @@ pub mod gallery {
 
     use crate::api::{Api, ApiWeb, UserPost, UserPostFile};
     use crate::path::{link_img, link_post, link_post_with_history};
+    // use crate::view::{KILLME, KILLME2};
     use crate::view::app::hook::api_gallery::{GalleryApi, GalleryContainerSize};
+    use crate::view::app::hook::use_intersection::Intersection;
+    use crate::view::app::hook::use_intersection_switch::IntersectionSwitch;
+    use crate::view::app::hook::use_scroll_correction::ScrollCorrection;
     use crate::view::app::hook::use_spawner::Spawner;
     use crate::view::toolbox::prelude::*;
     // use chrono::Utc;
@@ -97,7 +120,10 @@ pub mod gallery {
         rc::Rc,
     };
     use tracing::{debug, error, trace};
-    use web_sys::{HtmlAnchorElement, MouseEvent};
+    use wasm_bindgen::JsValue;
+    use web_sys::{
+        Element, HtmlAnchorElement, IntersectionObserver, IntersectionObserverEntry, MouseEvent,
+    };
 
     pub fn vec_img_to_string<IMG: ResizableImage + Display>(imgs: &[IMG]) -> String {
         let mut output = String::new();
@@ -109,19 +135,57 @@ pub mod gallery {
         output
     }
 
+    // #[wasm_bindgen::prelude::wasm_bindgen]
+    // pub fn e2e_test1() -> bool {
+    //     use crate::view::{app::GlobalState, toolbox::prelude::*};
+    //     let wtf = KILLME.with(|v| {
+    //         let a = *v.read().unwrap();
+    //
+    //         a
+    //     });
+    //
+    //     // let wtf = KILLME.read().unwrap();
+    //
+    //     // let global_state = expect_context::<GlobalState>();
+    //     // let acc = global_state.acc.get_untracked();
+    //     trace!("wowza {}", wtf);
+    //
+    //     false
+    // }
+    //
+    // #[wasm_bindgen::prelude::wasm_bindgen]
+    // pub fn e2e_test2() {
+    //     KILLME2.set(true);
+    // }
+    //
+    // #[wasm_bindgen::prelude::wasm_bindgen]
+    // pub fn e2e_test3() {
+    //     let wtf = KILLME2.with_borrow(|v| {
+    //
+    //         // let v = v.get_mut();
+    //         *v
+    //     });
+    //
+    //     trace!("wowza2 {}", wtf);
+    // }
+
     #[component]
     pub fn Gallery(
         #[prop(default = 250)] row_height: u32,
         #[prop(optional)] username: Option<RwSignal<Option<String>>>,
     ) -> impl IntoView {
-        let api = ApiWeb::new();
-        let spawner = Spawner::new();
-        let gallery_api = GalleryApi::new(api, 50);
-        // let gallery = RwSignal::<Vec<Img>>::new(Vec::new());
-        let delayed_scroll = RwSignal::new(0_usize);
-        let gallery_ref = NodeRef::<Div>::new();
         let api_top = ApiWeb::new();
         let api_btm = ApiWeb::new();
+        let spawner = Spawner::new();
+        let gallery_api = GalleryApi::new(api_top, api_btm);
+        // let gallery = RwSignal::<Vec<Img>>::new(Vec::new());
+        // let delayed_scroll = StoredValue::new_local(0.0);
+        let delayed_scroll = StoredValueWrap::new("delayed_scroll", 0.0);
+        let gallery_ref = NodeRef::<Div>::new();
+        let is_top_interector_active = StoredValue::new_local(false);
+        let is_down_interector_active = StoredValue::new_local(false);
+        let top_intersector_switch = IntersectionSwitch::new();
+        let down_intersector_switch = IntersectionSwitch::new();
         let navigate = leptos_router::hooks::use_navigate();
         let (get_query_scroll, set_query_scroll) = query_signal::<usize>("scroll");
         let (get_query_gallery_count, set_query_gallery_count) = query_signal::<usize>("img_count");
@@ -129,28 +193,35 @@ pub mod gallery {
         let (get_query_time, set_query_time) = query_signal::<u128>("time");
         let (get_query_tags, set_query_tags) = query_signal::<String>("tags");
 
-        let set_gallery = move |bottom: bool,
-                                width: u32,
-                                height: f64,
-                                // time: u128,
-                                count: u32,
-                                username: Option<String>| {
-            // let current_img_count = gallery.with_untracked(|v| v.len());
+        let infinte_scroll = ScrollCorrection::new();
 
+        let set_gallery = move |bottom: bool| {
             let Some(gallery_elm) = gallery_ref.try_get_untracked().flatten() else {
                 return;
             };
+            let width = gallery_elm.client_width() as u32;
+            let height = gallery_elm.client_height() as f64 * 2.0;
+            let count = (if gallery_api.is_empty() {
+                get_query_gallery_count.get_untracked()
+            } else {
+                None
+            })
+            .unwrap_or_else(|| calc_fit_count(width, height, row_height));
             let time = get_query_time
                 .get_untracked()
                 .unwrap_or_else(|| time_now_ns());
+            let user_username = username.get_untracked().flatten().unwrap_or_default();
 
             let tags = get_query_tags.get_untracked();
             trace!("wheres my super suit?");
+
+            infinte_scroll.update();
 
             spawner.spawn(async move {
                 let scroll = gallery_api
                     .fetch_btm_or_top(
                         bottom,
+                        count,
                         GalleryContainerSize {
                             width,
                             height,
@@ -158,7 +229,7 @@ pub mod gallery {
                         },
                         time,
                         tags.clone().unwrap_or_default(),
-                        username.unwrap_or_default(),
+                        user_username,
                     )
                     .await;
 
@@ -170,104 +241,21 @@ pub mod gallery {
                     .with_untracked(|v| v.last().map(|v| v.created_at));
                 let imgs_len = gallery_api.items.with_untracked(|v| v.len());
 
-                // delayed_scroll.set(scroll);
-                if scroll > 0.0 {
-                    gallery_elm.scroll_by_with_x_and_y(0.0, scroll);
-                }
+                trace!("delayed scroll RECEIVED {scroll}");
+                // if scroll != 0.0 {
+                //     // delayed_scroll.set_value(scroll);
+                //     gallery_elm.scroll_by_with_x_and_y(0.0, scroll);
+                // }
 
                 // set_query_direction.set(Some(if bottom { "down" } else { "up" }.to_string()));
+                // set_query_gallery_count.set(Some(imgs_len));
+                // set_query_tags.set(tags);
                 // set_query_time.set(if bottom {
                 //     first_img_time
                 // } else {
                 //     last_img_time
                 // });
-                // set_query_gallery_count.set(Some(imgs_len));
-                // set_query_tags.set(tags);
             });
-
-            // if let Some(username) = username {
-            //     if bottom {
-            //         if current_img_count == 0 {
-            //             trace!("running get_user_posts_older_or_equal");
-            //             api_btm.get_user_posts_older_or_equal(time, count, username)
-            //         } else {
-            //             trace!("running get_user_posts_older");
-            //             api_btm.get_user_posts_older(time, count, username)
-            //         }
-            //     } else {
-            //         if current_img_count == 0 {
-            //             trace!("running get_user_posts_newer_or_equal");
-            //             api_top.get_user_posts_newer_or_equal(time, count, username)
-            //         } else {
-            //             trace!("running get_user_posts_newer");
-            //             api_top.get_user_posts_newer(time, count, username)
-            //         }
-            //     }
-            // } else {
-            //     if bottom {
-            //         if current_img_count == 0 {
-            //             trace!("running get_posts_older_or_equal");
-            //             api_btm.get_posts_older_or_equal(time, count)
-            //         } else {
-            //             trace!("running get_posts_older");
-            //             api_btm.get_posts_older(time, count)
-            //         }
-            //     } else {
-            //         if current_img_count == 0 {
-            //             trace!("running get_posts_newer_or_equal");
-            //             api_top.get_posts_newer_or_equal(time, count)
-            //         } else {
-            //             trace!("running get_posts_newer");
-            //             api_top.get_posts_newer(time, count)
-            //         }
-            //     }
-            // }
-            // .send_web(move |result| async move {
-            //     match result {
-            //         Ok(crate::api::ServerRes::Posts(files)) => {
-            //             let (Some(prev_imgs), Some(gallery_elm)) = (
-            //                 gallery.try_get_untracked(),
-            //                 gallery_ref.try_get_untracked().flatten(),
-            //             ) else {
-            //                 return;
-            //             };
-            //
-            //             let new_imgs = files.into_iter().map(Img::from).collect::<Vec<Img>>();
-            //
-            //             if new_imgs.is_empty() {
-            //                 trace!("RECEIVED EMPTY");
-            //                 return;
-            //             }
-            //
-            //             let (resized_imgs, scroll_by) = if bottom {
-            //                 add_imgs_to_bottom(prev_imgs, new_imgs, width, height, row_height)
-            //             } else {
-            //                 add_imgs_to_top(prev_imgs, new_imgs, width, height, row_height)
-            //             };
-            //
-            //             let first_img_time = (if bottom {
-            //                 resized_imgs.first()
-            //             } else {
-            //                 resized_imgs.last()
-            //             })
-            //             .map(|v| v.created_at);
-            //             let new_img_count = resized_imgs.len();
-            //
-            //             trace!("using new scroll: {scroll_by}");
-            //             gallery.set(resized_imgs);
-            //             if current_img_count > 0 {
-            //                 gallery_elm.scroll_by_with_x_and_y(0.0, scroll_by);
-            //             }
-            //
-            //             set_query_direction
-            //                 .set(Some(if bottom { "down" } else { "up" }.to_string()));
-            //             set_query_time.set(first_img_time);
-            //             set_query_gallery_count.set(Some(new_img_count));
-            //         }
-            //         Ok(_) => unreachable!(),
-            //         Err(err) => error!("{}", err.to_string()),
-            //     }
-            // });
         };
 
         gallery_ref.add_resize_observer(move |entry, _observer| {
@@ -285,284 +273,205 @@ pub mod gallery {
             gallery.set(resized_imgs);
         });
 
-        let run_fetch_top = move || {
-            let Some(gallery_elm) = gallery_ref.get_untracked() else {
-                trace!("gallery NOT found");
+        // let create_intersector_fn =
+        //     move |is_btm: bool, is_interector_active: StoredValue<bool, LocalStorage>| {
+        //         move |entry: Vec<IntersectionObserverEntry>, b: IntersectionObserver| {
+        //             let Some(entry) = entry.first() else {
+        //                 return;
+        //             };
+        //             trace!("gallery intersection is_btm({is_btm})");
+        //
+        //             let is_intersecting = entry.is_intersecting();
+        //
+        //             if !is_intersecting {
+        //                 is_interector_active.set_value(true);
+        //                 return;
+        //             }
+        //
+        //             trace!("gallery intersection 2 is_btm({is_btm})");
+        //
+        //             if !is_interector_active.get_value() {
+        //                 return;
+        //             }
+        //
+        //             trace!("gallery intersection 3 is_btm({is_btm})");
+        //
+        //             is_interector_active.set_value(false);
+        //
+        //             set_gallery(is_btm);
+        //         }
+        //     };
+        let intersection_top = Intersection::new(move |entries, b| {
+            let Some(entry) = entries.first() else {
                 return;
             };
-            if api_top.busy.get_untracked() {
+            let id = entry.target().id();
+
+            trace!("gallery intersection top 0 {id}");
+            let is_enabled = top_intersector_switch.is_enabled(entry.is_intersecting());
+            if !is_enabled {
+                trace!("gallery intersection top 1 {id}");
                 return;
             }
-            let user_username = username.get_untracked();
-            trace!("gallery fetch top username state: {user_username:?}");
-            let user_username = user_username.flatten();
+            trace!("gallery intersection top 2 {id}");
+            set_gallery(false);
+        });
 
-            trace!("gallery elm found");
-            // let gallery = post_api.items;
-            let width = gallery_elm.client_width() as u32;
-            let height = gallery_elm.client_height() as f64;
-            // let is_empty = gallery.with_untracked(|v| v.is_empty());
-            let count = calc_fit_count(width, height, row_height) as u32;
-            if gallery_api.is_empty() || count == 0 {
-                return;
-            }
-            // let gallery = gallery.get_untracked();
-            // let Some(img) = gallery.first() else {
-            //     return;
-            // };
-            set_gallery(
-                false,
-                width,
-                height * 8.0,
-                // img.created_at,
-                count,
-                user_username,
-            );
-        };
-
-        let run_fetch_bottom = move || {
-            let Some(gallery_elm) = gallery_ref.get_untracked() else {
-                trace!("gallery NOT found");
+        let intersection_down = Intersection::new(move |entries, b| {
+            let Some(entry) = entries.first() else {
                 return;
             };
-            if api_btm.busy.get_untracked() {
+            let id = entry.target().id();
+
+            trace!("gallery intersection btm 0 {id}");
+            let is_enabled = down_intersector_switch.is_enabled(entry.is_intersecting());
+            if !is_enabled {
+                trace!("gallery intersection btm 2 {id}");
                 return;
             }
+            trace!("gallery intersection btm 3 {id}");
+            set_gallery(true);
+        });
 
-            let user_username = username.get_untracked();
-            trace!("gallery fetch btm username state: {user_username:?}");
-            let user_username = user_username.flatten();
+        // let _ = interval::new(
+        //     move || {
+        //         let Some(gallery_elm) = gallery_ref.get_untracked() else {
+        //             trace!("gallery NOT found");
+        //             return;
+        //         };
+        //
+        //         let scroll_top = gallery_elm.scroll_top() as u32;
+        //         let scroll_height = gallery_elm.scroll_height() as u32;
+        //         let height = gallery_elm.client_height() as u32;
+        //
+        //         if scroll_top < row_height {
+        //             trace!("INTERVAL FETCH TOP");
+        //             set_gallery(false);
+        //         }
+        //         if scroll_height.saturating_sub(scroll_top + height) < row_height {
+        //             trace!("INTERVAL FETCH BTM");
+        //             set_gallery(true);
+        //         }
+        //     },
+        //     Duration::from_secs(2),
+        // );
 
-            trace!("gallery elm found");
-            // let gallery = post_api.items;
-            let width = gallery_elm.client_width() as u32;
-            let height = gallery_elm.client_height() as f64;
-            // let is_empty = gallery.with_untracked(|v| v.is_empty());
-            let count = calc_fit_count(width, height, row_height) as u32;
-            if gallery_api.is_empty() || count == 0 {
-                return;
-            }
-            // let gallery = gallery.get_untracked();
-            // let Some(img) = gallery.last() else {
-            //     return;
-            // };
-            set_gallery(
-                true,
-                width,
-                height * 8.0,
-                // img.created_at,
-                count,
-                user_username,
-            );
-        };
-
-        let run_on_click = move |e: MouseEvent, img: Img| {
-            //
-        };
-
-        let _ = interval::new(
-            move || {
-                let Some(gallery_elm) = gallery_ref.get_untracked() else {
-                    trace!("gallery NOT found");
-                    return;
-                };
-
-                let user_username = username.get_untracked();
-                trace!("gallery watch username state: {user_username:?}");
-
-                let scroll_top = gallery_elm.scroll_top() as u32;
-                let scroll_height = gallery_elm.scroll_height() as u32;
-                let width = gallery_elm.client_width() as u32;
-                let height = gallery_elm.client_height() as u32;
-
-                // TODO i dont like this, doesnt make sense
-                // second one will never?
-                if scroll_height.saturating_sub(scroll_top + height) < row_height {
-                    trace!("INTERVAL FETCH BTM");
-                    run_fetch_bottom();
-                } else if scroll_top < row_height {
-                    trace!("INTERVAL FETCH TOP");
-                    run_fetch_top();
-                }
-            },
-            Duration::from_secs(5),
-        );
-
-        let _ = interval::new(
-            move || {
-                let Some(gallery_elm) = gallery_ref.get_untracked() else {
-                    trace!("gallery NOT found");
-                    return;
-                };
-                let gallery = gallery_api.items;
-                if gallery.with_untracked(|v| v.is_empty()) {
-                    return;
-                }
-
-                let scroll_top = gallery_elm.scroll_top() as usize;
-                set_query_scroll.set(Some(scroll_top));
-            },
-            Duration::from_millis(1000),
-        );
+        // let _ = interval::new(
+        //     move || {
+        //         let Some(gallery_elm) = gallery_ref.get_untracked() else {
+        //             trace!("gallery NOT found");
+        //             return;
+        //         };
+        //         let gallery = gallery_api.items;
+        //         if gallery.with_untracked(|v| v.is_empty()) {
+        //             return;
+        //         }
+        //
+        //         let scroll_top = gallery_elm.scroll_top() as usize;
+        //         set_query_scroll.set(Some(scroll_top));
+        //     },
+        //     Duration::from_millis(1000),
+        // );
 
         let get_imgs = move || {
             let imgs = gallery_api.items.get();
-            let total_count = imgs.len();
+            // let total_count = imgs.len();
 
             imgs.into_iter()
                 .enumerate()
                 .map({
-                    let run_fetch_bottom = run_fetch_bottom.clone();
-                    let run_fetch_top = run_fetch_top.clone();
-                    let run_on_click = run_on_click.clone();
-                    move |(i, img)| view! {<GalleryImg index=i img total_count run_on_click=run_on_click.clone() run_fetch_bottom=run_fetch_bottom.clone() run_fetch_top=run_fetch_top.clone() />}
+                    // let run_fetch_bottom = run_fetch_bottom.clone();
+                    // let run_fetch_top = run_fetch_top.clone();
+                    // let run_on_click = run_on_click.clone();
+                    move |(i, img)| view! {<GalleryImg img />}
+                    // move |(i, img)| view! {<GalleryImg index=i img total_count run_on_click=run_on_click.clone() run_fetch_bottom=run_fetch_bottom.clone() run_fetch_top=run_fetch_top.clone() />}
                 })
                 .collect_view()
         };
 
         Effect::new(move || {
+            trace!("running gallery init");
+
             let Some(gallery_elm) = gallery_ref.get() else {
                 return;
             };
-            // if api_top.busy.get_untracked() {
-            //     return;
-            // }
-            // let user_username = user_username.flatten();
-            // let query_time = get_query_time.get_untracked();
-            // let count = calc_fit_count(width, height, row_height) as u32;
-            trace!("running gallery init");
-            let user_username = username.get().flatten();
-            trace!("gallery init username state: {user_username:?}");
-
-            // if username.is_some() && user_username.is_none() {
-            //     return;
-            // }
-
-            let width = gallery_elm.client_width() as u32;
-            let height = gallery_elm.client_height() as f64;
-
-            let count = get_query_gallery_count
-                .get_untracked()
-                .and_then(|v| if v == 0 { None } else { Some(v) })
-                .unwrap_or_else(|| calc_fit_count(width, height, row_height));
+            infinte_scroll.observe_only(gallery_elm);
 
             let is_bottom = get_query_direction
                 .get_untracked()
                 .map(|v| v == "down")
                 .unwrap_or(true);
 
-            let query_scroll = get_query_scroll.get_untracked();
-
-            if let Some(scroll) = query_scroll {
-                delayed_scroll.set(scroll);
+            if let Some(scroll) = get_query_scroll.get_untracked() {
+                delayed_scroll.set_value(scroll as f64);
             }
 
             gallery_api.reset();
-
-            set_gallery(
-                is_bottom,
-                width,
-                height,
-                // time,
-                count as u32,
-                user_username,
-            );
-
-            // let (Some(gallery_count), Some(direction_is_up), Some(time), Some(scroll)) = (
-            //     query_gallery_count,
-            //     query_direction_is_up,
-            //     query_time,
-            //     query_scroll,
-            // ) else {
-            //     let count = calc_fit_count(width, height, row_height) as u32;
-            //     let direction_is_bottom = true;
-            //     // let time = time_now_ms() as u128 * 1000_000;
-            //     trace!(
-            //         "initial gallery init - using new params {} {} {} {}",
-            //         direction_is_bottom, width, height, count
-            //     );
-            //     set_gallery(
-            //         direction_is_bottom,
-            //         width,
-            //         height,
-            //         // time,
-            //         count,
-            //         user_username,
-            //     );
-            //     return;
-            // };
-
-            // delayed_scroll.set(scroll);
-            // trace!(
-            //     "initial gallery init - using old params {} {} {} {} {}",
-            //     !direction_is_up, width, height, time, gallery_count as u32
-            // );
-            // set_gallery(
-            //     !direction_is_up,
-            //     width,
-            //     height,
-            //     // time,
-            //     gallery_count as u32,
-            //     user_username,
-            // );
+            set_gallery(is_bottom);
         });
 
-        Effect::new(move || {
-            let Some(gallery_elm) = gallery_ref.get() else {
-                return;
-            };
-            // if api_top.busy.get_untracked() {
-            //     return;
-            // }
-            trace!("running gallery reset");
+        // Effect::new(move || {
+        //     let Some(gallery_elm) = gallery_ref.get() else {
+        //         return;
+        //     };
+        //     trace!("running gallery reset");
+        //
+        //     username.track();
+        //     get_query_tags.track();
+        //
+        //     gallery_api.reset();
+        //
+        //     set_gallery(true);
+        // });
 
-            let user_username = username.get();
-            let tags = get_query_tags.get();
-            trace!("gallery reset username state: {user_username:?}");
-            let user_username = user_username.flatten();
-            if username.is_some() && user_username.is_none() && tags.is_none() {
-                return;
-            }
-
-            // let gallery_count = get_query_gallery_count.with_untracked(|v| v.is_some());
-            // let direction_is_bottom = get_query_direction.with_untracked(|v| v.is_some());
-            // let time = get_query_time.with_untracked(|v| v.is_some());
-            // let current_gallery_count = gallery.with_untracked(|v| v.len());
-
-            // if gallery_api.is_empty() || (gallery_count || direction_is_bottom || time) {
-            //     return;
-            // }
-
-            let width = gallery_elm.client_width() as u32;
-            let height = gallery_elm.client_height() as f64;
-            let count = calc_fit_count(width, height, row_height) as u32;
-            // let time = time_now_ms() as u128 * 1000_000;
-
-            gallery_api.reset();
-            set_query_gallery_count.set(None);
-            set_query_direction.set(None);
-            set_query_time.set(None);
-
-            set_gallery(true, width, height, count, user_username);
-        });
-
-        gallery_ref.add_mutation_observer(
-            move |entries, observer| {
-                trace!("IT HAS MUTATED");
-                let Some(gallery_elm) = gallery_ref.get_untracked() else {
-                    trace!("gallery NOT found");
-                    return;
-                };
-                let delayed_scroll_value = delayed_scroll.get_untracked();
-                trace!("delayed scroll value {delayed_scroll_value}");
-                if delayed_scroll_value == 0 || gallery_api.is_empty() {
-                    return;
-                }
-                gallery_elm.scroll_by_with_x_and_y(0.0, delayed_scroll_value as f64);
-                delayed_scroll.set(0);
-            },
-            MutationObserverOptions::new().set_child_list(),
-        );
+        // gallery_ref.add_mutation_observer(
+        //     move |entries, observer| {
+        //         trace!("IT HAS MUTATED");
+        //         let Some(gallery_elm) = gallery_ref.get_untracked() else {
+        //             trace!("gallery NOT found");
+        //             return;
+        //         };
+        //         // trace!("delayed scroll value {delayed_scroll_value}");
+        //         // if delayed_scroll_value == 0 || gallery_api.is_empty() {
+        //         //     return;
+        //         // }
+        //
+        //         if gallery_api.is_empty() {
+        //             return;
+        //         }
+        //
+        //         let first_elm = gallery_elm.first_element_child();
+        //         // .map(|v| Into::<JsValue>::into(v))
+        //         // .map(|v| Into::<Element>::into(v));
+        //         if let Some(first_elm) = first_elm {
+        //             trace!("mutation hooked to first elm");
+        //             intersection_top.observe_only(first_elm);
+        //         } else {
+        //             trace!("mutation NOT hooked to first elm");
+        //         }
+        //         let last_elm = gallery_elm
+        //             // .last_child()
+        //             .last_element_child();
+        //         // .map(|v| Into::<JsValue>::into(v))
+        //         // .map(|v| Into::<Element>::into(v));
+        //         if let Some(last_elm) = last_elm {
+        //             trace!("mutation hooked to last elm");
+        //             intersection_down.observe_only(last_elm);
+        //         } else {
+        //             trace!("mutation NOT hooked to last elm");
+        //         }
+        //
+        //         let delayed_scroll_value = delayed_scroll.get_value();
+        //         trace!("delayed scroll {delayed_scroll_value}");
+        //         if delayed_scroll_value == 0.0 {
+        //             return;
+        //         }
+        //
+        //         // gallery_elm.scroll_by_with_x_and_y(0.0, delayed_scroll_value as f64);
+        //         delayed_scroll.set_value(0.0);
+        //     },
+        //     MutationObserverOptions::new().set_child_list(),
+        // );
 
         let a = view! {
             <div
@@ -579,94 +488,111 @@ pub mod gallery {
         a
     }
 
+    pub fn elm_id_img_thumbnail(key: impl Into<String>) -> String {
+        format!("{}-thumbnail", key.into())
+    }
+
+    pub fn elm_id_img_link(key: impl Into<String>) -> String {
+        format!("{}-link", key.into())
+    }
+
+    // pub fn GalleryImg<FetchBtmFn, FetchTopFn, OnClickFn>(
     #[component]
-    pub fn GalleryImg<FetchBtmFn, FetchTopFn, OnClickFn>(
+    pub fn GalleryImg(
         img: Img,
-        index: usize,
-        total_count: usize,
-        run_on_click: OnClickFn,
-        run_fetch_bottom: FetchBtmFn,
-        run_fetch_top: FetchTopFn,
+        // index: usize,
+        // total_count: usize,
+        // run_on_click: OnClickFn,
+        // run_fetch_bottom: FetchBtmFn,
+        // run_fetch_top: FetchTopFn,
     ) -> impl IntoView
-    where
-        OnClickFn: Fn(MouseEvent, Img) + Send + Sync + 'static + Clone,
-        FetchBtmFn: Fn() + Send + Sync + 'static + Clone,
-        FetchTopFn: Fn() + Send + Sync + 'static + Clone,
+// where
+    //     OnClickFn: Fn(MouseEvent, Img) + Send + Sync + 'static + Clone,
+    //     FetchBtmFn: Fn() + Send + Sync + 'static + Clone,
+    //     FetchTopFn: Fn() + Send + Sync + 'static + Clone,
     {
-        let img_ref = NodeRef::<html::Img>::new();
-        let link_ref = NodeRef::<html::A>::new();
+        // let img_ref = NodeRef::<html::Img>::new();
+        // let link_ref = NodeRef::<html::A>::new();
+        //
+        // let query = use_query_map();
+        // let (get_query_scroll, set_query_scroll) = query_signal::<usize>("s");
+        // let activated = StoredValue::new(false);
+        //
+        // img_ref.add_intersection_observer_with_options(
+        //     move |entry, _observer| {
+        //         let Some(entry) = entry.first() else {
+        //             return;
+        //         };
+        //         let is_intersecting = entry.is_intersecting();
+        //
+        //         if !is_intersecting {
+        //             activated.set_value(true);
+        //             return;
+        //         }
+        //
+        //         if !activated.get_value() {
+        //             return;
+        //         }
+        //
+        //         activated.set_value(false);
+        //
+        //         let elm_on_which_fetches = total_count / 3;
+        //         if index == total_count.saturating_sub(elm_on_which_fetches)
+        //             || index == total_count.saturating_sub(1)
+        //         {
+        //             run_fetch_bottom();
+        //             trace!("intersection fn last {index} is intesecting: {is_intersecting}");
+        //         } else if index == elm_on_which_fetches || index == 0 {
+        //             run_fetch_top();
+        //             trace!("intersection fn first {index} is intesecting: {is_intersecting}");
+        //         }
+        //     },
+        //     IntersectionOptions::<Div>::default(),
+        // );
 
-        let query = use_query_map();
-        let (get_query_scroll, set_query_scroll) = query_signal::<usize>("s");
-        let activated = StoredValue::new(false);
-
-        img_ref.add_intersection_observer_with_options(
-            move |entry, _observer| {
-                let Some(entry) = entry.first() else {
-                    return;
-                };
-                let is_intersecting = entry.is_intersecting();
-
-                if !is_intersecting {
-                    activated.set_value(true);
-                    return;
-                }
-
-                if !activated.get_value() {
-                    return;
-                }
-
-                activated.set_value(false);
-
-                let elm_on_which_fetches = total_count / 3;
-                if index == total_count.saturating_sub(elm_on_which_fetches)
-                    || index == total_count.saturating_sub(1)
-                {
-                    run_fetch_bottom();
-                    trace!("intersection fn last {index} is intesecting: {is_intersecting}");
-                } else if index == elm_on_which_fetches || index == 0 {
-                    run_fetch_top();
-                    trace!("intersection fn first {index} is intesecting: {is_intersecting}");
-                }
-            },
-            IntersectionOptions::<Div>::default(),
-        );
-
+        // let img_key = img.key;
         let view_left = img.view_pos_x;
         let view_top = img.view_pos_y;
         let view_width = img.view_width;
         let view_height = img.view_height;
         let img_width = img.width;
         let img_height = img.height;
-        let img_id = img.key.clone();
+        let img_key = img.key.clone();
+        let img_key2 = img.key.clone();
         let img_username = img.username.clone();
         let post_link = img.get_post_link();
         // let post_link_with_history = img.get_post_link_with_history(9999);
         let img_link = img.get_img_link();
 
-        let fn_left = move || format!("{view_left}px");
-        let fn_top = move || format!("{view_top}px");
-        let fn_width = move || format!("{view_width}px");
-        let fn_height = move || format!("{view_height}px");
+        let value_left = format!("{view_left}px");
+        let value_top = format!("{view_top}px");
+        let value_width = format!("{view_width}px");
+        let value_height = format!("{view_height}px");
+        let value_width2 = value_width.clone();
+        let value_height2 = value_height.clone();
 
-        let on_img_click = move |e: MouseEvent| {
-            run_on_click(e, img.clone());
-        };
+        // let on_img_click = move |e: MouseEvent| {
+        //     run_on_click(e, img.clone());
+        // };
+        // node_ref=link_ref
+        // on:click=on_img_click
 
         view! {
 
             <a
+               id=elm_id_img_link(img_key)
                href=post_link
-               node_ref=link_ref
-               on:click=on_img_click
+               class="absolute"
+               style:left=value_left
+               style:top=value_top
+               style:width=value_width
+               style:height=value_height
             >
                 <img
-                    class="absolute"
-                    node_ref=img_ref
-                    style:left=fn_left
-                    style:top=fn_top
-                    style:width=fn_width
-                    style:height=fn_height
+                    id=elm_id_img_thumbnail(img_key2)
+                    style:width=value_width2
+                    style:height=value_height2
+                    // node_ref=img_ref
                     src=img_link
                 />
             </a>

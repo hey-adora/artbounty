@@ -4,20 +4,159 @@ pub mod prelude {
     pub use super::file::{self, GetFileStream, GetFiles, GetStreamChunk, PushChunkToVec};
     pub use super::intersection_observer::{self, AddIntersectionObserver, IntersectionOptions};
     pub use super::interval::{self};
-    pub use super::timeout::{set_timeout, SetTimeoutError};
     pub use super::leptos_helpers::{
         FnRun, FnRunT0, FnRunT1, Hidden, QueryField, QueryFn, QueryGetter, RwQuery, ToFnT0, ToFnT1,
         ToQueryField,
     };
+
+
     pub use super::mutation_observer::{self, AddMutationObserver, MutationObserverOptions};
     pub use super::random::{random_u8, random_u32, random_u32_ranged, random_u64};
     pub use super::resize_observer::{self, AddResizeObserver, GetContentBoxSize};
     pub use super::rw_signal_tree::RwSignalTree;
     pub use super::time::{ns_to_str, time_now_ms, time_now_ns};
+    pub use super::timeout::{SetTimeoutError, set_timeout};
+
+    #[cfg(feature = "testing")]
+    pub use super::debugger::StoredValueWrap;
 }
 
 // TODO fx bs api, create struct abstraction over web api and let user freely use it anywhere
 // TODO edit: good luck wit that mate
+
+#[cfg(feature = "testing")]
+pub mod debugger {
+    use leptos::prelude::*;
+    use std::{
+        fmt::Debug,
+        sync::{LazyLock, RwLock},
+    };
+    use web_sys::js_sys::{Array, Object, Reflect};
+
+    use wasm_bindgen::prelude::*;
+
+    #[derive(Clone, Debug, Default)]
+    pub struct DebugState {
+        pub data: Vec<DataWrap>,
+        // pub delayed_scroll: Vec<Vec<f64>>,
+        // pub delayed_scroll: Vec<Vec<f64>>,
+        // pub delayed_scroll: Vec<StoredValue<f64, LocalStorage>>,
+    }
+
+    #[derive(Clone, Debug, Default)]
+    pub struct DataWrap {
+        pub label: String,
+        pub active: bool,
+        pub data: Vec<String>,
+    }
+
+    pub static DEBUG_STATE: LazyLock<RwLock<DebugState>> =
+        LazyLock::new(|| RwLock::new(DebugState::default()));
+
+    #[wasm_bindgen]
+    pub fn get_debug_state() -> Array {
+        let state = DEBUG_STATE.read().unwrap();
+
+        let output = Array::new();
+        for wrap in &state.data {
+            let value_output = Array::new();
+            for value in &wrap.data {
+                value_output.push(&JsValue::from_str(value));
+            }
+            let label = JsValue::from_str(&wrap.label);
+            let active = JsValue::from_bool(wrap.active);
+            let label_and_values = Object::new();
+            Reflect::set(&label_and_values, &JsValue::from_str("label"), &label).unwrap();
+            Reflect::set(&label_and_values, &JsValue::from_str("active"), &active).unwrap();
+            Reflect::set(
+                &label_and_values,
+                &JsValue::from_str("value"),
+                &JsValue::from(value_output),
+            )
+            .unwrap();
+            output.push(&label_and_values);
+            // label_and_values.p
+            // output.push(value);
+        }
+
+        // kill_pos_koks();
+
+        // DEBUG_STATE
+        // let wtf = KILLME2.with_borrow(|v| {
+        //     // let v = v.get_mut();
+        //     *v
+        // });
+
+        // trace!("wowza2 {}", wtf);
+        output
+    }
+
+    pub struct StoredValueWrap<T> {
+        pub label: String,
+        slot: usize,
+        stored_value: StoredValue<T, LocalStorage>,
+    }
+
+    impl<T: 'static + Debug> StoredValueWrap<T> {
+        pub fn new(label: impl Into<String>, t: T) -> Self {
+            let label = label.into();
+            let slot = {
+                let mut state = DEBUG_STATE.write().unwrap();
+                let index = state.data.len();
+                // (label.clone(), Vec::new())
+                state.data.push(DataWrap {
+                    label: label.clone(),
+                    active: true,
+                    data: Vec::new(),
+                });
+                index
+            };
+
+            let stored_value = StoredValue::new_local(t);
+
+            on_cleanup(move || {
+                let mut state = DEBUG_STATE.write().unwrap();
+                let wrap = &mut state.data[slot];
+                wrap.active = false;
+            });
+
+            Self {
+                label,
+                slot,
+                stored_value,
+            }
+        }
+
+        pub fn set_value(&self, t: T) {
+            let mut state = DEBUG_STATE.write().unwrap();
+            let wrap = &mut state.data[self.slot];
+            wrap.data.push(format!("{:?}", t));
+            // state.data.push();
+            self.stored_value.set_value(t);
+        }
+    }
+
+    // pub trait SetValueWithDebug {
+    //
+    //     fn set_value_with_debug(&self);
+    //
+    // }
+    //
+    // impl <T, S> SetValueWithDebug for StoredValue<T, S> {
+    //     //
+    //
+    //     fn set_value_with_debug(&self, t: T) {
+    //         let state = DEBUG_STATE.write().unwrap();
+    //         state.data
+    //
+    //     }
+    //
+    // }
+
+    // #[cfg(feature = "testing")]
+
+    // #[cfg(feature = "testing")]
+}
 
 pub mod time {
 
@@ -1098,7 +1237,10 @@ pub mod mutation_observer {
             });
 
             let options = options.clone().into();
-            raw_observer.observe_with_options(&target, &options);
+            let result = raw_observer.observe_with_options(&target, &options);
+            if result.is_err() {
+                error!("mutatino observation failed");
+            }
 
             span.exit();
         });

@@ -164,6 +164,8 @@ pub fn App() -> impl IntoView {
     provide_context(GlobalState::new());
     let global_state = expect_context::<GlobalState>();
 
+    info!("GLOBAL STATE SET");
+
     let api = ApiWeb::new();
 
     Effect::new(move || {

@@ -4,9 +4,11 @@ use ab_glyph::{FontRef, PxScale};
 use artbounty::{
     api::{Api, ApiNative, ServerReqImg},
     path::{
-        PATH_API_SEND_EMAIL_INVITE, PATH_API_LOGIN, PATH_API_POST_ADD, PATH_API_REGISTER, PATH_API_USER,
+        PATH_API_LOGIN, PATH_API_POST_ADD, PATH_API_REGISTER, PATH_API_SEND_EMAIL_INVITE,
+        PATH_API_USER,
     },
 };
+
 use clap::{Command, arg};
 use image::{Rgb, RgbImage};
 use imageproc::drawing::draw_text;
@@ -48,7 +50,6 @@ async fn main() {
             let mut rng = rand::rng();
 
             for i in 0..count {
-
                 let mut image = RgbImage::new(200, 200);
                 let r = rng.random_range(200u8..255);
                 let g = rng.random_range(200u8..255);
@@ -62,7 +63,8 @@ async fn main() {
                     y: height,
                 };
 
-                let font = FontRef::try_from_slice(include_bytes!("../../assets/noto_sans.ttf")).unwrap();
+                let font =
+                    FontRef::try_from_slice(include_bytes!("../../assets/noto_sans.ttf")).unwrap();
                 let img = draw_text(
                     &mut image,
                     Rgb([0u8, 0u8, 0u8]),
@@ -80,6 +82,7 @@ async fn main() {
                     .add_post(
                         "title1",
                         "wow",
+                        "",
                         Vec::from([ServerReqImg {
                             path: path.to_string(),
                             data: img.clone(),

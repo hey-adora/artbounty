@@ -1497,10 +1497,16 @@ pub fn verify_password<T: AsRef<[u8]>, S2: AsRef<str>>(
 pub fn hash_password<S: Into<String>>(password: S) -> Result<String, argon2::password_hash::Error> {
     use argon2::{
         Argon2, PasswordHasher,
-        password_hash::{SaltString, rand_core::OsRng},
+        password_hash::{
+            SaltString,
+            rand_core::{OsRng, RngCore},
+        },
     };
 
-    let salt = SaltString::generate(&mut OsRng);
+    let rng = &mut OsRng;
+    let mut bytes = [0u8; 10]; // 10 is salt length, bigger = slower = more secure
+    rng.fill_bytes(&mut bytes);
+    let salt = SaltString::encode_b64(&bytes)?;
     let argon2 = Argon2::default();
     let password = password.into();
     let password_hash = argon2

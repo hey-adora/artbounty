@@ -10,6 +10,8 @@ pub mod use_infinite_scroll_fn;
 pub mod use_future;
 pub mod use_mutation;
 pub mod use_intersection;
+pub mod use_intersection_switch;
+pub mod use_scroll_correction;
 pub mod use_event_listener;
 pub mod use_post_comment;
 pub mod use_post_comments_baisc;

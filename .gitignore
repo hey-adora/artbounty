@@ -39,3 +39,9 @@ files
 log1.txt
 artbounty/logs
 font.ttf
+
+# Playwright
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/

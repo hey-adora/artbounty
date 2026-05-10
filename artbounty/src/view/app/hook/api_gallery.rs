@@ -35,22 +35,16 @@ pub struct GalleryApi<API: Api> {
     pub items: RwSignal<Vec<Img>, LocalStorage>,
 
     // params
-    // pub post_key: StoredValue<String, LocalStorage>,
-    // pub input_elm: StoredValue::;
-    // pub post_key: StoredValue<String, LocalStorage>,
-    // pub size: StoredValue<PostContainerSize, LocalStorage>,
-    pub fetch_count: usize,
-    pub api: API,
+    pub api_top: API,
+    pub api_btm: API,
 }
 
 impl<API: Api> GalleryApi<API> {
-    pub fn new(api: API, fetch_count: usize) -> Self {
+    pub fn new(api_top: API, api_btm: API) -> Self {
         Self {
             items: RwSignal::new_local(Vec::new()),
-            // size: StoredValue::new_local(PostContainerSize::default()),
-            // post_key: StoredValue::new_local(String::new()),
-            fetch_count,
-            api,
+            api_top,
+            api_btm,
         }
     }
 
@@ -67,16 +61,9 @@ impl<API: Api> GalleryApi<API> {
         files: Vec<ServerReqImg>,
     ) -> f64 {
         let items = self.items;
-        // let size = self.size.get_value();
-        // if size.row_height == 0 || size.height == 0.0 || size.width == 0 {
-        //     warn!("required params size({size:?} were not set)");
-        //     return 0.0;
-        // }
-        // let post_key = self.post_key.get_value();
-        // let limit = self.fetch_count;
 
         let result = self
-            .api
+            .api_top
             .add_post(title, description, tags, files)
             .send_native()
             .await;
@@ -114,8 +101,7 @@ impl<API: Api> GalleryApi<API> {
 
     pub async fn fetch(
         self,
-        // is_bottom: bool,
-        // time: u128,
+        limit: usize,
         size: GalleryContainerSize,
         time_range: TimeRange,
         order: Order,
@@ -125,14 +111,6 @@ impl<API: Api> GalleryApi<API> {
         let tags = tags.into();
         let username = username.into();
         let items = self.items;
-        let is_empty = items.with_untracked(|v| v.is_empty());
-        // let post_key = self.post_key.get_value();
-        let limit = self.fetch_count;
-        // let size = self.size.get_value();
-        // if size.row_height == 0 || size.height == 0.0 || size.width == 0 {
-        //     warn!("required params size({size:?} were not set)");
-        //     return 0.0;
-        // }
 
         let is_bottom = match time_range {
             TimeRange::None => true,
@@ -141,13 +119,14 @@ impl<API: Api> GalleryApi<API> {
             TimeRange::More(_) => false,
             TimeRange::MoreOrEqual(_) => false,
         };
-        // let time_range = match (is_empty, is_bottom) {
-        //     (true, true) => TimeRange::LessOrEqual(()),
-        //
-        // }
 
-        let result = self
-            .api
+        let api = if is_bottom {
+            &self.api_top
+        } else {
+            &self.api_btm
+        };
+
+        let result = api
             .get_posts(limit, time_range, order, tags, username)
             .send_native()
             .await;
@@ -166,38 +145,6 @@ impl<API: Api> GalleryApi<API> {
                 items.set(resized_imgs);
 
                 return scroll_by;
-
-                // let fetch_count = self.fetch_count;
-                // let len = comments.len();
-
-                // return comments;
-                // trace!(
-                //     "comments manual (len){len} < (fetch_count){fetch_count} = {}",
-                //     len < fetch_count
-                // );
-                //
-                // if len == fetch_count {
-                //     finished.set(false);
-                // } else if !finished.get_untracked() && len < fetch_count {
-                //     finished.set(true);
-                // }
-                //
-                // if len > 0 {
-                //     let replies_count = self.replies_count;
-                //     self.items.update(|v| {
-                //         trace!("comments manual before {v:#?}");
-                //         v.extend(comments);
-                //         let len = v.len();
-                //
-                //         trace!("replies count {} {}", replies_count.get_untracked(), len);
-                //         // panic!("stop");
-                //         if replies_count.get_untracked() < len {
-                //             replies_count.set(len);
-                //
-                //         }
-                //         trace!("comments manual after {v:#?}");
-                //     });
-                // }
             }
             Ok(err) => {
                 let err = format!("post comments basic: unexpected res: {err:?}");
@@ -216,6 +163,7 @@ impl<API: Api> GalleryApi<API> {
 
     pub async fn fetch_btm(
         self,
+        limit: usize,
         size: GalleryContainerSize,
         current_time: u128,
         tags: impl Into<String>,
@@ -227,12 +175,13 @@ impl<API: Api> GalleryApi<API> {
             .map(TimeRange::Less)
             .unwrap_or(TimeRange::LessOrEqual(current_time));
 
-        self.fetch(size, time_range, Order::ThreeTwoOne, tags, username)
+        self.fetch(limit, size, time_range, Order::ThreeTwoOne, tags, username)
             .await
     }
 
     pub async fn fetch_top(
         self,
+        limit: usize,
         size: GalleryContainerSize,
         current_time: u128,
         tags: impl Into<String>,
@@ -244,22 +193,25 @@ impl<API: Api> GalleryApi<API> {
             .map(TimeRange::More)
             .unwrap_or(TimeRange::MoreOrEqual(current_time));
 
-        self.fetch(size, time_range, Order::ThreeTwoOne, tags, username)
+        self.fetch(limit, size, time_range, Order::ThreeTwoOne, tags, username)
             .await
     }
 
     pub async fn fetch_btm_or_top(
         self,
         is_bottom: bool,
+        limit: usize,
         size: GalleryContainerSize,
         current_time: u128,
         tags: impl Into<String>,
         username: impl Into<String>,
     ) -> f64 {
         if is_bottom {
-            self.fetch_btm(size, current_time, tags, username).await
+            self.fetch_btm(limit, size, current_time, tags, username)
+                .await
         } else {
-            self.fetch_top(size, current_time, tags, username).await
+            self.fetch_top(limit, size, current_time, tags, username)
+                .await
         }
     }
 
@@ -275,24 +227,12 @@ impl<API: Api> GalleryApi<API> {
 #[cfg(test)]
 pub mod tests {
     use crate::{
-        api::{
-            Order, ServerReqImg, TimeRange, shared::post_comment::UserPostComment,
-            tests::ApiTestApp,
-        },
-        view::{
-            app::hook::{
-                api_gallery::{GalleryApi, GalleryContainerSize},
-                api_post_comments::{CommentKind, CommentKind2, CommentsApi, CommentsApi2},
-            },
-            logger,
-            toolbox::prelude::*,
-        },
+        api::{ServerReqImg, tests::ApiTestApp},
+        view::app::hook::api_gallery::{GalleryApi, GalleryContainerSize},
     };
     use hydration_context::HydrateSharedContext;
     use leptos::prelude::*;
     use std::sync::Arc;
-    use surrealdb::types::ToSql;
-    use tokio::process::Command;
     use tracing::{debug, trace};
 
     use crate::init_test_log;
@@ -342,7 +282,7 @@ pub mod tests {
 
         app.api.pre_load_token = auth_token.clone();
 
-        let post_api = GalleryApi::new(&app.api, 10);
+        let post_api = GalleryApi::new(&app.api, &app.api);
         let size = GalleryContainerSize {
             width: 100,
             height: 100.0,
@@ -389,44 +329,44 @@ pub mod tests {
         assert_eq!(items.len(), 3);
 
         app.set_time(4).await;
-        let post_api2 = GalleryApi::new(&app.api, 10);
-        post_api2.fetch_btm(size, 4, "", "").await;
+        let post_api2 = GalleryApi::new(&app.api, &app.api);
+        post_api2.fetch_btm(10, size, 4, "", "").await;
         let items = post_api2.items.get_untracked();
         assert_eq!(items.len(), 3);
 
-        let post_api3 = GalleryApi::new(&app.api, 2);
-        post_api3.fetch_btm(size, 4, "", "").await;
+        let post_api3 = GalleryApi::new(&app.api, &app.api);
+        post_api3.fetch_btm(2, size, 4, "", "").await;
         let items = post_api3.items.get_untracked();
         assert_eq!(items.len(), 2);
-        post_api3.fetch_btm(size, 4, "", "").await;
+        post_api3.fetch_btm(2, size, 4, "", "").await;
         let items = post_api3.items.get_untracked();
         assert_eq!(items.len(), 3);
 
-        let post_api = GalleryApi::new(&app.api, 2);
-        post_api.fetch_top(size, 4, "", "").await;
+        let post_api = GalleryApi::new(&app.api, &app.api);
+        post_api.fetch_top(2, size, 4, "", "").await;
         let items = post_api.items.get_untracked();
         assert_eq!(items.len(), 0);
 
-        let post_api = GalleryApi::new(&app.api, 2);
-        post_api.fetch_top(size, 0, "", "").await;
+        let post_api = GalleryApi::new(&app.api, &app.api);
+        post_api.fetch_top(2, size, 0, "", "").await;
         let items = post_api.items.get_untracked();
         assert_eq!(items.len(), 2);
-        post_api.fetch_top(size, 0, "", "").await;
+        post_api.fetch_top(2, size, 0, "", "").await;
         let items = post_api.items.get_untracked();
         assert_eq!(items.len(), 2);
 
-        let post_api = GalleryApi::new(&app.api, 50);
-        post_api.fetch_btm(size, 4, "", "").await;
+        let post_api = GalleryApi::new(&app.api, &app.api);
+        post_api.fetch_btm(50, size, 4, "", "").await;
         let items = post_api.items.get_untracked();
         trace!("ITEMS1: {items:#?}");
         assert_eq!(items.len(), 3);
-        post_api.fetch_top(size, 4, "", "").await;
+        post_api.fetch_top(50, size, 4, "", "").await;
         let items = post_api.items.get_untracked();
         trace!("ITEMS2: {items:#?}");
         assert_eq!(items.len(), 3);
 
         app.api.pre_load_token = auth_token2.clone();
-        let post_api = GalleryApi::new(&app.api, 2);
+        let post_api = GalleryApi::new(&app.api, &app.api);
 
         app.set_time(5).await;
         post_api
@@ -460,20 +400,20 @@ pub mod tests {
             .await;
 
         app.set_time(8).await;
-        let post_api2 = GalleryApi::new(&app.api, 2);
-        post_api2.fetch_btm(size, 8, "one", "hey2").await;
+        let post_api2 = GalleryApi::new(&app.api, &app.api);
+        post_api2.fetch_btm(2, size, 8, "one", "hey2").await;
         let items = post_api2.items.get_untracked();
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].created_at, 7);
         assert_eq!(items[1].created_at, 6);
-        post_api2.fetch_btm(size, 8, "one", "hey2").await;
+        post_api2.fetch_btm(2, size, 8, "one", "hey2").await;
         let items = post_api2.items.get_untracked();
         assert_eq!(items.len(), 3);
         assert_eq!(items[2].created_at, 5);
 
         app.set_time(9).await;
-        let post_api2 = GalleryApi::new(&app.api, 3);
-        post_api2.fetch_btm(size, 9, "one two", "hey2").await;
+        let post_api2 = GalleryApi::new(&app.api, &app.api);
+        post_api2.fetch_btm(3, size, 9, "one two", "hey2").await;
         let items = post_api2.items.get_untracked();
         assert_eq!(items.len(), 2);
 

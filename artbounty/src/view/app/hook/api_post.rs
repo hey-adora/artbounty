@@ -168,7 +168,7 @@ pub mod tests {
 
         app.api.pre_load_token = auth_token.clone();
 
-        let gallery_api = GalleryApi::new(&app.api, 10);
+        let gallery_api = GalleryApi::new(&app.api, &app.api);
         let size = GalleryContainerSize {
             width: 100,
             height: 100.0,
@@ -214,7 +214,7 @@ pub mod tests {
 
         app.api.pre_load_token = auth_token.clone();
 
-        let gallery_api = GalleryApi::new(&app.api, 10);
+        let gallery_api = GalleryApi::new(&app.api, &app.api);
         let size = GalleryContainerSize {
             width: 100,
             height: 100.0,
