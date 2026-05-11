@@ -8,7 +8,7 @@ use crate::{
             components::gallery::{Img, add_imgs_to_bottom, add_imgs_to_top},
             hook::{
                 use_future::FutureFn, use_infinite_scroll_basic::InfiniteBasic,
-                use_infinite_scroll_fn::InfiniteItem,
+                use_infinite_scroll_fn::InfiniteItem, use_scroll_correction::ScrollCorrection,
             },
         },
         toolbox::prelude::*,
@@ -33,15 +33,18 @@ pub struct GalleryContainerSize {
 pub struct GalleryApi<API: Api> {
     // ui
     pub items: RwSignal<Vec<Img>, LocalStorage>,
-
+    pub scroll_correction_handle: ScrollCorrection,
     // params
     pub api_top: API,
     pub api_btm: API,
 }
 
+// TODO maybe it would be better design to have these as seperate functions, without struct
+// abstraction
 impl<API: Api> GalleryApi<API> {
-    pub fn new(api_top: API, api_btm: API) -> Self {
+    pub fn new(api_top: API, api_btm: API, scroll_correction_handle: ScrollCorrection) -> Self {
         Self {
+            scroll_correction_handle,
             items: RwSignal::new_local(Vec::new()),
             api_top,
             api_btm,
@@ -111,6 +114,7 @@ impl<API: Api> GalleryApi<API> {
         let tags = tags.into();
         let username = username.into();
         let items = self.items;
+        let scroll_correction = self.scroll_correction_handle;
 
         let is_bottom = match time_range {
             TimeRange::None => true,
@@ -141,7 +145,7 @@ impl<API: Api> GalleryApi<API> {
                 } else {
                     add_imgs_to_top(old_imgs, new_imgs, size.width, size.height, size.row_height)
                 };
-
+                scroll_correction.update();
                 items.set(resized_imgs);
 
                 return scroll_by;
@@ -228,7 +232,7 @@ impl<API: Api> GalleryApi<API> {
 pub mod tests {
     use crate::{
         api::{ServerReqImg, tests::ApiTestApp},
-        view::app::hook::api_gallery::{GalleryApi, GalleryContainerSize},
+        view::app::hook::{api_gallery::{GalleryApi, GalleryContainerSize}, use_scroll_correction::ScrollCorrection},
     };
     use hydration_context::HydrateSharedContext;
     use leptos::prelude::*;
@@ -268,6 +272,7 @@ pub mod tests {
         println!("hello");
         init_test_log();
         let owner = Owner::new_root(Some(Arc::new(HydrateSharedContext::new())));
+        let scroll_corerction = ScrollCorrection::new();
         let mut app = ApiTestApp::new(10).await;
 
         let auth_token = app
@@ -282,7 +287,7 @@ pub mod tests {
 
         app.api.pre_load_token = auth_token.clone();
 
-        let post_api = GalleryApi::new(&app.api, &app.api);
+        let post_api = GalleryApi::new(&app.api, &app.api, scroll_corerction.clone());
         let size = GalleryContainerSize {
             width: 100,
             height: 100.0,
@@ -329,12 +334,12 @@ pub mod tests {
         assert_eq!(items.len(), 3);
 
         app.set_time(4).await;
-        let post_api2 = GalleryApi::new(&app.api, &app.api);
+        let post_api2 = GalleryApi::new(&app.api, &app.api, scroll_corerction.clone());
         post_api2.fetch_btm(10, size, 4, "", "").await;
         let items = post_api2.items.get_untracked();
         assert_eq!(items.len(), 3);
 
-        let post_api3 = GalleryApi::new(&app.api, &app.api);
+        let post_api3 = GalleryApi::new(&app.api, &app.api, scroll_corerction.clone());
         post_api3.fetch_btm(2, size, 4, "", "").await;
         let items = post_api3.items.get_untracked();
         assert_eq!(items.len(), 2);
@@ -342,12 +347,12 @@ pub mod tests {
         let items = post_api3.items.get_untracked();
         assert_eq!(items.len(), 3);
 
-        let post_api = GalleryApi::new(&app.api, &app.api);
+        let post_api = GalleryApi::new(&app.api, &app.api, scroll_corerction.clone());
         post_api.fetch_top(2, size, 4, "", "").await;
         let items = post_api.items.get_untracked();
         assert_eq!(items.len(), 0);
 
-        let post_api = GalleryApi::new(&app.api, &app.api);
+        let post_api = GalleryApi::new(&app.api, &app.api, scroll_corerction.clone());
         post_api.fetch_top(2, size, 0, "", "").await;
         let items = post_api.items.get_untracked();
         assert_eq!(items.len(), 2);
@@ -355,7 +360,7 @@ pub mod tests {
         let items = post_api.items.get_untracked();
         assert_eq!(items.len(), 2);
 
-        let post_api = GalleryApi::new(&app.api, &app.api);
+        let post_api = GalleryApi::new(&app.api, &app.api, scroll_corerction.clone());
         post_api.fetch_btm(50, size, 4, "", "").await;
         let items = post_api.items.get_untracked();
         trace!("ITEMS1: {items:#?}");
@@ -366,7 +371,7 @@ pub mod tests {
         assert_eq!(items.len(), 3);
 
         app.api.pre_load_token = auth_token2.clone();
-        let post_api = GalleryApi::new(&app.api, &app.api);
+        let post_api = GalleryApi::new(&app.api, &app.api, scroll_corerction.clone());
 
         app.set_time(5).await;
         post_api
@@ -400,7 +405,7 @@ pub mod tests {
             .await;
 
         app.set_time(8).await;
-        let post_api2 = GalleryApi::new(&app.api, &app.api);
+        let post_api2 = GalleryApi::new(&app.api, &app.api, scroll_corerction.clone());
         post_api2.fetch_btm(2, size, 8, "one", "hey2").await;
         let items = post_api2.items.get_untracked();
         assert_eq!(items.len(), 2);
@@ -412,7 +417,7 @@ pub mod tests {
         assert_eq!(items[2].created_at, 5);
 
         app.set_time(9).await;
-        let post_api2 = GalleryApi::new(&app.api, &app.api);
+        let post_api2 = GalleryApi::new(&app.api, &app.api, scroll_corerction.clone());
         post_api2.fetch_btm(3, size, 9, "one two", "hey2").await;
         let items = post_api2.items.get_untracked();
         assert_eq!(items.len(), 2);

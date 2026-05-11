@@ -140,6 +140,7 @@ pub mod tests {
                 api_gallery::{GalleryApi, GalleryContainerSize, tests::create_img_req},
                 api_post::PostApi,
                 api_post_comments::{CommentKind, CommentKind2, CommentsApi, CommentsApi2},
+                use_scroll_correction::ScrollCorrection,
             },
             logger,
             toolbox::prelude::*,
@@ -161,6 +162,8 @@ pub mod tests {
         let owner = Owner::new_root(Some(Arc::new(HydrateSharedContext::new())));
         let mut app = ApiTestApp::new(10).await;
 
+        let scroll_correction = ScrollCorrection::new();
+
         let auth_token = app
             .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
             .await
@@ -168,7 +171,7 @@ pub mod tests {
 
         app.api.pre_load_token = auth_token.clone();
 
-        let gallery_api = GalleryApi::new(&app.api, &app.api);
+        let gallery_api = GalleryApi::new(&app.api, &app.api, scroll_correction.clone());
         let size = GalleryContainerSize {
             width: 100,
             height: 100.0,
@@ -207,6 +210,8 @@ pub mod tests {
         let owner = Owner::new_root(Some(Arc::new(HydrateSharedContext::new())));
         let mut app = ApiTestApp::new(10).await;
 
+        let scroll_correction = ScrollCorrection::new();
+
         let auth_token = app
             .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
             .await
@@ -214,7 +219,7 @@ pub mod tests {
 
         app.api.pre_load_token = auth_token.clone();
 
-        let gallery_api = GalleryApi::new(&app.api, &app.api);
+        let gallery_api = GalleryApi::new(&app.api, &app.api, scroll_correction.clone());
         let size = GalleryContainerSize {
             width: 100,
             height: 100.0,

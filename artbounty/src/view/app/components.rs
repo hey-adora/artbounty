@@ -177,10 +177,11 @@ pub mod gallery {
         let api_top = ApiWeb::new();
         let api_btm = ApiWeb::new();
         let spawner = Spawner::new();
-        let gallery_api = GalleryApi::new(api_top, api_btm);
+        let scroll_correction = ScrollCorrection::new();
+        let gallery_api = GalleryApi::new(api_top, api_btm, scroll_correction.clone());
         // let gallery = RwSignal::<Vec<Img>>::new(Vec::new());
         // let delayed_scroll = StoredValue::new_local(0.0);
-        let delayed_scroll = StoredValueWrap::new("delayed_scroll", 0.0);
+        // let delayed_scroll = StoredValueWrap::new("delayed_scroll", 0.0);
         let gallery_ref = NodeRef::<Div>::new();
         let is_top_interector_active = StoredValue::new_local(false);
         let is_down_interector_active = StoredValue::new_local(false);
@@ -192,8 +193,6 @@ pub mod gallery {
         let (get_query_direction, set_query_direction) = query_signal::<String>("direction");
         let (get_query_time, set_query_time) = query_signal::<u128>("time");
         let (get_query_tags, set_query_tags) = query_signal::<String>("tags");
-
-        let infinte_scroll = ScrollCorrection::new();
 
         let set_gallery = move |bottom: bool| {
             let Some(gallery_elm) = gallery_ref.try_get_untracked().flatten() else {
@@ -215,8 +214,7 @@ pub mod gallery {
             let tags = get_query_tags.get_untracked();
             trace!("wheres my super suit?");
 
-            infinte_scroll.update();
-
+            // scroll_correction.update();
             spawner.spawn(async move {
                 let scroll = gallery_api
                     .fetch_btm_or_top(
@@ -395,16 +393,17 @@ pub mod gallery {
             let Some(gallery_elm) = gallery_ref.get() else {
                 return;
             };
-            infinte_scroll.observe_only(gallery_elm);
+            scroll_correction.run(gallery_elm);
+            // infinte_scroll.observe_only(gallery_elm);
 
             let is_bottom = get_query_direction
                 .get_untracked()
                 .map(|v| v == "down")
                 .unwrap_or(true);
 
-            if let Some(scroll) = get_query_scroll.get_untracked() {
-                delayed_scroll.set_value(scroll as f64);
-            }
+            // if let Some(scroll) = get_query_scroll.get_untracked() {
+            //     delayed_scroll.set_value(scroll as f64);
+            // }
 
             gallery_api.reset();
             set_gallery(is_bottom);
@@ -424,54 +423,41 @@ pub mod gallery {
         //     set_gallery(true);
         // });
 
-        // gallery_ref.add_mutation_observer(
-        //     move |entries, observer| {
-        //         trace!("IT HAS MUTATED");
-        //         let Some(gallery_elm) = gallery_ref.get_untracked() else {
-        //             trace!("gallery NOT found");
-        //             return;
-        //         };
-        //         // trace!("delayed scroll value {delayed_scroll_value}");
-        //         // if delayed_scroll_value == 0 || gallery_api.is_empty() {
-        //         //     return;
-        //         // }
-        //
-        //         if gallery_api.is_empty() {
-        //             return;
-        //         }
-        //
-        //         let first_elm = gallery_elm.first_element_child();
-        //         // .map(|v| Into::<JsValue>::into(v))
-        //         // .map(|v| Into::<Element>::into(v));
-        //         if let Some(first_elm) = first_elm {
-        //             trace!("mutation hooked to first elm");
-        //             intersection_top.observe_only(first_elm);
-        //         } else {
-        //             trace!("mutation NOT hooked to first elm");
-        //         }
-        //         let last_elm = gallery_elm
-        //             // .last_child()
-        //             .last_element_child();
-        //         // .map(|v| Into::<JsValue>::into(v))
-        //         // .map(|v| Into::<Element>::into(v));
-        //         if let Some(last_elm) = last_elm {
-        //             trace!("mutation hooked to last elm");
-        //             intersection_down.observe_only(last_elm);
-        //         } else {
-        //             trace!("mutation NOT hooked to last elm");
-        //         }
-        //
-        //         let delayed_scroll_value = delayed_scroll.get_value();
-        //         trace!("delayed scroll {delayed_scroll_value}");
-        //         if delayed_scroll_value == 0.0 {
-        //             return;
-        //         }
-        //
-        //         // gallery_elm.scroll_by_with_x_and_y(0.0, delayed_scroll_value as f64);
-        //         delayed_scroll.set_value(0.0);
-        //     },
-        //     MutationObserverOptions::new().set_child_list(),
-        // );
+        gallery_ref.add_mutation_observer(
+            move |entries, observer| {
+                debug_data_push("gallery_mutated", "true");
+                trace!("IT HAS MUTATED");
+                let Some(gallery_elm) = gallery_ref.get_untracked() else {
+                    trace!("gallery NOT found");
+                    return;
+                };
+
+                if gallery_api.is_empty() {
+                    return;
+                }
+
+                scroll_correction.run(gallery_elm.clone());
+
+                if let Some(first_elm) = gallery_elm.first_element_child() {
+                    trace!("mutation hooked to first elm");
+                    intersection_top.observe_only(first_elm);
+                } else {
+                    trace!("mutation NOT hooked to first elm");
+                }
+
+                if let Some(last_elm) = gallery_elm.last_element_child() {
+                    trace!("mutation hooked to last elm");
+                    intersection_down.observe_only(last_elm);
+                } else {
+                    trace!("mutation NOT hooked to last elm");
+                }
+            },
+            MutationObserverOptions::new()
+                .subtree()
+                .set_attributes()
+                .set_child_list(), // .character_data()
+                                   // ,
+        );
 
         let a = view! {
             <div

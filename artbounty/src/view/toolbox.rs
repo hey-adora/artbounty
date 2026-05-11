@@ -9,7 +9,6 @@ pub mod prelude {
         ToQueryField,
     };
 
-
     pub use super::mutation_observer::{self, AddMutationObserver, MutationObserverOptions};
     pub use super::random::{random_u8, random_u32, random_u32_ranged, random_u64};
     pub use super::resize_observer::{self, AddResizeObserver, GetContentBoxSize};
@@ -18,7 +17,7 @@ pub mod prelude {
     pub use super::timeout::{SetTimeoutError, set_timeout};
 
     #[cfg(feature = "testing")]
-    pub use super::debugger::StoredValueWrap;
+    pub use super::debugger::{StoredValueWrap, debug_data_push};
 }
 
 // TODO fx bs api, create struct abstraction over web api and let user freely use it anywhere
@@ -35,30 +34,53 @@ pub mod debugger {
 
     use wasm_bindgen::prelude::*;
 
+    use crate::view::toolbox::time::time_now_ns;
+
     #[derive(Clone, Debug, Default)]
     pub struct DebugState {
-        pub data: Vec<DataWrap>,
+        pub signal_data: Vec<SignalDataWrap>,
+        pub manual_data: Vec<ManualDataWrap>,
         // pub delayed_scroll: Vec<Vec<f64>>,
         // pub delayed_scroll: Vec<Vec<f64>>,
         // pub delayed_scroll: Vec<StoredValue<f64, LocalStorage>>,
     }
 
     #[derive(Clone, Debug, Default)]
-    pub struct DataWrap {
+    pub struct SignalDataWrap {
         pub label: String,
         pub active: bool,
         pub data: Vec<String>,
     }
 
+    #[derive(Clone, Debug, Default)]
+    pub struct ManualDataWrap {
+        pub created_at: u128,
+        pub label: String,
+        pub data: String,
+    }
+
     pub static DEBUG_STATE: LazyLock<RwLock<DebugState>> =
         LazyLock::new(|| RwLock::new(DebugState::default()));
 
+    fn signal_data_push(label: impl Into<String>) -> usize {
+        let mut state = DEBUG_STATE.write().unwrap();
+        let index = state.signal_data.len();
+        state.signal_data.push(SignalDataWrap {
+            label: label.into(),
+            active: true,
+            data: Vec::new(),
+        });
+        index
+    }
+
     #[wasm_bindgen]
-    pub fn get_debug_state() -> Array {
+    pub fn get_debug_state() -> Object {
         let state = DEBUG_STATE.read().unwrap();
 
-        let output = Array::new();
-        for wrap in &state.data {
+        let output = Object::new();
+
+        let signal_output = Array::new();
+        for wrap in &state.signal_data {
             let value_output = Array::new();
             for value in &wrap.data {
                 value_output.push(&JsValue::from_str(value));
@@ -74,10 +96,37 @@ pub mod debugger {
                 &JsValue::from(value_output),
             )
             .unwrap();
-            output.push(&label_and_values);
+            signal_output.push(&label_and_values);
             // label_and_values.p
             // output.push(value);
         }
+
+        let manual_output = Array::new();
+        for wrap in &state.manual_data {
+            let wrap_js = Object::new();
+            let created_at = JsValue::from_str(&wrap.created_at.to_string());
+            let label = JsValue::from_str(&wrap.label);
+            let data = JsValue::from_str(&wrap.data);
+
+            Reflect::set(&wrap_js, &JsValue::from_str("created_at"), &created_at).unwrap();
+            Reflect::set(&wrap_js, &JsValue::from_str("label"), &label).unwrap();
+            Reflect::set(&wrap_js, &JsValue::from_str("data"), &data).unwrap();
+
+            manual_output.push(&wrap_js);
+        }
+
+        Reflect::set(
+            &output,
+            &JsValue::from_str("signal_data"),
+            &JsValue::from(signal_output),
+        )
+        .unwrap();
+        Reflect::set(
+            &output,
+            &JsValue::from_str("manual_data"),
+            &JsValue::from(manual_output),
+        )
+        .unwrap();
 
         // kill_pos_koks();
 
@@ -91,48 +140,92 @@ pub mod debugger {
         output
     }
 
-    pub struct StoredValueWrap<T> {
-        pub label: String,
-        slot: usize,
-        stored_value: StoredValue<T, LocalStorage>,
+    pub fn debug_data_push(label: impl Into<String>, data: impl Into<String>) {
+        let created_at = time_now_ns();
+        let label = label.into();
+        let data = data.into();
+
+        let data_wrap = ManualDataWrap {
+            created_at,
+            label,
+            data,
+        };
+
+        let mut debug_data = DEBUG_STATE.write().unwrap();
+        debug_data.manual_data.push(data_wrap);
     }
 
-    impl<T: 'static + Debug> StoredValueWrap<T> {
+    #[derive(Clone, Debug)]
+    pub struct StoredValueWrap<T: 'static + Clone> {
+        // pub label: String,
+        pub label: StoredValue<String, LocalStorage>,
+        slot: usize,
+        stored_value: StoredValue<T, LocalStorage>,
+        formatter: StoredValue<Box<dyn Fn(&T) -> String + 'static>, LocalStorage>,
+        // formatter: StoredValue<Box<fn(&T) -> String >, LocalStorage>,
+    }
+
+    impl<T: Clone + 'static > Copy for StoredValueWrap<T> {}
+
+    impl<T: 'static + Debug + Clone> StoredValueWrap<T> {
         pub fn new(label: impl Into<String>, t: T) -> Self {
             let label = label.into();
-            let slot = {
-                let mut state = DEBUG_STATE.write().unwrap();
-                let index = state.data.len();
-                // (label.clone(), Vec::new())
-                state.data.push(DataWrap {
-                    label: label.clone(),
-                    active: true,
-                    data: Vec::new(),
-                });
-                index
-            };
-
+            let slot = signal_data_push(&label);
             let stored_value = StoredValue::new_local(t);
+            let formatter = move |v: &T| format!("{v:?}");
 
             on_cleanup(move || {
                 let mut state = DEBUG_STATE.write().unwrap();
-                let wrap = &mut state.data[slot];
+                let wrap = &mut state.signal_data[slot];
                 wrap.active = false;
             });
 
             Self {
-                label,
+                label: StoredValue::new_local(label),
                 slot,
                 stored_value,
+                formatter: StoredValue::new_local(Box::new(formatter)),
+            }
+        }
+        //<F: Fn(&T) -> String + 'static>
+        pub fn new_with_formmater(
+            label: impl Into<String>,
+            t: T,
+            formatter_fn: impl Fn(&T) -> String + 'static,
+        ) -> Self {
+            let label = label.into();
+            let slot = signal_data_push(&label);
+            let stored_value = StoredValue::new_local(t);
+
+            on_cleanup(move || {
+                let mut state = DEBUG_STATE.write().unwrap();
+                let wrap = &mut state.signal_data[slot];
+                wrap.active = false;
+            });
+
+            Self {
+                label: StoredValue::new_local(label),
+                slot,
+                stored_value,
+                formatter: StoredValue::new_local(Box::new(formatter_fn)),
             }
         }
 
         pub fn set_value(&self, t: T) {
             let mut state = DEBUG_STATE.write().unwrap();
-            let wrap = &mut state.data[self.slot];
-            wrap.data.push(format!("{:?}", t));
+            let wrap = &mut state.signal_data[self.slot];
+            let data = self.formatter.with_value(|v| v(&t));
+            wrap.data.push(data);
             // state.data.push();
             self.stored_value.set_value(t);
+        }
+
+        pub fn get_value(&self) -> T {
+            self.stored_value.get_value()
+        }
+
+        pub fn update_value(&self, f: impl FnOnce(&mut T)) {
+            self.stored_value.update_value(f);
         }
     }
 

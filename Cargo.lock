@@ -294,6 +294,7 @@ dependencies = [
  "rkyv 0.8.11",
  "send_wrapper",
  "serde",
+ "serde_json",
  "server_fn",
  "strum",
  "surrealdb",
