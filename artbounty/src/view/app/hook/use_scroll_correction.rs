@@ -40,7 +40,7 @@ impl ScrollCorrection {
             |v| {
                 v.as_ref()
                     .map(|v| v.id())
-                    .unwrap_or_else(|| "None".to_string())
+                    .unwrap_or_else(|| "null".to_string())
             },
         );
 
@@ -141,7 +141,7 @@ impl ScrollCorrection {
             let debug_data = anchor
                 .as_ref()
                 .map(|v| serde_json::to_string(&v.1).unwrap_or_else(|e| e.to_string()))
-                .unwrap_or_else(|| String::from("None"));
+                .unwrap_or_else(|| String::from("null"));
             debug_data_push("anchor_selected", debug_data);
 
             let diff = anchor
@@ -159,15 +159,19 @@ impl ScrollCorrection {
                 })
                 .inspect(|v| {
                     info!("ANCHOR WAS FOUND {v}");
-                })
-                .unwrap_or_else(|| {
-                    warn!("NO ANCHORS FOUND");
-                    0.0
                 });
+            // .unwrap_or_else(|| {
+            //     warn!("NO ANCHORS FOUND");
+            //     0.0
+            // });
 
-            trace!("scrolled byyyyyyyyyy {diff}");
-            debug_data_push("scroll_correction", diff.to_string());
-            if diff != 0.0 {
+            trace!("scrolled byyyyyyyyyy {diff:?}");
+            debug_data_push(
+                "scroll_correction",
+                diff.map(|v| v.to_string())
+                    .unwrap_or_else(|| "null".to_string()),
+            );
+            if let Some(diff) = diff {
                 container_target.scroll_by_with_x_and_y(0.0, diff);
             }
         }

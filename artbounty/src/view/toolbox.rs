@@ -92,7 +92,7 @@ pub mod debugger {
             Reflect::set(&label_and_values, &JsValue::from_str("active"), &active).unwrap();
             Reflect::set(
                 &label_and_values,
-                &JsValue::from_str("value"),
+                &JsValue::from_str("data"),
                 &JsValue::from(value_output),
             )
             .unwrap();
@@ -226,6 +226,14 @@ pub mod debugger {
 
         pub fn update_value(&self, f: impl FnOnce(&mut T)) {
             self.stored_value.update_value(f);
+
+            let t = self.stored_value.get_value();
+
+            let mut state = DEBUG_STATE.write().unwrap();
+            let wrap = &mut state.signal_data[self.slot];
+            let data = self.formatter.with_value(|v| v(&t));
+            wrap.data.push(data);
+
         }
     }
 
