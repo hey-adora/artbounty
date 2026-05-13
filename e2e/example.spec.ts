@@ -4,8 +4,8 @@ test("title", async ({ page }) => {
   let viewport_height = 915;
   // viewport: { width: 412, height: 915 },
   await page.goto("http://localhost:3000");
-  await page.waitForTimeout(5000);
-  await expect(page.locator('[id="5idoghr47bvsajsi5izx-link"]')).toBeVisible();
+
+  await page.locator('[id="gallery"] > a').first().waitFor();
 
   let gallery = page.locator('[id="gallery"]');
 
@@ -173,13 +173,14 @@ test("title", async ({ page }) => {
 
     // SCROLL 1
     await page.mouse.wheel(0, scroll_by);
-    await page.waitForTimeout(3000);
-
     let anchor_y_before = await get_elm_y(anchor_last);
+    // await page.screenshot({ path: `${scroll_iter_index}_down_0.jpg` });
 
     // SCROLL 2
     await page.mouse.wheel(0, offset);
-    await page.waitForTimeout(3000);
+
+    await page.locator(`[id="${last_item_id}"] + a`).waitFor();
+    // await page.screenshot({ path: `${scroll_iter_index}_down_1.jpg` });
 
     let anchor_y_after = await get_elm_y(anchor_last);
 
@@ -206,13 +207,13 @@ test("title", async ({ page }) => {
 
     // SCROLL 1
     await page.mouse.wheel(0, scroll_by);
-    await page.waitForTimeout(3000);
-
+    await page.locator(first_item_id_str).first().waitFor();
+    // await page.screenshot({ path: `${scroll_iter_index}_up_0.jpg` });
 
     // SCROLL 2
     await page.mouse.wheel(0, -offset);
-    await page.waitForTimeout(3000);
-
+    await page.locator(`[id="${first_item_id}"] + a`).waitFor();
+    // await page.screenshot({ path: `${scroll_iter_index}_up_1.jpg` });
 
     scroll_iter_index += 1;
   };
