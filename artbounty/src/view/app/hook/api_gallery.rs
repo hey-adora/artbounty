@@ -18,7 +18,7 @@ use leptos::{
     html::{ElementType, Textarea},
     prelude::*,
 };
-use tracing::{error, trace, warn};
+use tracing::{debug, error, trace, warn};
 use wasm_bindgen::JsCast;
 use web_sys::{Element, HtmlElement, HtmlTextAreaElement, MutationObserver, MutationRecord};
 
@@ -108,6 +108,7 @@ impl<API: Api> GalleryApi<API> {
         size: GalleryContainerSize,
         time_range: TimeRange,
         order: Order,
+        reverse: bool,
         tags: impl Into<String>,
         username: impl Into<String>,
     ) -> f64 {
@@ -136,7 +137,11 @@ impl<API: Api> GalleryApi<API> {
             .await;
 
         match result {
-            Ok(ServerRes::Posts(posts)) => {
+            Ok(ServerRes::Posts(mut posts)) => {
+                if reverse {
+                    posts.reverse();
+                }
+
                 let new_imgs = posts.into_iter().map(Img::from).collect::<Vec<Img>>();
                 let old_imgs = items.get_untracked();
 
@@ -179,8 +184,16 @@ impl<API: Api> GalleryApi<API> {
             .map(TimeRange::Less)
             .unwrap_or(TimeRange::LessOrEqual(current_time));
 
-        self.fetch(limit, size, time_range, Order::ThreeTwoOne, tags, username)
-            .await
+        self.fetch(
+            limit,
+            size,
+            time_range,
+            Order::ThreeTwoOne,
+            false,
+            tags,
+            username,
+        )
+        .await
     }
 
     pub async fn fetch_top(
@@ -196,9 +209,18 @@ impl<API: Api> GalleryApi<API> {
             .with_untracked(|v| v.first().map(|v| v.created_at))
             .map(TimeRange::More)
             .unwrap_or(TimeRange::MoreOrEqual(current_time));
+        debug!("time range picked: {time_range:?}");
 
-        self.fetch(limit, size, time_range, Order::ThreeTwoOne, tags, username)
-            .await
+        self.fetch(
+            limit,
+            size,
+            time_range,
+            Order::OneTwoThree,
+            true,
+            tags,
+            username,
+        )
+        .await
     }
 
     pub async fn fetch_btm_or_top(
@@ -232,7 +254,10 @@ impl<API: Api> GalleryApi<API> {
 pub mod tests {
     use crate::{
         api::{ServerReqImg, tests::ApiTestApp},
-        view::app::hook::{api_gallery::{GalleryApi, GalleryContainerSize}, use_scroll_correction::ScrollCorrection},
+        view::app::hook::{
+            api_gallery::{GalleryApi, GalleryContainerSize},
+            use_scroll_correction::ScrollCorrection,
+        },
     };
     use hydration_context::HydrateSharedContext;
     use leptos::prelude::*;
@@ -356,9 +381,52 @@ pub mod tests {
         post_api.fetch_top(2, size, 0, "", "").await;
         let items = post_api.items.get_untracked();
         assert_eq!(items.len(), 2);
+        assert_eq!(items[0].created_at, 2);
+        assert_eq!(items[1].created_at, 1);
         post_api.fetch_top(2, size, 0, "", "").await;
         let items = post_api.items.get_untracked();
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0].created_at, 3);
+        assert_eq!(items[1].created_at, 2);
+        assert_eq!(items[2].created_at, 1);
+
+        let post_api = GalleryApi::new(&app.api, &app.api, scroll_corerction.clone());
+        post_api.fetch_btm(3, size, 3, "", "").await;
+        let items = post_api.items.get_untracked();
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0].created_at, 3);
+        assert_eq!(items[1].created_at, 2);
+        assert_eq!(items[2].created_at, 1);
+        post_api.items.update_untracked(|v| {
+            v.remove(0);
+            v.remove(0);
+        });
+        let items = post_api.items.get_untracked();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].created_at, 1);
+        post_api.fetch_top(1, size, 4, "", "").await;
+        let items = post_api.items.get_untracked();
         assert_eq!(items.len(), 2);
+        assert_eq!(items[0].created_at, 2);
+        assert_eq!(items[1].created_at, 1);
+        post_api.fetch_top(1, size, 4, "", "").await;
+        let items = post_api.items.get_untracked();
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0].created_at, 3);
+        assert_eq!(items[1].created_at, 2);
+        assert_eq!(items[2].created_at, 1);
+
+        // let items = post_api.items.get_untracked();
+        // assert_eq!(items.len(), 2);
+        // assert_eq!(items[0].created_at, 2);
+        // post_api.fetch_top(1, size, 4, "", "").await;
+        // let items = post_api.items.get_untracked();
+        // assert_eq!(items.len(), 3);
+        // assert_eq!(items[0].created_at, 1);
+
+        // post_api.fetch_top(1, size, 4, "", "").await;
+        // let items = post_api.items.get_untracked();
+        // assert_eq!(items.len(), 2);
 
         let post_api = GalleryApi::new(&app.api, &app.api, scroll_corerction.clone());
         post_api.fetch_btm(50, size, 4, "", "").await;
