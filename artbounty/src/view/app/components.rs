@@ -103,16 +103,18 @@ pub mod gallery {
     use crate::path::{link_img, link_post, link_post_with_history};
     // use crate::view::{KILLME, KILLME2};
     use crate::view::app::hook::api_gallery::{GalleryApi, GalleryContainerSize};
+    use crate::view::app::hook::use_event_listener::EventListener;
     use crate::view::app::hook::use_intersection::Intersection;
     use crate::view::app::hook::use_intersection_switch::IntersectionSwitch;
     use crate::view::app::hook::use_scroll_correction::ScrollCorrection;
     use crate::view::app::hook::use_spawner::Spawner;
     use crate::view::toolbox::prelude::*;
     // use chrono::Utc;
-    use leptos::html;
+    use leptos::{ev, html};
     use leptos::{html::Div, prelude::*};
     use leptos_router::hooks::{query_signal, use_params_map, use_query_map};
     use leptos_router::params::Params;
+    use serde::Serialize;
     use std::default::Default;
     use std::time::Duration;
     use std::{
@@ -122,7 +124,8 @@ pub mod gallery {
     use tracing::{debug, error, trace};
     use wasm_bindgen::JsValue;
     use web_sys::{
-        Element, HtmlAnchorElement, IntersectionObserver, IntersectionObserverEntry, MouseEvent,
+        Element, HtmlAnchorElement, HtmlDivElement, IntersectionObserver,
+        IntersectionObserverEntry, MouseEvent,
     };
 
     pub fn vec_img_to_string<IMG: ResizableImage + Display>(imgs: &[IMG]) -> String {
@@ -179,21 +182,33 @@ pub mod gallery {
         let spawner = Spawner::new();
         let scroll_correction = ScrollCorrection::new();
         let gallery_api = GalleryApi::new(api_top, api_btm, scroll_correction.clone());
+
         // let gallery = RwSignal::<Vec<Img>>::new(Vec::new());
         // let delayed_scroll = StoredValue::new_local(0.0);
         // let delayed_scroll = StoredValueWrap::new("delayed_scroll", 0.0);
+        // let on_scroll = EventListener::new(ev::scroll, |v| {
+        //     //
+        // });
         let gallery_ref = NodeRef::<Div>::new();
+        let saved_scroll_initialized = StoredValue::new_local(false);
         let is_top_interector_active = StoredValue::new_local(false);
         let is_down_interector_active = StoredValue::new_local(false);
         let top_intersector_switch = IntersectionSwitch::new();
         let down_intersector_switch = IntersectionSwitch::new();
         let navigate = leptos_router::hooks::use_navigate();
-        let (get_query_scroll, set_query_scroll) = query_signal::<usize>("scroll");
+        let (get_query_scroll, set_query_scroll) = query_signal::<i32>("scroll");
         let (get_query_gallery_count, set_query_gallery_count) = query_signal::<usize>("img_count");
         let (get_query_direction, set_query_direction) = query_signal::<String>("direction");
         let (get_query_time, set_query_time) = query_signal::<u128>("time");
+        let set_query_time = move |v: Option<u128>| {
+            debug_data_push(
+                "gallery_query_time",
+                v.map(|v| v.to_string())
+                    .unwrap_or_else(|| "null".to_string()),
+            );
+            set_query_time.set(v);
+        };
         let (get_query_tags, set_query_tags) = query_signal::<String>("tags");
-
         let set_gallery = move |bottom: bool| {
             let Some(gallery_elm) = gallery_ref.try_get_untracked().flatten() else {
                 return;
@@ -239,21 +254,46 @@ pub mod gallery {
                     .with_untracked(|v| v.last().map(|v| v.created_at));
                 let imgs_len = gallery_api.items.with_untracked(|v| v.len());
 
-                trace!("delayed scroll RECEIVED {scroll}");
+                //
+                // trace!("delayed scroll RECEIVED {scroll}");
                 // if scroll != 0.0 {
                 //     // delayed_scroll.set_value(scroll);
                 //     gallery_elm.scroll_by_with_x_and_y(0.0, scroll);
                 // }
 
-                // set_query_direction.set(Some(if bottom { "down" } else { "up" }.to_string()));
-                // set_query_gallery_count.set(Some(imgs_len));
+                // let scroll_top = gallery_elm.scroll_top();
+                // let id = gallery_elm.id();
+                // trace!("scroll top of {} {}", id, scroll_top);
+                // set_query_scroll.set(Some(scroll_top));
+
+                set_query_direction.set(Some(if bottom { "down" } else { "up" }.to_string()));
+                set_query_gallery_count.set(Some(imgs_len));
+                trace!(
+                    "GALLERY ITEMS OMG {:#?} \n {first_img_time:?} {last_img_time:?}",
+                    gallery_api.items.get_untracked()
+                );
+                set_query_time(if bottom {
+                    first_img_time
+                } else {
+                    last_img_time
+                });
+
                 // set_query_tags.set(tags);
-                // set_query_time.set(if bottom {
-                //     first_img_time
-                // } else {
-                //     last_img_time
-                // });
             });
+        };
+
+        // let gallery_scroll_by = move |gallery_elm: &HtmlDivElement, scroll: f64| {
+        //     debug_data_push("gallery_scroll_read", scroll.to_string());
+        //     gallery_elm.scroll_by_with_x_and_y(0.0, scroll);
+        //     saved_scroll_initialized.set_value(true);
+        // };
+
+        let set_scroll_top = move |gallery_elm: &HtmlDivElement| {
+            let scroll_top = gallery_elm.scroll_top();
+            let id = gallery_elm.id();
+            trace!("scroll top of {} {}", id, scroll_top);
+            debug_data_push("gallery_scroll_set", scroll_top.to_string());
+            set_query_scroll.set(Some(scroll_top));
         };
 
         gallery_ref.add_resize_observer(move |entry, _observer| {
@@ -354,22 +394,22 @@ pub mod gallery {
         //     Duration::from_secs(2),
         // );
 
-        // let _ = interval::new(
-        //     move || {
-        //         let Some(gallery_elm) = gallery_ref.get_untracked() else {
-        //             trace!("gallery NOT found");
-        //             return;
-        //         };
-        //         let gallery = gallery_api.items;
-        //         if gallery.with_untracked(|v| v.is_empty()) {
-        //             return;
-        //         }
-        //
-        //         let scroll_top = gallery_elm.scroll_top() as usize;
-        //         set_query_scroll.set(Some(scroll_top));
-        //     },
-        //     Duration::from_millis(1000),
-        // );
+        let _ = interval::new(
+            move || {
+                let Some(gallery_elm) = gallery_ref.get_untracked() else {
+                    trace!("gallery NOT found");
+                    return;
+                };
+                if gallery_api.is_empty() {
+                    return;
+                }
+
+                set_scroll_top(&gallery_elm);
+                // let scroll_top = gallery_elm.scroll_top() as usize;
+                // set_query_scroll.set(Some(scroll_top));
+            },
+            Duration::from_millis(500),
+        );
 
         let get_imgs = move || {
             let imgs = gallery_api.items.get();
@@ -393,7 +433,7 @@ pub mod gallery {
             let Some(gallery_elm) = gallery_ref.get() else {
                 return;
             };
-            scroll_correction.run(gallery_elm);
+            scroll_correction.run(&gallery_elm);
             // infinte_scroll.observe_only(gallery_elm);
 
             let is_bottom = get_query_direction
@@ -401,8 +441,20 @@ pub mod gallery {
                 .map(|v| v == "down")
                 .unwrap_or(true);
 
+            create_event_listener(gallery_elm.clone(), ev::scroll, move |v| {
+                // set_scroll_top(&gallery_elm);
+                // let scroll_top = gallery_elm.scroll_top();
+                // let id = gallery_elm.id();
+                // trace!("scroll top of {} {}", id, scroll_top);
+                // debug_data_push("gallery_scroll_set", scroll_top.to_string());
+                // set_query_scroll.set(Some(scroll_top));
+                // if let Some(scroll) = get_query_scroll.get_untracked() {
+                //     delayed_scroll.set_value(scroll as f64);
+                // }
+            });
+
             // if let Some(scroll) = get_query_scroll.get_untracked() {
-            //     delayed_scroll.set_value(scroll as f64);
+            //     // delayed_scroll.set_value(scroll as f64);
             // }
 
             gallery_api.reset();
@@ -434,6 +486,27 @@ pub mod gallery {
 
                 if gallery_api.is_empty() {
                     return;
+                }
+
+                if let Some(scroll) = get_query_scroll.get_untracked()
+                    && !saved_scroll_initialized.get_value()
+                {
+                    debug_data_push("gallery_scroll_read", scroll.to_string());
+                    gallery_elm.scroll_by_with_x_and_y(0.0, scroll as f64);
+                    saved_scroll_initialized.set_value(true);
+
+                    // gallery_scroll_by(&gallery_elm, scroll as f64);
+                    // set_query_scroll.set(Some(scroll_top));
+                    // delayed_scroll.set_value(scroll as f64);
+                    // debug_data_push("gallery_scroll_read", scroll.to_string());
+                    // gallery_elm.scroll_by_with_x_and_y(0.0, scroll as f64);
+                } else {
+                    set_scroll_top(&gallery_elm);
+                    // let scroll_top = gallery_elm.scroll_top();
+                    // let id = gallery_elm.id();
+                    // trace!("scroll top of {} {}", id, scroll_top);
+                    // debug_data_push("gallery_scroll_set", scroll_top.to_string());
+                    // set_query_scroll.set(Some(scroll_top));
                 }
 
                 scroll_correction.run(gallery_elm.clone());
@@ -585,7 +658,7 @@ pub mod gallery {
         }
     }
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     pub struct Img {
         pub key: String,
         pub username: String,
@@ -597,7 +670,13 @@ pub mod gallery {
         pub view_height: f64,
         pub view_pos_x: f64,
         pub view_pos_y: f64,
+        #[serde(serialize_with = "from_u128_custom")]
         pub created_at: u128,
+    }
+
+    fn from_u128_custom<S: serde::Serializer>(v: &u128, serializer: S) -> Result<S::Ok, S::Error> {
+        let v = v.to_string();
+        v.serialize(serializer)
     }
 
     impl From<UserPost> for Img {

@@ -32,7 +32,8 @@ pub struct GalleryContainerSize {
 #[derive(Clone, Copy)]
 pub struct GalleryApi<API: Api> {
     // ui
-    pub items: RwSignal<Vec<Img>, LocalStorage>,
+    // pub items: RwSignal<Vec<Img>, LocalStorage>,
+    pub items: StoreSignal<Vec<Img>>,
     pub scroll_correction_handle: ScrollCorrection,
     // params
     pub api_top: API,
@@ -43,9 +44,13 @@ pub struct GalleryApi<API: Api> {
 // abstraction
 impl<API: Api> GalleryApi<API> {
     pub fn new(api_top: API, api_btm: API, scroll_correction_handle: ScrollCorrection) -> Self {
+        let items = StoreSignal::new_with_formmater(true, "gallery_api_items", Vec::new(), |v| {
+            serde_json::to_string(v).unwrap_or_else(|e| e.to_string())
+        });
         Self {
             scroll_correction_handle,
-            items: RwSignal::new_local(Vec::new()),
+            items,
+            // items: RwSignal::new_local(Vec::new()),
             api_top,
             api_btm,
         }

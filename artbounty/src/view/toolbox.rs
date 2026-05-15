@@ -1,6 +1,8 @@
 pub mod prelude {
     pub use super::dropzone::{self, AddDropZone};
-    pub use super::event_listener::{self, AddEventListener};
+    pub use super::event_listener::{
+        self, AddEventListener, create_event_closure, create_event_listener,
+    };
     pub use super::file::{self, GetFileStream, GetFiles, GetStreamChunk, PushChunkToVec};
     pub use super::intersection_observer::{self, AddIntersectionObserver, IntersectionOptions};
     pub use super::interval::{self};
@@ -17,7 +19,7 @@ pub mod prelude {
     pub use super::timeout::{SetTimeoutError, set_timeout};
 
     #[cfg(feature = "testing")]
-    pub use super::debugger::{StoredValueWrap, debug_data_push};
+    pub use super::debugger::{StoreSignal, debug_data_push};
 }
 
 // TODO fx bs api, create struct abstraction over web api and let user freely use it anywhere
@@ -155,23 +157,104 @@ pub mod debugger {
         debug_data.manual_data.push(data_wrap);
     }
 
+    #[derive(Debug)]
+    pub enum StoreType<T: Clone + 'static> {
+        Reactive(RwSignal<T, LocalStorage>),
+        Static(StoredValue<T, LocalStorage>),
+    }
+    impl<T: Clone + 'static> Copy for StoreType<T> {}
+    impl<T: Clone + 'static> Clone for StoreType<T> {
+        fn clone(&self) -> Self {
+            match self {
+                Self::Reactive(v) => Self::Reactive(v.clone()),
+                Self::Static(v) => Self::Static(v.clone()),
+            }
+        }
+    }
+
+    impl<T: Clone + 'static> StoreType<T> {
+        pub fn new_reactive(t: T) -> Self {
+            Self::Reactive(RwSignal::new_local(t))
+        }
+
+        pub fn new_static(t: T) -> Self {
+            Self::Static(StoredValue::new_local(t))
+        }
+
+        pub fn get(&self) -> T {
+            match self {
+                Self::Reactive(signal) => signal.get(),
+                Self::Static(signal) => signal.get_value(),
+            }
+        }
+
+        pub fn get_untracked(&self) -> T {
+            match self {
+                Self::Reactive(signal) => signal.get_untracked(),
+                Self::Static(signal) => signal.get_value(),
+            }
+        }
+
+        pub fn set(&self, t: T) {
+            match self {
+                Self::Reactive(signal) => signal.set(t),
+                Self::Static(signal) => signal.set_value(t),
+            }
+        }
+
+        pub fn set_untracked(&self, t: T) {
+            match self {
+                Self::Reactive(signal) => signal.update_untracked(|v| *v = t),
+                Self::Static(signal) => signal.set_value(t),
+            }
+        }
+
+        pub fn update(&self, f: impl FnOnce(&mut T)) {
+            match self {
+                Self::Reactive(signal) => signal.update(f),
+                Self::Static(signal) => signal.update_value(f),
+            }
+        }
+
+        pub fn update_untracked(&self, f: impl FnOnce(&mut T)) {
+            match self {
+                Self::Reactive(signal) => signal.update_untracked(f),
+                Self::Static(signal) => signal.update_value(f),
+            }
+        }
+
+        pub fn with<O>(&self, f: impl FnOnce(&T) -> O) -> O {
+            match self {
+                Self::Reactive(signal) => signal.with(f),
+                Self::Static(signal) => signal.with_value(f),
+            }
+        }
+
+        pub fn with_untracked<O>(&self, f: impl FnOnce(&T) -> O) -> O {
+            match self {
+                Self::Reactive(signal) => signal.with_untracked(f),
+                Self::Static(signal) => signal.with_value(f),
+            }
+        }
+    }
+
     #[derive(Clone, Debug)]
-    pub struct StoredValueWrap<T: 'static + Clone> {
+    pub struct StoreSignal<T: 'static + Clone> {
         // pub label: String,
         pub label: StoredValue<String, LocalStorage>,
         slot: usize,
-        stored_value: StoredValue<T, LocalStorage>,
+        stored_value: StoreType<T>,
         formatter: StoredValue<Box<dyn Fn(&T) -> String + 'static>, LocalStorage>,
         // formatter: StoredValue<Box<fn(&T) -> String >, LocalStorage>,
     }
 
-    impl<T: Clone + 'static > Copy for StoredValueWrap<T> {}
+    impl<T: Clone + 'static> Copy for StoreSignal<T> {}
 
-    impl<T: 'static + Debug + Clone> StoredValueWrap<T> {
-        pub fn new(label: impl Into<String>, t: T) -> Self {
+    impl<T: 'static + Debug + Clone> StoreSignal<T> {
+        pub fn new(reactive: bool, label: impl Into<String>, t: T) -> Self {
             let label = label.into();
             let slot = signal_data_push(&label);
-            let stored_value = StoredValue::new_local(t);
+            // let stored_value = StoredValue::new_local(t);
             let formatter = move |v: &T| format!("{v:?}");
 
             on_cleanup(move || {
@@ -179,6 +262,12 @@ pub mod debugger {
                 let wrap = &mut state.signal_data[slot];
                 wrap.active = false;
             });
+
+            let stored_value = if reactive {
+                StoreType::new_reactive(t)
+            } else {
+                StoreType::new_static(t)
+            };
 
             Self {
                 label: StoredValue::new_local(label),
@@ -189,19 +278,26 @@ pub mod debugger {
         }
         //<F: Fn(&T) -> String + 'static>
         pub fn new_with_formmater(
+            reactive: bool,
             label: impl Into<String>,
             t: T,
             formatter_fn: impl Fn(&T) -> String + 'static,
         ) -> Self {
             let label = label.into();
             let slot = signal_data_push(&label);
-            let stored_value = StoredValue::new_local(t);
+            // let stored_value = StoredValue::new_local(t);
 
             on_cleanup(move || {
                 let mut state = DEBUG_STATE.write().unwrap();
                 let wrap = &mut state.signal_data[slot];
                 wrap.active = false;
             });
+
+            let stored_value = if reactive {
+                StoreType::new_reactive(t)
+            } else {
+                StoreType::new_static(t)
+            };
 
             Self {
                 label: StoredValue::new_local(label),
@@ -211,29 +307,100 @@ pub mod debugger {
             }
         }
 
-        pub fn set_value(&self, t: T) {
+        fn debug_state_push(&self, t: &T) {
             let mut state = DEBUG_STATE.write().unwrap();
             let wrap = &mut state.signal_data[self.slot];
             let data = self.formatter.with_value(|v| v(&t));
             wrap.data.push(data);
-            // state.data.push();
-            self.stored_value.set_value(t);
         }
 
-        pub fn get_value(&self) -> T {
-            self.stored_value.get_value()
+        pub fn set_untracked(&self, t: T) {
+            self.debug_state_push(&t);
+            self.stored_value.set_untracked(t);
         }
 
-        pub fn update_value(&self, f: impl FnOnce(&mut T)) {
-            self.stored_value.update_value(f);
+        pub fn set(&self, t: T) {
+            self.debug_state_push(&t);
+            self.stored_value.set(t);
+        }
 
-            let t = self.stored_value.get_value();
+        pub fn get_untracked(&self) -> T {
+            self.stored_value.get_untracked()
+        }
 
-            let mut state = DEBUG_STATE.write().unwrap();
-            let wrap = &mut state.signal_data[self.slot];
-            let data = self.formatter.with_value(|v| v(&t));
-            wrap.data.push(data);
+        pub fn get(&self) -> T {
+            self.stored_value.get()
+        }
 
+        pub fn with_untracked<O>(&self, f: impl FnOnce(&T) -> O) -> O {
+            self.stored_value.with_untracked(f)
+        }
+
+        pub fn with<O>(&self, f: impl FnOnce(&T) -> O) -> O {
+            self.stored_value.with(f)
+        }
+
+        pub fn update_untracked(&self, f: impl FnOnce(&mut T)) {
+            self.stored_value.update_untracked(f);
+
+            let t = self.stored_value.get_untracked();
+            self.debug_state_push(&t);
+            // let mut state = DEBUG_STATE.write().unwrap();
+            // let wrap = &mut state.signal_data[self.slot];
+            // let data = self.formatter.with_value(|v| v(&t));
+            // wrap.data.push(data);
+        }
+
+        pub fn update(&self, f: impl FnOnce(&mut T)) {
+            self.stored_value.update(f);
+
+            let t = self.stored_value.get_untracked();
+            self.debug_state_push(&t);
+            // let mut state = DEBUG_STATE.write().unwrap();
+            // let wrap = &mut state.signal_data[self.slot];
+            // let data = self.formatter.with_value(|v| v(&t));
+            // wrap.data.push(data);
+        }
+    }
+
+    #[cfg(test)]
+    pub mod tests {
+        use std::sync::Arc;
+
+        use hydration_context::HydrateSharedContext;
+        use leptos::prelude::*;
+
+        use crate::{init_test_log, view::toolbox::prelude::StoreSignal};
+
+        #[tokio::test]
+        pub async fn toolbox_signal_debugger() {
+            init_test_log();
+            let owner = Owner::new_root(Some(Arc::new(HydrateSharedContext::new())));
+
+            let run = |signal: StoreSignal<i32>| {
+                let result = signal.get();
+                assert_eq!(result, 10);
+                let result = signal.get_untracked();
+                assert_eq!(result, 10);
+                let result = signal.with(|v| v.clone());
+                assert_eq!(result, 10);
+                let result = signal.with_untracked(|v| v.clone());
+                assert_eq!(result, 10);
+
+                signal.set(11);
+                let result = signal.get();
+                assert_eq!(result, 11);
+
+                signal.update(|v| *v = 12);
+                let result = signal.get();
+                assert_eq!(result, 12);
+            };
+
+            let signal = StoreSignal::new(false, "wtf", 10);
+            run(signal);
+            let signal = StoreSignal::new(true, "wtf2", 10);
+            run(signal);
+            //
         }
     }
 
@@ -1498,7 +1665,7 @@ pub mod event_listener {
     use leptos::{ev::EventDescriptor, html::ElementType, prelude::*};
     use tracing::{trace, trace_span};
     use wasm_bindgen::prelude::*;
-    use web_sys::HtmlElement;
+    use web_sys::{Element, HtmlElement, js_sys::Function};
 
     pub trait AddEventListener {
         fn add_event_listener<T, F>(&self, event: T, callback: F)
@@ -1519,6 +1686,33 @@ pub mod event_listener {
         {
             new(*self, event, callback);
         }
+    }
+
+    pub fn create_event_closure<
+        T: EventDescriptor + 'static,
+        // F: FnMut(<T as EventDescriptor>::EventType) + Clone + 'static,
+    >(
+        // event: T,
+        f: impl FnMut(<T as EventDescriptor>::EventType) + 'static,
+    ) -> Function {
+        Closure::<dyn FnMut(_)>::new(f)
+            .into_js_value()
+            .unchecked_into()
+    }
+
+    pub fn create_event_listener<
+        T: EventDescriptor + 'static,
+        F: FnMut(<T as EventDescriptor>::EventType) + Clone + 'static,
+    >(
+        elm: impl AsRef<Element>,
+        event: T,
+        f: F,
+    ) -> Function {
+        let elm = elm.as_ref();
+        let closure = create_event_closure::<T>(f);
+        elm.add_event_listener_with_callback(&event.name(), &closure)
+            .unwrap();
+        closure
     }
 
     pub fn new<E, T, F>(target: NodeRef<E>, event: T, f: F)

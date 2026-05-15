@@ -134,7 +134,6 @@ pub async fn fallback_api(
     // TODO make sure people cant path inject
 
     let (headers, name) = match a {
-        "/" => ([(header::CONTENT_TYPE, "text/html")], "/index.html"),
         "/pkg/artbounty_1_bg.wasm" => (
             [(header::CONTENT_TYPE, "application/wasm")],
             "/pkg/artbounty_1_bg.wasm",
@@ -154,11 +153,12 @@ pub async fn fallback_api(
         ),
         "/upload.svg" => ([(header::CONTENT_TYPE, "image/svg+xml")], "/upload.svg"),
         "/favicon.ico" => ([(header::CONTENT_TYPE, "image/x-icon")], "/favicon.ico"),
+        _ => ([(header::CONTENT_TYPE, "text/html")], "/index.html"),
         // artbounty_1.css
-        v => {
-            trace!("not found {v}");
-            return Err((StatusCode::NOT_FOUND, v.to_string()));
-        }
+        // v => {
+        //     trace!("not found {v}");
+        //     return Err((StatusCode::NOT_FOUND, v.to_string()));
+        // }
     };
 
     let path = format!("target/site{}", name);
