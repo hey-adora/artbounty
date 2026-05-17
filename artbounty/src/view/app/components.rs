@@ -181,7 +181,7 @@ pub mod gallery {
         let api_btm = ApiWeb::new();
         let spawner = Spawner::new();
         let scroll_correction = ScrollCorrection::new();
-        let scroll_correction_enabled = StoredValue::new_local(true);
+        // let scroll_correction_enabled = StoredValue::new_local(true);
         let gallery_api = GalleryApi::new(api_top, api_btm, scroll_correction.clone());
 
         // let gallery = RwSignal::<Vec<Img>>::new(Vec::new());
@@ -191,7 +191,7 @@ pub mod gallery {
         //     //
         // });
         let gallery_ref = NodeRef::<Div>::new();
-        let saved_scroll_initialized = StoredValue::new_local(false);
+        let gallery_initialized = StoredValue::new_local(false);
 
         let is_top_interector_active = StoredValue::new_local(false);
         let is_down_interector_active = StoredValue::new_local(false);
@@ -256,18 +256,6 @@ pub mod gallery {
                     .with_untracked(|v| v.last().map(|v| v.created_at));
                 let imgs_len = gallery_api.items.with_untracked(|v| v.len());
 
-                //
-                // trace!("delayed scroll RECEIVED {scroll}");
-                // if scroll != 0.0 {
-                //     // delayed_scroll.set_value(scroll);
-                //     gallery_elm.scroll_by_with_x_and_y(0.0, scroll);
-                // }
-
-                // let scroll_top = gallery_elm.scroll_top();
-                // let id = gallery_elm.id();
-                // trace!("scroll top of {} {}", id, scroll_top);
-                // set_query_scroll.set(Some(scroll_top));
-
                 set_query_direction.set(Some(if bottom { "down" } else { "up" }.to_string()));
                 set_query_gallery_count.set(Some(imgs_len));
                 trace!(
@@ -279,16 +267,8 @@ pub mod gallery {
                 } else {
                     last_img_time
                 });
-
-                // set_query_tags.set(tags);
             });
         };
-
-        // let gallery_scroll_by = move |gallery_elm: &HtmlDivElement, scroll: f64| {
-        //     debug_data_push("gallery_scroll_read", scroll.to_string());
-        //     gallery_elm.scroll_by_with_x_and_y(0.0, scroll);
-        //     saved_scroll_initialized.set_value(true);
-        // };
 
         let set_scroll_top = move |gallery_elm: &HtmlDivElement| {
             let scroll_top = gallery_elm.scroll_top();
@@ -313,34 +293,6 @@ pub mod gallery {
             gallery.set(resized_imgs);
         });
 
-        // let create_intersector_fn =
-        //     move |is_btm: bool, is_interector_active: StoredValue<bool, LocalStorage>| {
-        //         move |entry: Vec<IntersectionObserverEntry>, b: IntersectionObserver| {
-        //             let Some(entry) = entry.first() else {
-        //                 return;
-        //             };
-        //             trace!("gallery intersection is_btm({is_btm})");
-        //
-        //             let is_intersecting = entry.is_intersecting();
-        //
-        //             if !is_intersecting {
-        //                 is_interector_active.set_value(true);
-        //                 return;
-        //             }
-        //
-        //             trace!("gallery intersection 2 is_btm({is_btm})");
-        //
-        //             if !is_interector_active.get_value() {
-        //                 return;
-        //             }
-        //
-        //             trace!("gallery intersection 3 is_btm({is_btm})");
-        //
-        //             is_interector_active.set_value(false);
-        //
-        //             set_gallery(is_btm);
-        //         }
-        //     };
         let intersection_top = Intersection::new(move |entries, b| {
             let Some(entry) = entries.first() else {
                 return;
@@ -407,24 +359,17 @@ pub mod gallery {
                 }
 
                 set_scroll_top(&gallery_elm);
-                // let scroll_top = gallery_elm.scroll_top() as usize;
-                // set_query_scroll.set(Some(scroll_top));
             },
             Duration::from_millis(500),
         );
 
         let get_imgs = move || {
             let imgs = gallery_api.items.get();
-            // let total_count = imgs.len();
 
             imgs.into_iter()
                 .enumerate()
                 .map({
-                    // let run_fetch_bottom = run_fetch_bottom.clone();
-                    // let run_fetch_top = run_fetch_top.clone();
-                    // let run_on_click = run_on_click.clone();
                     move |(i, img)| view! {<GalleryImg img />}
-                    // move |(i, img)| view! {<GalleryImg index=i img total_count run_on_click=run_on_click.clone() run_fetch_bottom=run_fetch_bottom.clone() run_fetch_top=run_fetch_top.clone() />}
                 })
                 .collect_view()
         };
@@ -435,52 +380,12 @@ pub mod gallery {
             let Some(gallery_elm) = gallery_ref.get() else {
                 return;
             };
-            // let direction = get_query_direction.get();
-            // let count = get_query_gallery_count.get();
-            // let scroll = get_query_scroll.get();
-            //
-            // if  direction.is_none()
-            //     && count.is_none()
-            //     && scroll.is_none()
-            //     && !gallery_api.is_empty()
-            // {
-            //     scroll_correction_enabled.set_value(false);
-            //     gallery_elm.set_scroll_top(0);
-            //     set_query_scroll.set(None);
-            //     // return;
-            // }
 
-            // infinte_scroll.observe_only(gallery_elm);
-
-            // if scroll_correction_enabled.get_value() {
-            //     scroll_correction.run(&gallery_elm);
-            // } else {
-            //     scroll_correction_enabled.set_value(true);
-            // }
 
             let is_bottom = get_query_direction
                 .get_untracked()
                 .map(|v| v == "down")
                 .unwrap_or(true);
-
-
-
-
-            // create_event_listener(gallery_elm.clone(), ev::scroll, move |v| {
-            //     // set_scroll_top(&gallery_elm);
-            //     // let scroll_top = gallery_elm.scroll_top();
-            //     // let id = gallery_elm.id();
-            //     // trace!("scroll top of {} {}", id, scroll_top);
-            //     // debug_data_push("gallery_scroll_set", scroll_top.to_string());
-            //     // set_query_scroll.set(Some(scroll_top));
-            //     // if let Some(scroll) = get_query_scroll.get_untracked() {
-            //     //     delayed_scroll.set_value(scroll as f64);
-            //     // }
-            // });
-
-            // if let Some(scroll) = get_query_scroll.get_untracked() {
-            //     // delayed_scroll.set_value(scroll as f64);
-            // }
 
             gallery_api.reset();
             set_gallery(is_bottom);
@@ -493,9 +398,13 @@ pub mod gallery {
             trace!("running gallery reset");
 
             // let time = get_query_time.get();
+            // get_query_tags.track();
             let direction = get_query_direction.get();
             let count = get_query_gallery_count.get();
             let scroll = get_query_scroll.get();
+            // if !gallery_initialized.get_value() {
+            //     return;
+            // }
 
             if  direction.is_some()
                 || count.is_some()
@@ -506,15 +415,11 @@ pub mod gallery {
             }
 
             gallery_api.reset();
-            scroll_correction_enabled.set_value(false);
+            scroll_correction.reset();
+            // scroll_correction_enabled.set_value(false);
             set_query_scroll.set(None);
             top_intersector_switch.reset();
             down_intersector_switch.reset();
-            // gallery_elm.set_scroll_top(0);
-
-            // username.track();
-            // get_query_tags.track();
-
 
             set_gallery(true);
         });
@@ -533,33 +438,21 @@ pub mod gallery {
                 }
 
                 if let Some(scroll) = get_query_scroll.get_untracked()
-                    && !saved_scroll_initialized.get_value()
+                    && !gallery_initialized.get_value()
                 {
                     debug_data_push("gallery_scroll_read", scroll.to_string());
                     gallery_elm.scroll_by_with_x_and_y(0.0, scroll as f64);
-                    saved_scroll_initialized.set_value(true);
-
-                    // gallery_scroll_by(&gallery_elm, scroll as f64);
-                    // set_query_scroll.set(Some(scroll_top));
-                    // delayed_scroll.set_value(scroll as f64);
-                    // debug_data_push("gallery_scroll_read", scroll.to_string());
-                    // gallery_elm.scroll_by_with_x_and_y(0.0, scroll as f64);
+                    gallery_initialized.set_value(true);
                 } else {
                     set_scroll_top(&gallery_elm);
-
-                    // let scroll_top = gallery_elm.scroll_top();
-                    // let id = gallery_elm.id();
-                    // trace!("scroll top of {} {}", id, scroll_top);
-                    // debug_data_push("gallery_scroll_set", scroll_top.to_string());
-                    // set_query_scroll.set(Some(scroll_top));
                 }
 
-                if scroll_correction_enabled.get_value() {
-                    scroll_correction.run(gallery_elm.clone());
-                } else {
-                    scroll_correction_enabled.set_value(true);
-                }
-
+                scroll_correction.run(&gallery_elm);
+                // if scroll_correction_enabled.get_value() {
+                //     scroll_correction.run(gallery_elm.clone());
+                // } else {
+                //     scroll_correction_enabled.set_value(true);
+                // }
 
                 if let Some(first_elm) = gallery_elm.first_element_child() {
                     trace!("mutation hooked to first elm");

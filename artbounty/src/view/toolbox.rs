@@ -394,6 +394,10 @@ pub mod debugger {
                 signal.update(|v| *v = 12);
                 let result = signal.get();
                 assert_eq!(result, 12);
+
+                signal.set_untracked(13);
+                let result = signal.get_untracked();
+                assert_eq!(result, 13);
             };
 
             let signal = StoreSignal::new(false, "wtf", 10);

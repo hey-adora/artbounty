@@ -255,6 +255,10 @@ test("infinite_scroll", async ({ page }) => {
 
   await scroll_up_fn();
   await scroll_up_fn();
+
+  let debug3 = await get_debug_state_fn(page);
+  let count = get_scroll_correction_reset_count_fn(debug3);
+  expect(count).toBe(0);
 });
 
 test("scroll_save_position", async ({ page }) => {
@@ -347,6 +351,10 @@ test("scroll_save_position", async ({ page }) => {
   let top_after = await gallery.evaluate((elm) => elm.scrollTop);
   // TODO compare items too perhaps, should be same ones
   expect(top_before).toBe(top_after);
+
+  let debug3 = await get_debug_state_fn(page);
+  let count = get_scroll_correction_reset_count_fn(debug3);
+  expect(count).toBe(0);
 });
 
 test("reset_query", async ({ page }) => {
@@ -385,6 +393,7 @@ test("reset_query", async ({ page }) => {
     .locator('[id="gallery"] > a')
     .first()
     .evaluate((elm) => elm.id);
+  let debug2 = await get_debug_state_fn(page);
 
   expect(first_elm_id_before).toBe(first_elm_id_after);
   // await page.locator('[id="gallery"] > a').first().waitFor();
@@ -398,7 +407,9 @@ test("reset_query", async ({ page }) => {
   });
 
   expect(params2).toBe(`direction=down&time=${first_item_time}&scroll=0`);
-
+  let debug3 = await get_debug_state_fn(page);
+  let count = get_scroll_correction_reset_count_fn(debug3);
+  expect(count).toBe(1);
 });
 
 let get_debug_state_fn = async (page) => {
@@ -418,6 +429,17 @@ let get_gallery_items = (debug_state) => {
     output = output[output.length - 1];
     console.log(`e2e GALLERY ITEMS ${JSON.stringify(output, null, 2)}`);
     return output;
+};
+
+let get_scroll_correction_reset_count_fn = (debug_state) => {
+    let data = debug_state.manual_data.filter(
+      (v) => v.label == "scroll_correction_reset",
+    );
+    let count = data.length;
+    console.log(
+      `e2e DEBUG STATE scroll_correction_reset_count ${count}`,
+    );
+    return count;
 };
 
 let scroll_down_fn = async (page, gallery, offset, page_offset_y, scroll_iter_index) => {

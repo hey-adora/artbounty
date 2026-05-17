@@ -45,50 +45,12 @@ impl ScrollCorrection {
             },
         );
 
-        // let run = move || {
-        // };
-
-        // let mutation_observer = Mutation::new(move |entry, b| {
-        //     let _guard = trace_span!("scroll correction").entered();
-        //
-        //     let Some(elm) = entry
-        //         .first()
-        //         .and_then(|v| v.target())
-        //         .and_then(|v| TryInto::<JsValue>::try_into(v).ok())
-        //         .and_then(|v| TryInto::<Element>::try_into(v).ok())
-        //     else {
-        //         warn!("failed to get target");
-        //         return;
-        //     };
-        //
-        //     trace!("scroll correction mutated");
-        // });
-
-        // let observe = move |target: Element| {
-        //     trace!("scroll correction OBSERVE");
-        //     elm_target.set_value(Some(target.clone()));
-        //     mutation_observer.observe_only(
-        //         target.clone(),
-        //         MutationObserverOptions::new()
-        //             .set_child_list()
-        //             .set_attributes()
-        //             .set_child_list()
-        //             .character_data(),
-        //     );
-        // };
-
         Self {
-            // observe: StoredValue::new_local(Box::new(observe)),
             target_container: elm_target,
             anchor_first,
             anchor_last,
         }
     }
-
-    // pub fn observe_only(&self, target: impl Into<Element>) {
-    //     let target: Element = target.into();
-    //     self.observe.run(target);
-    // }
 
     pub fn update(&self) {
         trace!("scroll correction running update",);
@@ -161,10 +123,6 @@ impl ScrollCorrection {
                 .inspect(|v| {
                     info!("ANCHOR WAS FOUND {v}");
                 });
-            // .unwrap_or_else(|| {
-            //     warn!("NO ANCHORS FOUND");
-            //     0.0
-            // });
 
             trace!("scrolled byyyyyyyyyy {diff:?}");
             debug_data_push(
@@ -204,5 +162,14 @@ impl ScrollCorrection {
             anchor_first.set_untracked(new_first);
             anchor_last.set_untracked(new_last);
         }
+    }
+
+    pub fn reset(&self) {
+
+        debug_data_push("scroll_correction_reset", "null");
+        trace!("SCROLL CORRECTION BEFORE {:#?}", self.anchor_first.get_untracked());
+        self.anchor_first.set_untracked(None);
+        self.anchor_last.set_untracked(None);
+        trace!("SCROLL CORRECTION AFTER {:#?}", self.anchor_first.get_untracked());
     }
 }
