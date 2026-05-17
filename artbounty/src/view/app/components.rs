@@ -72,7 +72,7 @@ pub mod nav {
 
         view! {
             <nav class="text-gray-200 flex gap-2 px-4 h-[3rem] items-center justify-between">
-                <a href="/" class="font-black text-[1.3rem]">
+                <a id="banner" href="/" class="font-black text-[1.3rem]">
                     "ArtBounty"
                 </a>
                 // <button on:click=move |_| callback() >"wow"</button>
@@ -181,6 +181,7 @@ pub mod gallery {
         let api_btm = ApiWeb::new();
         let spawner = Spawner::new();
         let scroll_correction = ScrollCorrection::new();
+        let scroll_correction_enabled = StoredValue::new_local(true);
         let gallery_api = GalleryApi::new(api_top, api_btm, scroll_correction.clone());
 
         // let gallery = RwSignal::<Vec<Img>>::new(Vec::new());
@@ -191,6 +192,7 @@ pub mod gallery {
         // });
         let gallery_ref = NodeRef::<Div>::new();
         let saved_scroll_initialized = StoredValue::new_local(false);
+
         let is_top_interector_active = StoredValue::new_local(false);
         let is_down_interector_active = StoredValue::new_local(false);
         let top_intersector_switch = IntersectionSwitch::new();
@@ -433,25 +435,48 @@ pub mod gallery {
             let Some(gallery_elm) = gallery_ref.get() else {
                 return;
             };
-            scroll_correction.run(&gallery_elm);
+            // let direction = get_query_direction.get();
+            // let count = get_query_gallery_count.get();
+            // let scroll = get_query_scroll.get();
+            //
+            // if  direction.is_none()
+            //     && count.is_none()
+            //     && scroll.is_none()
+            //     && !gallery_api.is_empty()
+            // {
+            //     scroll_correction_enabled.set_value(false);
+            //     gallery_elm.set_scroll_top(0);
+            //     set_query_scroll.set(None);
+            //     // return;
+            // }
+
             // infinte_scroll.observe_only(gallery_elm);
+
+            // if scroll_correction_enabled.get_value() {
+            //     scroll_correction.run(&gallery_elm);
+            // } else {
+            //     scroll_correction_enabled.set_value(true);
+            // }
 
             let is_bottom = get_query_direction
                 .get_untracked()
                 .map(|v| v == "down")
                 .unwrap_or(true);
 
-            create_event_listener(gallery_elm.clone(), ev::scroll, move |v| {
-                // set_scroll_top(&gallery_elm);
-                // let scroll_top = gallery_elm.scroll_top();
-                // let id = gallery_elm.id();
-                // trace!("scroll top of {} {}", id, scroll_top);
-                // debug_data_push("gallery_scroll_set", scroll_top.to_string());
-                // set_query_scroll.set(Some(scroll_top));
-                // if let Some(scroll) = get_query_scroll.get_untracked() {
-                //     delayed_scroll.set_value(scroll as f64);
-                // }
-            });
+
+
+
+            // create_event_listener(gallery_elm.clone(), ev::scroll, move |v| {
+            //     // set_scroll_top(&gallery_elm);
+            //     // let scroll_top = gallery_elm.scroll_top();
+            //     // let id = gallery_elm.id();
+            //     // trace!("scroll top of {} {}", id, scroll_top);
+            //     // debug_data_push("gallery_scroll_set", scroll_top.to_string());
+            //     // set_query_scroll.set(Some(scroll_top));
+            //     // if let Some(scroll) = get_query_scroll.get_untracked() {
+            //     //     delayed_scroll.set_value(scroll as f64);
+            //     // }
+            // });
 
             // if let Some(scroll) = get_query_scroll.get_untracked() {
             //     // delayed_scroll.set_value(scroll as f64);
@@ -461,19 +486,38 @@ pub mod gallery {
             set_gallery(is_bottom);
         });
 
-        // Effect::new(move || {
-        //     let Some(gallery_elm) = gallery_ref.get() else {
-        //         return;
-        //     };
-        //     trace!("running gallery reset");
-        //
-        //     username.track();
-        //     get_query_tags.track();
-        //
-        //     gallery_api.reset();
-        //
-        //     set_gallery(true);
-        // });
+        Effect::new(move || {
+            let Some(gallery_elm) = gallery_ref.get_untracked() else {
+                return;
+            };
+            trace!("running gallery reset");
+
+            // let time = get_query_time.get();
+            let direction = get_query_direction.get();
+            let count = get_query_gallery_count.get();
+            let scroll = get_query_scroll.get();
+
+            if  direction.is_some()
+                || count.is_some()
+                || scroll.is_some()
+                || gallery_api.is_empty()
+            {
+                return;
+            }
+
+            gallery_api.reset();
+            scroll_correction_enabled.set_value(false);
+            set_query_scroll.set(None);
+            top_intersector_switch.reset();
+            down_intersector_switch.reset();
+            // gallery_elm.set_scroll_top(0);
+
+            // username.track();
+            // get_query_tags.track();
+
+
+            set_gallery(true);
+        });
 
         gallery_ref.add_mutation_observer(
             move |entries, observer| {
@@ -502,6 +546,7 @@ pub mod gallery {
                     // gallery_elm.scroll_by_with_x_and_y(0.0, scroll as f64);
                 } else {
                     set_scroll_top(&gallery_elm);
+
                     // let scroll_top = gallery_elm.scroll_top();
                     // let id = gallery_elm.id();
                     // trace!("scroll top of {} {}", id, scroll_top);
@@ -509,7 +554,12 @@ pub mod gallery {
                     // set_query_scroll.set(Some(scroll_top));
                 }
 
-                scroll_correction.run(gallery_elm.clone());
+                if scroll_correction_enabled.get_value() {
+                    scroll_correction.run(gallery_elm.clone());
+                } else {
+                    scroll_correction_enabled.set_value(true);
+                }
+
 
                 if let Some(first_elm) = gallery_elm.first_element_child() {
                     trace!("mutation hooked to first elm");

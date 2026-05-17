@@ -32,6 +32,11 @@ impl IntersectionSwitch {
 
         is_enabled
     }
+
+    pub fn reset(&self) {
+        self.is_enabled.set_value(false);
+    }
+
 }
 
 #[cfg(test)]
