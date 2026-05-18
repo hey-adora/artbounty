@@ -412,12 +412,257 @@ test("reset_query", async ({ page }) => {
   expect(count).toBe(1);
 });
 
+test("gallery_search", async ({ page }) => {
+  await page.goto("http://localhost:3000");
+
+  let first_elm_id_before = await page
+    .locator('[id="gallery"] > a')
+    .first()
+    .evaluate((elm) => elm.id);
+
+  let debug = await get_debug_state_fn(page);
+  let first_param_limit_count = get_gallery_param_limit_fn(debug).length;
+  let first_interval_top_count = get_interval_top_triggered_count_fn(debug);
+  let first_interval_down_count = get_interval_down_triggered_count_fn(debug);
+  let first_mutated_count = mutated_count_fn(debug);
+  let first_init_executed_count = gallery_init_executed_count_fn(debug);
+  let first_reset_executed_count = gallery_reset_executed_count_fn(debug);
+  // expect(param_limit).toBe(3);
+  
+
+  // SCROLLLLLLLLLLLLLLLLLLLL 0
+  await page.locator('[id="search"]').fill('dragon');
+  await page.locator('[id="search"]').focus();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(1000);
+
+  debug = await get_debug_state_fn(page);
+  let index = 1;
+  let param_limit_count = get_gallery_param_limit_fn(debug).length;
+  let interval_top_count = get_interval_top_triggered_count_fn(debug);
+  let interval_down_count = get_interval_down_triggered_count_fn(debug);
+  let mutated_count = mutated_count_fn(debug);
+  let init_executed_count = gallery_init_executed_count_fn(debug);
+  let reset_executed_count = gallery_reset_executed_count_fn(debug);
+  expect(`init_executed ${init_executed_count} reset_executed ${reset_executed_count} param_limit ${param_limit_count} mutated ${mutated_count} interval_top ${interval_top_count} interval_down ${interval_down_count}`).toBe(`init_executed ${first_init_executed_count} reset_executed ${first_reset_executed_count + index} param_limit ${first_param_limit_count + index} mutated ${first_mutated_count + index} interval_top ${first_interval_top_count} interval_down ${first_interval_down_count}`);
+
+  let params = await page.evaluate(() => {
+    let params = new URLSearchParams(document.location.search);
+    let direction = params.get("direction");
+    let time = params.get("time");
+    let scroll = params.get("scroll");
+    let tags = params.get("tags");
+    let img_count = params.get("img_count");
+    //img_count
+    //
+    // return `direction=${direction}&time=${time}&scroll=${scroll}`;
+    return `direction=${direction}&scroll=${scroll}&tags=${tags}&img_count=${img_count}`;
+  });
+  expect(params).toBe(`direction=down&scroll=null&tags=dragon&img_count=null`);
+
+  // SCROLLLLLLLLLLLLLLLLLLLL 1
+  await page.locator('[id="search"]').fill('');
+  await page.locator('[id="search"]').focus();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(1000);
+
+  debug = await get_debug_state_fn(page);
+  param_limit_count = get_gallery_param_limit_fn(debug).length;
+  interval_top_count = get_interval_top_triggered_count_fn(debug);
+  interval_down_count = get_interval_down_triggered_count_fn(debug);
+  mutated_count = mutated_count_fn(debug);
+  index = 2;
+  init_executed_count = gallery_init_executed_count_fn(debug);
+  reset_executed_count = gallery_reset_executed_count_fn(debug);
+  expect(`init_executed ${init_executed_count} reset_executed ${reset_executed_count} param_limit ${param_limit_count} mutated ${mutated_count} interval_top ${interval_top_count} interval_down ${interval_down_count}`).toBe(`init_executed ${first_init_executed_count} reset_executed ${first_reset_executed_count + index} param_limit ${first_param_limit_count + index} mutated ${first_mutated_count + index} interval_top ${first_interval_top_count} interval_down ${first_interval_down_count}`);
+
+  params = await page.evaluate(() => {
+    let params = new URLSearchParams(document.location.search);
+    let direction = params.get("direction");
+    let time = params.get("time");
+    let scroll = params.get("scroll");
+    let tags = params.get("tags");
+    let img_count = params.get("img_count");
+    //img_count
+    // return `direction=${direction}&time=${time}&scroll=${scroll}`;
+    return `direction=${direction}&scroll=${scroll}&tags=${tags}&img_count=${img_count}`;
+  });
+  expect(params).toBe(`direction=down&scroll=0&tags=null&img_count=22`);
+
+  // SCROLLLLLLLLLLLLLLLLLLLL 2
+  await page.locator('[id="search"]').fill('one');
+  await page.locator('[id="search"]').focus();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(1000);
+
+  // TODO add check when set_gallery doesnt get triggered / same tags
+  debug = await get_debug_state_fn(page);
+  index = 3;
+  param_limit_count = get_gallery_param_limit_fn(debug).length;
+  interval_top_count = get_interval_top_triggered_count_fn(debug);
+  interval_down_count = get_interval_down_triggered_count_fn(debug);
+  mutated_count = mutated_count_fn(debug);
+  init_executed_count = gallery_init_executed_count_fn(debug);
+  reset_executed_count = gallery_reset_executed_count_fn(debug);
+  expect(`init_executed ${init_executed_count} reset_executed ${reset_executed_count} param_limit ${param_limit_count} mutated ${mutated_count} interval_top ${interval_top_count} interval_down ${interval_down_count}`).toBe(`init_executed ${first_init_executed_count} reset_executed ${first_reset_executed_count + index} param_limit ${first_param_limit_count + index} mutated ${first_mutated_count + index} interval_top ${first_interval_top_count} interval_down ${first_interval_down_count}`);
+
+  // SCROLLLLLLLLLLLLLLLLLLLL 3
+  await page.locator('[id="search"]').fill('two');
+  await page.locator('[id="search"]').focus();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(1000);
+
+  debug = await get_debug_state_fn(page);
+  index = 4;
+  param_limit_count = get_gallery_param_limit_fn(debug).length;
+  interval_top_count = get_interval_top_triggered_count_fn(debug);
+  interval_down_count = get_interval_down_triggered_count_fn(debug);
+  mutated_count = mutated_count_fn(debug);
+  init_executed_count = gallery_init_executed_count_fn(debug);
+  reset_executed_count = gallery_reset_executed_count_fn(debug);
+  expect(`init_executed ${init_executed_count} reset_executed ${reset_executed_count} param_limit ${param_limit_count} mutated ${mutated_count} interval_top ${interval_top_count} interval_down ${interval_down_count}`).toBe(`init_executed ${first_init_executed_count} reset_executed ${first_reset_executed_count + index} param_limit ${first_param_limit_count + index} mutated ${first_mutated_count + index} interval_top ${first_interval_top_count} interval_down ${first_interval_down_count}`);
+  // debug = await get_debug_state_fn(page);
+  // let param_limit = get_gallery_param_limit_fn(debug);
+  // expect(param_limit).toBe(3);
+
+  params = await page.evaluate(() => {
+    let params = new URLSearchParams(document.location.search);
+    let direction = params.get("direction");
+    let time = params.get("time");
+    let scroll = params.get("scroll");
+    let tags = params.get("tags");
+    let img_count = params.get("img_count");
+    return `direction=${direction}&scroll=${scroll}&tags=${tags}&img_count=${img_count}`;
+  });
+  expect(params).toBe(`direction=down&scroll=0&tags=one&img_count=3`);
+
+
+  
+});
+
+test("gallery_search2", async ({ page }) => {
+  await page.goto("http://localhost:3000");
+
+  let first_elm_id_before = await page
+    .locator('[id="gallery"] > a')
+    .first()
+    .evaluate((elm) => elm.id);
+
+  let first_debug = await get_parsed_debug_state_fn(page);
+  // expect(param_limit).toBe(3);
+  
+  await gallery_search(page, first_debug, 1, 1, "dragon", "null");
+  // mutation index gets +0 because we run gallery.reset() BUT gallery was already empty 
+  await gallery_search(page, first_debug, 2, 2, "", "22");
+  // mutation index gets +1 because we run gallery.reset() 
+  await gallery_search(page, first_debug, 3, 4, "one", "3");
+  await gallery_search(page, first_debug, 4, 6, "two", "2");
+  await gallery_search(page, first_debug, 5, 8, "three", "1");
+  await gallery_search(page, first_debug, 6, 10, "one", "3");
+  await gallery_search(page, first_debug, 7, 12, "three", "1");
+  await gallery_search(page, first_debug, 8, 14, "", "22");
+  // SCROLLLLLLLLLLLLLLLLLLLL 0
+  
+});
+
 let get_debug_state_fn = async (page) => {
     let debug_state = await page.evaluate(async () =>
       wasm_bindgen.get_debug_state(),
     );
     console.log(`e2e DEBUG STATE ${JSON.stringify(debug_state, null, 2)}`);
     return debug_state;
+};
+
+
+let gallery_search = async (page, first_parsed_debug, index, mut_index, text, img_count) => {
+    await page.locator('[id="search"]').fill(text);
+    await page.locator('[id="search"]').focus();
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(1000);
+
+    let new_debug = await get_parsed_debug_state_fn(page);
+
+    expect(
+`init_executed ${new_debug.count_init}
+reset_executed ${new_debug.count_reset}
+param_limit ${new_debug.count_gallery_param_limit}
+mutated ${new_debug.count_mutated}
+interval_top ${new_debug.count_interval_top}
+interval_down ${new_debug.count_interval_down}`)
+.toBe(
+`init_executed ${first_parsed_debug.count_init}
+reset_executed ${first_parsed_debug.count_reset + index}
+param_limit ${first_parsed_debug.count_gallery_param_limit + index}
+mutated ${first_parsed_debug.count_mutated + mut_index}
+interval_top ${first_parsed_debug.count_interval_top}
+interval_down ${first_parsed_debug.count_interval_down}`);
+
+  let params = await page.evaluate(() => {
+    let params = new URLSearchParams(document.location.search);
+    let direction = params.get("direction");
+    let time = params.get("time");
+    let scroll = params.get("scroll");
+    let tags = params.get("tags");
+    let img_count = params.get("img_count");
+    return `direction=${direction}&scroll=${scroll}&tags=${tags}&img_count=${img_count}`;
+  });
+  let expected_tags =  text == "" ? "null" : text;
+  expect(params).toBe(`direction=down&scroll=null&tags=${expected_tags}&img_count=${img_count}`);
+};
+
+let get_parsed_debug_state_fn = async (page) => {
+    let debug = await page.evaluate(async () =>
+      wasm_bindgen.get_debug_state(),
+    );
+    console.log(`e2e DEBUG STATE ${JSON.stringify(debug, null, 2)}`);
+
+    let gallery_param_limit = get_gallery_param_limit_fn(debug);
+    // let first_interval_top_count = get_interval_top_triggered_count_fn(debug);
+    // let first_interval_down_count = get_interval_down_triggered_count_fn(debug);
+  // let first_mutated_count = mutated_count_fn(debug);
+  // let first_init_executed_count = gallery_init_executed_count_fn(debug);
+  // let first_reset_executed_count = gallery_reset_executed_count_fn(debug);
+
+    return {
+        count_interval_top: get_interval_top_triggered_count_fn(debug),
+        count_interval_down: get_interval_down_triggered_count_fn(debug),
+        count_mutated: mutated_count_fn(debug),
+        count_init: gallery_init_executed_count_fn(debug),
+        count_reset: gallery_reset_executed_count_fn(debug),
+        count_gallery_param_limit: gallery_param_limit.length,
+        gallery_param_limit: gallery_param_limit,
+    };
+};
+
+
+let gallery_init_executed_count_fn = (debug_state) => {
+    let data = debug_state.manual_data.filter(
+      (v) => v.label == "gallery_init_executed",
+    );
+    console.log(
+      `e2e DEBUG STATE gallery_init_executed_count_fn ${JSON.stringify(data.length)}`,
+    );
+    return data.length;
+};
+
+let gallery_reset_executed_count_fn = (debug_state) => {
+    let data = debug_state.manual_data.filter(
+      (v) => v.label == "gallery_reset_executed",
+    );
+    console.log(
+      `e2e DEBUG STATE gallery_reset_executed_count_fn ${JSON.stringify(data.length)}`,
+    );
+    return data.length;
+};
+
+let mutated_count_fn = (debug_state) => {
+    let gallery_mutated = debug_state.manual_data.filter(
+      (v) => v.label == "gallery_mutated",
+    );
+    console.log(
+      `e2e DEBUG STATE GALLERY_MUTATED ${JSON.stringify(gallery_mutated.length)}`,
+    );
+    return gallery_mutated.length;
 };
 
 let get_gallery_items = (debug_state) => {
@@ -440,6 +685,39 @@ let get_scroll_correction_reset_count_fn = (debug_state) => {
       `e2e DEBUG STATE scroll_correction_reset_count ${count}`,
     );
     return count;
+};
+
+let get_interval_top_triggered_count_fn = (debug_state) => {
+    let data = debug_state.manual_data.filter(
+      (v) => v.label == "gallery_interval_top_triggered",
+    );
+    let count = data.length;
+    console.log(
+      `e2e DEBUG STATE get_interval_top_triggered_count_fn ${count}`,
+    );
+    return count;
+};
+
+let get_interval_down_triggered_count_fn = (debug_state) => {
+    let data = debug_state.manual_data.filter(
+      (v) => v.label == "gallery_interval_down_triggered",
+    );
+    let count = data.length;
+    console.log(
+      `e2e DEBUG STATE get_interval_down_triggered_count_fn ${count}`,
+    );
+    return count;
+};
+
+let get_gallery_param_limit_fn = (debug_state) => {
+    let data = debug_state.manual_data.filter(
+      (v) => v.label == "set_gallery_param_limit",
+    ).map((v) => Number(v.data) );
+    // let count = data.length;
+    console.log(
+      `e2e DEBUG STATE set_gallery_param_limit ${JSON.stringify(data, null, 2)}`,
+    );
+    return data;
 };
 
 let scroll_down_fn = async (page, gallery, offset, page_offset_y, scroll_iter_index) => {

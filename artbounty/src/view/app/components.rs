@@ -36,9 +36,9 @@ pub mod nav {
             global_state.logout();
         };
 
-        let post_comment = move |e: SubmitEvent| {
+        let search_fn = move |e: SubmitEvent| {
             e.prevent_default();
-            trace!("wowza");
+            trace!("search_fn running");
             let search_text = search_ref
                 .get_untracked()
                 .map(|v: HtmlInputElement| v.value())
@@ -76,8 +76,8 @@ pub mod nav {
                     "ArtBounty"
                 </a>
                 // <button on:click=move |_| callback() >"wow"</button>
-                <form class=move||format!("") on:submit=post_comment>
-                    <input node_ref=search_ref type="text" placeholder="search tags" class="w-full rounded text-[1rem] px-[0.8rem] py-[0.2rem] text-base05 bg-base01 "/>
+                <form class=move||format!("") on:submit=search_fn>
+                    <input id="search" node_ref=search_ref type="text" placeholder="search tags" class="w-full rounded text-[1rem] px-[0.8rem] py-[0.2rem] text-base05 bg-base01 "/>
                 </form>
                 <div class=move||format!("{}", if global_state.acc_pending() { "" } else { "hidden" })>
                     <p>"loading..."</p>
@@ -210,22 +210,35 @@ pub mod gallery {
             );
             set_query_time.set(v);
         };
+        let old_tags = StoredValue::new_local(String::new());
         let (get_query_tags, set_query_tags) = query_signal::<String>("tags");
-        let set_gallery = move |bottom: bool| {
+
+        // let get_optimial_img_count = move || {
+        //     let Some(gallery_elm) = gallery_ref.try_get_untracked().flatten() else {
+        //         return 50;
+        //     };
+        //
+        // };
+
+
+        let set_gallery = move |width: u32, height: f64, bottom: bool, limit: usize, time: u128| {
             let Some(gallery_elm) = gallery_ref.try_get_untracked().flatten() else {
                 return;
             };
-            let width = gallery_elm.client_width() as u32;
-            let height = gallery_elm.client_height() as f64 * 2.0;
-            let count = (if gallery_api.is_empty() {
-                get_query_gallery_count.get_untracked()
-            } else {
-                None
-            })
-            .unwrap_or_else(|| calc_fit_count(width, height, row_height));
-            let time = get_query_time
-                .get_untracked()
-                .unwrap_or_else(|| time_now_ns());
+
+            debug_data_push("set_gallery_param_limit", limit.to_string());
+            // let width = gallery_elm.client_width() as u32;
+            // let height = gallery_elm.client_height() as f64 * 2.0;
+            // TODO img count should never be zero
+            // let count = (if gallery_api.is_empty() {
+            //     get_query_gallery_count.get_untracked()
+            // } else {
+            //     None
+            // })
+            // .unwrap_or_else(|| calc_fit_count(width, height, row_height));
+            // let time = get_query_time
+            //     .get_untracked()
+            //     .unwrap_or_else(|| time_now_ns());
             let user_username = username.get_untracked().flatten().unwrap_or_default();
 
             let tags = get_query_tags.get_untracked();
@@ -236,7 +249,7 @@ pub mod gallery {
                 let scroll = gallery_api
                     .fetch_btm_or_top(
                         bottom,
-                        count,
+                        limit,
                         GalleryContainerSize {
                             width,
                             height,
@@ -257,7 +270,7 @@ pub mod gallery {
                 let imgs_len = gallery_api.items.with_untracked(|v| v.len());
 
                 set_query_direction.set(Some(if bottom { "down" } else { "up" }.to_string()));
-                set_query_gallery_count.set(Some(imgs_len));
+                set_query_gallery_count.set(if imgs_len == 0 { None } else { Some(imgs_len) });
                 trace!(
                     "GALLERY ITEMS OMG {:#?} \n {first_img_time:?} {last_img_time:?}",
                     gallery_api.items.get_untracked()
@@ -275,7 +288,7 @@ pub mod gallery {
             let id = gallery_elm.id();
             trace!("scroll top of {} {}", id, scroll_top);
             debug_data_push("gallery_scroll_set", scroll_top.to_string());
-            set_query_scroll.set(Some(scroll_top));
+            set_query_scroll.set( if scroll_top == 0 { None } else { Some(scroll_top) });
         };
 
         gallery_ref.add_resize_observer(move |entry, _observer| {
@@ -294,9 +307,10 @@ pub mod gallery {
         });
 
         let intersection_top = Intersection::new(move |entries, b| {
-            let Some(entry) = entries.first() else {
+            let (Some(entry), Some(gallery_elm)) = (entries.first(), gallery_ref.get_untracked()) else {
                 return;
             };
+
             let id = entry.target().id();
 
             trace!("gallery intersection top 0 {id}");
@@ -306,11 +320,18 @@ pub mod gallery {
                 return;
             }
             trace!("gallery intersection top 2 {id}");
-            set_gallery(false);
+
+            let width = gallery_elm.client_width() as u32;
+            let height = gallery_elm.client_height() as f64 * 2.0;
+            let limit = calc_fit_count(width, height, row_height);
+            let time = time_now_ns();
+            // let time = get_query_time.get_untracked().unwrap_or_else(|| time_now_ns());
+            debug_data_push("gallery_interval_top_triggered", "null");
+            set_gallery(width, height, false, limit, time);
         });
 
         let intersection_down = Intersection::new(move |entries, b| {
-            let Some(entry) = entries.first() else {
+            let (Some(entry), Some(gallery_elm)) = (entries.first(), gallery_ref.get_untracked()) else {
                 return;
             };
             let id = entry.target().id();
@@ -322,7 +343,14 @@ pub mod gallery {
                 return;
             }
             trace!("gallery intersection btm 3 {id}");
-            set_gallery(true);
+
+            let width = gallery_elm.client_width() as u32;
+            let height = gallery_elm.client_height() as f64 * 2.0;
+            let limit = calc_fit_count(width, height, row_height);
+            let time = time_now_ns();
+            // let time = get_query_time.get_untracked().unwrap_or_else(|| time_now_ns());
+            debug_data_push("gallery_interval_down_triggered", "null");
+            set_gallery(width, height, true, limit, time);
         });
 
         // let _ = interval::new(
@@ -382,17 +410,29 @@ pub mod gallery {
             };
 
 
+            let width = gallery_elm.client_width() as u32;
+            let height = gallery_elm.client_height() as f64 * 2.0;
+            let time = get_query_time.get_untracked().unwrap_or_else(|| time_now_ns());
             let is_bottom = get_query_direction
                 .get_untracked()
                 .map(|v| v == "down")
                 .unwrap_or(true);
 
             gallery_api.reset();
-            set_gallery(is_bottom);
+            let limit = (if gallery_api.is_empty() {
+                get_query_gallery_count.get_untracked()
+            } else {
+                None
+            })
+            .unwrap_or_else(|| calc_fit_count(width, height, row_height));
+
+            debug_data_push("gallery_init_executed", "null");
+            set_gallery(width, height, is_bottom, limit, time);
+            // set_gallery(is_bottom);
         });
 
         Effect::new(move || {
-            let Some(gallery_elm) = gallery_ref.get_untracked() else {
+            let Some(gallery_elm) = gallery_ref.get() else {
                 return;
             };
             trace!("running gallery reset");
@@ -402,14 +442,25 @@ pub mod gallery {
             let direction = get_query_direction.get();
             let count = get_query_gallery_count.get();
             let scroll = get_query_scroll.get();
+
+            let new_tags = get_query_tags.get().unwrap_or_default();
+            let old_tags_val = old_tags.get_value();
+            let tags_are_same = new_tags == old_tags_val;
+            if !tags_are_same {
+                old_tags.set_value(new_tags);
+            }
+
+                
             // if !gallery_initialized.get_value() {
             //     return;
             // }
 
-            if  direction.is_some()
+            if  (
+                direction.is_some()
                 || count.is_some()
                 || scroll.is_some()
                 || gallery_api.is_empty()
+                ) && tags_are_same
             {
                 return;
             }
@@ -421,7 +472,14 @@ pub mod gallery {
             top_intersector_switch.reset();
             down_intersector_switch.reset();
 
-            set_gallery(true);
+            let width = gallery_elm.client_width() as u32;
+            let height = gallery_elm.client_height() as f64 * 2.0;
+            let limit = calc_fit_count(width, height, row_height);
+            let time = time_now_ns();
+
+            debug_data_push("gallery_reset_executed", "null");
+            set_gallery(width, height, true, limit, time);
+            // set_gallery(true);
         });
 
         gallery_ref.add_mutation_observer(
@@ -454,6 +512,8 @@ pub mod gallery {
                 //     scroll_correction_enabled.set_value(true);
                 // }
 
+                top_intersector_switch.reset();
+                down_intersector_switch.reset();
                 if let Some(first_elm) = gallery_elm.first_element_child() {
                     trace!("mutation hooked to first elm");
                     intersection_top.observe_only(first_elm);
