@@ -406,138 +406,10 @@ test("reset_query", async ({ page }) => {
     return `direction=${direction}&time=${time}&scroll=${scroll}`;
   });
 
-  expect(params2).toBe(`direction=down&time=${first_item_time}&scroll=0`);
+  expect(params2).toBe(`direction=down&time=${first_item_time}&scroll=null`);
   let debug3 = await get_debug_state_fn(page);
   let count = get_scroll_correction_reset_count_fn(debug3);
   expect(count).toBe(1);
-});
-
-test("gallery_search", async ({ page }) => {
-  await page.goto("http://localhost:3000");
-
-  let first_elm_id_before = await page
-    .locator('[id="gallery"] > a')
-    .first()
-    .evaluate((elm) => elm.id);
-
-  let debug = await get_debug_state_fn(page);
-  let first_param_limit_count = get_gallery_param_limit_fn(debug).length;
-  let first_interval_top_count = get_interval_top_triggered_count_fn(debug);
-  let first_interval_down_count = get_interval_down_triggered_count_fn(debug);
-  let first_mutated_count = mutated_count_fn(debug);
-  let first_init_executed_count = gallery_init_executed_count_fn(debug);
-  let first_reset_executed_count = gallery_reset_executed_count_fn(debug);
-  // expect(param_limit).toBe(3);
-  
-
-  // SCROLLLLLLLLLLLLLLLLLLLL 0
-  await page.locator('[id="search"]').fill('dragon');
-  await page.locator('[id="search"]').focus();
-  await page.keyboard.press('Enter');
-  await page.waitForTimeout(1000);
-
-  debug = await get_debug_state_fn(page);
-  let index = 1;
-  let param_limit_count = get_gallery_param_limit_fn(debug).length;
-  let interval_top_count = get_interval_top_triggered_count_fn(debug);
-  let interval_down_count = get_interval_down_triggered_count_fn(debug);
-  let mutated_count = mutated_count_fn(debug);
-  let init_executed_count = gallery_init_executed_count_fn(debug);
-  let reset_executed_count = gallery_reset_executed_count_fn(debug);
-  expect(`init_executed ${init_executed_count} reset_executed ${reset_executed_count} param_limit ${param_limit_count} mutated ${mutated_count} interval_top ${interval_top_count} interval_down ${interval_down_count}`).toBe(`init_executed ${first_init_executed_count} reset_executed ${first_reset_executed_count + index} param_limit ${first_param_limit_count + index} mutated ${first_mutated_count + index} interval_top ${first_interval_top_count} interval_down ${first_interval_down_count}`);
-
-  let params = await page.evaluate(() => {
-    let params = new URLSearchParams(document.location.search);
-    let direction = params.get("direction");
-    let time = params.get("time");
-    let scroll = params.get("scroll");
-    let tags = params.get("tags");
-    let img_count = params.get("img_count");
-    //img_count
-    //
-    // return `direction=${direction}&time=${time}&scroll=${scroll}`;
-    return `direction=${direction}&scroll=${scroll}&tags=${tags}&img_count=${img_count}`;
-  });
-  expect(params).toBe(`direction=down&scroll=null&tags=dragon&img_count=null`);
-
-  // SCROLLLLLLLLLLLLLLLLLLLL 1
-  await page.locator('[id="search"]').fill('');
-  await page.locator('[id="search"]').focus();
-  await page.keyboard.press('Enter');
-  await page.waitForTimeout(1000);
-
-  debug = await get_debug_state_fn(page);
-  param_limit_count = get_gallery_param_limit_fn(debug).length;
-  interval_top_count = get_interval_top_triggered_count_fn(debug);
-  interval_down_count = get_interval_down_triggered_count_fn(debug);
-  mutated_count = mutated_count_fn(debug);
-  index = 2;
-  init_executed_count = gallery_init_executed_count_fn(debug);
-  reset_executed_count = gallery_reset_executed_count_fn(debug);
-  expect(`init_executed ${init_executed_count} reset_executed ${reset_executed_count} param_limit ${param_limit_count} mutated ${mutated_count} interval_top ${interval_top_count} interval_down ${interval_down_count}`).toBe(`init_executed ${first_init_executed_count} reset_executed ${first_reset_executed_count + index} param_limit ${first_param_limit_count + index} mutated ${first_mutated_count + index} interval_top ${first_interval_top_count} interval_down ${first_interval_down_count}`);
-
-  params = await page.evaluate(() => {
-    let params = new URLSearchParams(document.location.search);
-    let direction = params.get("direction");
-    let time = params.get("time");
-    let scroll = params.get("scroll");
-    let tags = params.get("tags");
-    let img_count = params.get("img_count");
-    //img_count
-    // return `direction=${direction}&time=${time}&scroll=${scroll}`;
-    return `direction=${direction}&scroll=${scroll}&tags=${tags}&img_count=${img_count}`;
-  });
-  expect(params).toBe(`direction=down&scroll=0&tags=null&img_count=22`);
-
-  // SCROLLLLLLLLLLLLLLLLLLLL 2
-  await page.locator('[id="search"]').fill('one');
-  await page.locator('[id="search"]').focus();
-  await page.keyboard.press('Enter');
-  await page.waitForTimeout(1000);
-
-  // TODO add check when set_gallery doesnt get triggered / same tags
-  debug = await get_debug_state_fn(page);
-  index = 3;
-  param_limit_count = get_gallery_param_limit_fn(debug).length;
-  interval_top_count = get_interval_top_triggered_count_fn(debug);
-  interval_down_count = get_interval_down_triggered_count_fn(debug);
-  mutated_count = mutated_count_fn(debug);
-  init_executed_count = gallery_init_executed_count_fn(debug);
-  reset_executed_count = gallery_reset_executed_count_fn(debug);
-  expect(`init_executed ${init_executed_count} reset_executed ${reset_executed_count} param_limit ${param_limit_count} mutated ${mutated_count} interval_top ${interval_top_count} interval_down ${interval_down_count}`).toBe(`init_executed ${first_init_executed_count} reset_executed ${first_reset_executed_count + index} param_limit ${first_param_limit_count + index} mutated ${first_mutated_count + index} interval_top ${first_interval_top_count} interval_down ${first_interval_down_count}`);
-
-  // SCROLLLLLLLLLLLLLLLLLLLL 3
-  await page.locator('[id="search"]').fill('two');
-  await page.locator('[id="search"]').focus();
-  await page.keyboard.press('Enter');
-  await page.waitForTimeout(1000);
-
-  debug = await get_debug_state_fn(page);
-  index = 4;
-  param_limit_count = get_gallery_param_limit_fn(debug).length;
-  interval_top_count = get_interval_top_triggered_count_fn(debug);
-  interval_down_count = get_interval_down_triggered_count_fn(debug);
-  mutated_count = mutated_count_fn(debug);
-  init_executed_count = gallery_init_executed_count_fn(debug);
-  reset_executed_count = gallery_reset_executed_count_fn(debug);
-  expect(`init_executed ${init_executed_count} reset_executed ${reset_executed_count} param_limit ${param_limit_count} mutated ${mutated_count} interval_top ${interval_top_count} interval_down ${interval_down_count}`).toBe(`init_executed ${first_init_executed_count} reset_executed ${first_reset_executed_count + index} param_limit ${first_param_limit_count + index} mutated ${first_mutated_count + index} interval_top ${first_interval_top_count} interval_down ${first_interval_down_count}`);
-  // debug = await get_debug_state_fn(page);
-  // let param_limit = get_gallery_param_limit_fn(debug);
-  // expect(param_limit).toBe(3);
-
-  params = await page.evaluate(() => {
-    let params = new URLSearchParams(document.location.search);
-    let direction = params.get("direction");
-    let time = params.get("time");
-    let scroll = params.get("scroll");
-    let tags = params.get("tags");
-    let img_count = params.get("img_count");
-    return `direction=${direction}&scroll=${scroll}&tags=${tags}&img_count=${img_count}`;
-  });
-  expect(params).toBe(`direction=down&scroll=0&tags=one&img_count=3`);
-
-
-  
 });
 
 test("gallery_search2", async ({ page }) => {
@@ -561,8 +433,22 @@ test("gallery_search2", async ({ page }) => {
   await gallery_search(page, first_debug, 6, 10, "one", "3");
   await gallery_search(page, first_debug, 7, 12, "three", "1");
   await gallery_search(page, first_debug, 8, 14, "", "22");
+  // await gallery_search(page, first_debug, 9, 16, "ONE", "3");
   // SCROLLLLLLLLLLLLLLLLLLLL 0
   
+});
+
+test("gallery_search_from_diffrent_page", async ({ page }) => {
+  await page.goto("http://localhost:3000/login");
+
+  await page.locator('[id="search"]').fill("");
+  await page.locator('[id="search"]').focus();
+  await page.keyboard.press('Enter');
+
+  let first_elm_id_before = await page
+    .locator('[id="gallery"] > a')
+    .first()
+    .evaluate((elm) => elm.id);
 });
 
 let get_debug_state_fn = async (page) => {

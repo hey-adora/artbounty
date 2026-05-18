@@ -10,11 +10,13 @@ pub mod nav {
     use log::error;
     use tracing::trace;
     use web_sys::{HtmlInputElement, SubmitEvent};
+    use crate::path::{link_home_search, link_home};
 
     #[component]
     pub fn Nav() -> impl IntoView {
         let global_state = expect_context::<GlobalState>();
         let (get_query_tags, set_query_tags) = query_signal::<String>("tags");
+        let navigate = leptos_router::hooks::use_navigate();
         let search_ref = NodeRef::new();
         let api = ApiWeb::new();
         let logout_or_loading = move || {
@@ -44,11 +46,18 @@ pub mod nav {
                 .map(|v: HtmlInputElement| v.value())
                 .unwrap_or_default();
 
-            set_query_tags.set(if search_text.is_empty() {
-                None
+            if search_text.is_empty() {
+                navigate(&link_home(), Default::default());
+                // None
             } else {
-                Some(search_text)
-            });
+                navigate(&link_home_search(search_text), Default::default());
+                // Some(search_text)
+            }
+            // set_query_tags.set(if search_text.is_empty() {
+            //     None
+            // } else {
+            //     Some(search_text)
+            // });
             //
         };
 

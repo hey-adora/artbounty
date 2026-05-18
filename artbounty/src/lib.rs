@@ -324,6 +324,9 @@ pub mod path {
     pub fn link_home() -> String {
         "/".to_string()
     }
+    pub fn link_home_search(tags: impl AsRef<str>) -> String {
+        format!("/?tags={}", tags.as_ref())
+    }
     pub fn link_post(user: impl AsRef<str>, post: impl AsRef<str>) -> String {
         format!("/u/{}/{}", user.as_ref(), post.as_ref(),)
     }
