@@ -79,6 +79,7 @@ pub mod nav {
         //     //
         // };
 
+        // TODO set search value from url
         view! {
             <nav class="text-gray-200 flex gap-2 px-4 h-[3rem] items-center justify-between">
                 <a id="banner" href="/" class="font-black text-[1.3rem]">
@@ -250,7 +251,8 @@ pub mod gallery {
             //     .unwrap_or_else(|| time_now_ns());
             let user_username = username.get_untracked().flatten().unwrap_or_default();
 
-            let tags = get_query_tags.get_untracked();
+            // let tags = get_query_tags.get_untracked().unwrap_or_default().to_lowercase();
+            let tags = get_query_tags.get_untracked().unwrap_or_default();
             trace!("wheres my super suit?");
 
             // scroll_correction.update();
@@ -265,7 +267,7 @@ pub mod gallery {
                             row_height,
                         },
                         time,
-                        tags.clone().unwrap_or_default(),
+                        tags,
                         user_username,
                     )
                     .await;

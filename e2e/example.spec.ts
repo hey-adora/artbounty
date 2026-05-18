@@ -433,7 +433,7 @@ test("gallery_search2", async ({ page }) => {
   await gallery_search(page, first_debug, 6, 10, "one", "3");
   await gallery_search(page, first_debug, 7, 12, "three", "1");
   await gallery_search(page, first_debug, 8, 14, "", "22");
-  // await gallery_search(page, first_debug, 9, 16, "ONE", "3");
+  await gallery_search(page, first_debug, 9, 16, "ONE", "3");
   // SCROLLLLLLLLLLLLLLLLLLLL 0
   
 });

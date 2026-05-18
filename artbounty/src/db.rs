@@ -1432,6 +1432,7 @@ pub mod post {
             let tags = tags.into();
             let user = user.into();
 
+            let tags = tags.to_lowercase();
             let tags = tags.split_whitespace();
             let tags = tags.map(|v| v.to_string()).collect::<Vec<String>>();
 
