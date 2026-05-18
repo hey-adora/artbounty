@@ -87,7 +87,7 @@ pub mod nav {
                 </a>
                 // <button on:click=move |_| callback() >"wow"</button>
                 <form class=move||format!("") on:submit=search_fn>
-                    <input id="search" node_ref=search_ref type="text" placeholder="search tags" class="w-full rounded text-[1rem] px-[0.8rem] py-[0.2rem] text-base05 bg-base01 "/>
+                    <input id="search" value=move || get_query_tags.get() node_ref=search_ref type="text" placeholder="search tags" class="w-full rounded text-[1rem] px-[0.8rem] py-[0.2rem] text-base05 bg-base01 "/>
                 </form>
                 <div class=move||format!("{}", if global_state.acc_pending() { "" } else { "hidden" })>
                     <p>"loading..."</p>

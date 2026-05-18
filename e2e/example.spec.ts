@@ -451,6 +451,26 @@ test("gallery_search_from_diffrent_page", async ({ page }) => {
     .evaluate((elm) => elm.id);
 });
 
+test("gallery_search_input_text_from_url", async ({ page }) => {
+  await page.goto("http://localhost:3000");
+
+  await page.locator('[id="search"]').fill("one");
+  await page.locator('[id="search"]').focus();
+  await page.keyboard.press('Enter');
+
+  await page.reload();
+
+  let first_elm_id_before = await page
+    .locator('[id="gallery"] > a')
+    .first()
+    .evaluate((elm) => elm.id);
+
+  let value = await page.locator('[id="search"]')
+    .first()
+    .evaluate((elm) => elm.value );
+  expect(value).toBe("one");
+});
+
 let get_debug_state_fn = async (page) => {
     let debug_state = await page.evaluate(async () =>
       wasm_bindgen.get_debug_state(),
