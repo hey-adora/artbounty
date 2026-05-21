@@ -1,23 +1,24 @@
 pub mod nav {
 
+    use crate::path::{link_home, link_home_search};
     use crate::{
         api::{Api, ApiWeb},
         path::{PATH_LOGIN, PATH_UPLOAD, link_settings, link_user},
         view::{app::GlobalState, toolbox::prelude::*},
     };
-    use leptos::prelude::*;
+    use leptos::{html, prelude::*};
     use leptos_router::hooks::query_signal;
     use log::error;
     use tracing::trace;
-    use web_sys::{HtmlInputElement, SubmitEvent};
-    use crate::path::{link_home_search, link_home};
+    use web_sys::{HtmlDivElement, HtmlInputElement, KeyboardEvent, SubmitEvent};
 
     #[component]
     pub fn Nav() -> impl IntoView {
         let global_state = expect_context::<GlobalState>();
+        let search_input = NodeRef::<html::Div>::new();
         let (get_query_tags, set_query_tags) = query_signal::<String>("tags");
         let navigate = leptos_router::hooks::use_navigate();
-        let search_ref = NodeRef::new();
+        // let search_ref = NodeRef::new();
         let api = ApiWeb::new();
         let logout_or_loading = move || {
             if api.is_pending_tracked() {
@@ -38,28 +39,33 @@ pub mod nav {
             global_state.logout();
         };
 
-        let search_fn = move |e: SubmitEvent| {
-            e.prevent_default();
-            trace!("search_fn running");
-            let search_text = search_ref
-                .get_untracked()
-                .map(|v: HtmlInputElement| v.value())
-                .unwrap_or_default();
+        // let search_fn = move || {
+        //     // e.prevent_default();
+        //     trace!("search_fn running");
+        //     let search_text = search_input
+        //         .get_untracked()
+        //         .and_then(|v: HtmlDivElement| v.text_content())
+        //         .unwrap_or_default();
+        //
+        //     if search_text.is_empty() {
+        //         navigate(&link_home(), Default::default());
+        //         // None
+        //     } else {
+        //         navigate(&link_home_search(search_text), Default::default());
+        //         // Some(search_text)
+        //     }
+        //     // set_query_tags.set(if search_text.is_empty() {
+        //     //     None
+        //     // } else {
+        //     //     Some(search_text)
+        //     // });
+        //     //
+        // };
 
-            if search_text.is_empty() {
-                navigate(&link_home(), Default::default());
-                // None
-            } else {
-                navigate(&link_home_search(search_text), Default::default());
-                // Some(search_text)
-            }
-            // set_query_tags.set(if search_text.is_empty() {
-            //     None
-            // } else {
-            //     Some(search_text)
-            // });
-            //
-        };
+        // Effect::new(move || {
+        //     get_query_tags.get_untracked()
+        //     set_query_tags.set(None);
+        // });
 
         // let callback = move || {
         //     use crate::view::{app::GlobalState, toolbox::prelude::*};
@@ -79,6 +85,42 @@ pub mod nav {
         //     //
         // };
 
+        let on_enter = move |e: KeyboardEvent| {
+            let key = e.key();
+            trace!("key pressed {key}");
+            if key.to_lowercase() != "enter" {
+                return;
+            }
+            e.prevent_default();
+
+            let search_text = search_input
+                .get_untracked()
+                .and_then(|v: HtmlDivElement| v.text_content())
+                .unwrap_or_default();
+
+            if search_text.is_empty() {
+                navigate(&link_home(), Default::default());
+                // None
+            } else {
+                navigate(&link_home_search(search_text), Default::default());
+                // Some(search_text)
+            }
+        };
+
+        Effect::new(move || {
+            let (Some(search_elm), val): (Option<HtmlDivElement>, Option<String>) =
+                (search_input.get(), get_query_tags.get())
+            else {
+                return;
+            };
+            if let Some(v) = val {
+                search_elm.set_text_content(Some(&v));
+            } else {
+                search_elm.set_text_content(None);
+            }
+            // let val = ;
+        });
+
         // TODO set search value from url
         view! {
             <nav class="text-gray-200 flex gap-2 px-4 h-[3rem] items-center justify-between">
@@ -86,9 +128,16 @@ pub mod nav {
                     "ArtBounty"
                 </a>
                 // <button on:click=move |_| callback() >"wow"</button>
-                <form class=move||format!("") on:submit=search_fn>
-                    <input id="search" value=move || get_query_tags.get() node_ref=search_ref type="text" placeholder="search tags" class="w-full rounded text-[1rem] px-[0.8rem] py-[0.2rem] text-base05 bg-base01 "/>
-                </form>
+                <div contenteditable=true
+                     id="search"
+                     node_ref=search_input
+                     on:keydown=on_enter
+                     class={move || format!("w-full rounded text-[1rem] px-[0.8rem] py-[0.2rem] text-base05 bg-base01")}>
+                     {move || get_query_tags.get()}
+                </div>
+                // <form class=move||format!("") on:submit=search_fn>
+                //     <input id="search" value=move || get_query_tags.get() node_ref=search_ref type="text" placeholder="search tags" class="w-full rounded text-[1rem] px-[0.8rem] py-[0.2rem] text-base05 bg-base01 "/>
+                // </form>
                 <div class=move||format!("{}", if global_state.acc_pending() { "" } else { "hidden" })>
                     <p>"loading..."</p>
                 </div>
@@ -230,7 +279,6 @@ pub mod gallery {
         //
         // };
 
-
         let set_gallery = move |width: u32, height: f64, bottom: bool, limit: usize, time: u128| {
             let Some(gallery_elm) = gallery_ref.try_get_untracked().flatten() else {
                 return;
@@ -299,7 +347,11 @@ pub mod gallery {
             let id = gallery_elm.id();
             trace!("scroll top of {} {}", id, scroll_top);
             debug_data_push("gallery_scroll_set", scroll_top.to_string());
-            set_query_scroll.set( if scroll_top == 0 { None } else { Some(scroll_top) });
+            set_query_scroll.set(if scroll_top == 0 {
+                None
+            } else {
+                Some(scroll_top)
+            });
         };
 
         gallery_ref.add_resize_observer(move |entry, _observer| {
@@ -318,7 +370,8 @@ pub mod gallery {
         });
 
         let intersection_top = Intersection::new(move |entries, b| {
-            let (Some(entry), Some(gallery_elm)) = (entries.first(), gallery_ref.get_untracked()) else {
+            let (Some(entry), Some(gallery_elm)) = (entries.first(), gallery_ref.get_untracked())
+            else {
                 return;
             };
 
@@ -342,7 +395,8 @@ pub mod gallery {
         });
 
         let intersection_down = Intersection::new(move |entries, b| {
-            let (Some(entry), Some(gallery_elm)) = (entries.first(), gallery_ref.get_untracked()) else {
+            let (Some(entry), Some(gallery_elm)) = (entries.first(), gallery_ref.get_untracked())
+            else {
                 return;
             };
             let id = entry.target().id();
@@ -407,9 +461,7 @@ pub mod gallery {
 
             imgs.into_iter()
                 .enumerate()
-                .map({
-                    move |(i, img)| view! {<GalleryImg img />}
-                })
+                .map({ move |(i, img)| view! {<GalleryImg img />} })
                 .collect_view()
         };
 
@@ -420,10 +472,11 @@ pub mod gallery {
                 return;
             };
 
-
             let width = gallery_elm.client_width() as u32;
             let height = gallery_elm.client_height() as f64 * 2.0;
-            let time = get_query_time.get_untracked().unwrap_or_else(|| time_now_ns());
+            let time = get_query_time
+                .get_untracked()
+                .unwrap_or_else(|| time_now_ns());
             let is_bottom = get_query_direction
                 .get_untracked()
                 .map(|v| v == "down")
@@ -461,17 +514,15 @@ pub mod gallery {
                 old_tags.set_value(new_tags);
             }
 
-                
             // if !gallery_initialized.get_value() {
             //     return;
             // }
 
-            if  (
-                direction.is_some()
+            if (direction.is_some()
                 || count.is_some()
                 || scroll.is_some()
-                || gallery_api.is_empty()
-                ) && tags_are_same
+                || gallery_api.is_empty())
+                && tags_are_same
             {
                 return;
             }

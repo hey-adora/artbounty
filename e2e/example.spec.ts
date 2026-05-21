@@ -467,7 +467,7 @@ test("gallery_search_input_text_from_url", async ({ page }) => {
 
   let value = await page.locator('[id="search"]')
     .first()
-    .evaluate((elm) => elm.value );
+    .evaluate((elm) => elm.textContent );
   expect(value).toBe("one");
 });
 
