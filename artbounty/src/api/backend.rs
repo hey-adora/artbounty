@@ -367,6 +367,36 @@ pub async fn get_posts_older(
 
     Ok(ServerRes::Posts(posts))
 }
+
+pub async fn update_post_tags(
+    State(app): State<AppState>,
+    // auth_token: axum::Extension<AuthToken>,
+    db_user: Extension<DBUser>,
+    req: ServerReq,
+) -> Result<ServerRes, ServerErr> {
+    type ResErr = Server404Err;
+
+    let ServerReq::EditPostTags { post_key, new_tags } = req else {
+        return Err(
+            ServerDesErr::ServerWrongInput(format!("expected PostId, received: {req:?}")).into(),
+        );
+    };
+
+    // app.db
+    //     .delete_post(db_user.id.clone(), post_key)
+    //     .await
+    //     .map_err(|_| ServerErr::DbErr)?;
+
+
+    let post = app.db.update_post_tags(0, db_user.id.clone(), post_key, new_tags).await
+        .map_err(|err| match err {
+            DB404Err::NotFound => ResErr::NotFound.into(),
+            _ => ServerErr::DbErr,
+        })?;
+    //
+
+    Ok(ServerRes::Post(post.into()))
+}
 pub async fn delete_post(
     State(app): State<AppState>,
     auth_token: axum::Extension<AuthToken>,

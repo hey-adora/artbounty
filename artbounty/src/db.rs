@@ -2294,6 +2294,34 @@ impl<C: Connection> Db<C> {
             .and_then_take_all(0)
     }
 
+    pub async fn update_post_tags(
+        &self,
+        time: u128,
+        user_id: RecordId,
+        post_key: impl Into<RecordIdKey>,
+        text: impl Into<String>,
+    ) -> Result<DBUserPost, DB404Err> {
+        // TODO maybe remove RETURN if im not using it anywhere
+        let post_id = create_post_id(post_key);
+        let q = r#"
+                 UPDATE post SET
+                    tags = $tags,
+                    modified_at = $time
+                    WHERE id = $post_id AND user = $user_id
+                 RETURN *, user.*;
+                "#;
+        trace!("about to run {q}");
+        self.db
+            .query(q)
+            .bind(("time", time))
+            .bind(("user_id", user_id))
+            .bind(("post_id", post_id))
+            .bind(("tags", text.into()))
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_or(0, DB404Err::NotFound)
+    }
+
     pub async fn add_post(
         &self,
         time: u128,
@@ -2724,6 +2752,60 @@ mod tests {
         assert_eq!(post_likes_all[0].post, post2.id);
     }
 
+    // TODO each endopint with auth should have security test
+    #[tokio::test]
+    async fn db_security_update_post_tags() {
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate(0).await.unwrap();
+        let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
+        let user2 = db.add_user(0, "hey2", "hey2@hey.com", "123").await.unwrap();
+
+        let post = db
+            .add_post(
+                0,
+                "hey",
+                "title",
+                "description",
+                "",
+                0,
+                vec![],
+            )
+            .await
+            .unwrap();
+
+        let result = db.update_post_tags(0, user2.id.clone(), post.id.key.clone(), "one").await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn db_post_edit() {
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate(0).await.unwrap();
+        let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
+
+        let post = db
+            .add_post(
+                0,
+                "hey",
+                "title",
+                "description",
+                "",
+                0,
+                vec![],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(post.tags, "");
+
+        db.update_post_tags(0, user.id.clone(), post.id.key.clone(), "one").await.unwrap();
+
+        let post = db.get_post(post.id.key.clone()).await.unwrap();
+
+        assert_eq!(post.tags, "one");
+    }
+
     #[tokio::test]
     async fn db_post() {
         let db = Db::new::<Mem>(()).await.unwrap();
@@ -2731,6 +2813,7 @@ mod tests {
         let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
         let user2 = db.add_user(0, "hey2", "hey2@hey.com", "123").await.unwrap();
 
+        //TODO using username instead of id? i dont like it
         let post = db
             .add_post(
                 0,

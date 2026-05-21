@@ -80,6 +80,7 @@ pub fn Page() -> impl IntoView {
     // );
     let spawner_post = Spawner::new();
     let post_api = PostApi::new(api_post);
+    let edit_tags_input = NodeRef::<html::Div>::new();
 
     let spawner_comments = Spawner::new();
     let comment_container_ref = NodeRef::<html::Div>::new();
@@ -263,6 +264,48 @@ pub fn Page() -> impl IntoView {
                 .collect_view()
     };
 
+    let tags = move || {
+        post_api
+            .tags
+            .get()
+            .split_whitespace()
+            .into_iter()
+            .map(|v| {
+                view! {
+                    <div class="bg-base02 rounded-full text-[1rem] px-3 py-1">
+                        {v}
+                    </div>
+
+                }
+            })
+            .collect_view()
+    };
+
+    let edit_tags = move || {
+        post_api.update_tags_mode.update(|v| *v = !*v);
+    };
+
+    let edit_tags_save = move || {
+        let (Some(post_key), Some(tags)) = (
+            param_post.get(),
+            edit_tags_input
+                .get_untracked()
+                .and_then(|v: HtmlDivElement| v.text_content()),
+        ) else {
+            return;
+        };
+        spawner_post.spawn(post_api.update_tags(post_key, tags));
+        // let Some(text) = edit_tags_input
+        //     .get_untracked()
+        //     .and_then(|v: HtmlDivElement| v.text_content())
+        // else {
+        //     return;
+        // };
+        // post_api.update_tags_mode.set(true);
+
+        // spawner_post.spawn(comments_manual.update_comment(text));
+    };
+
     let previews = move || {
         post_api.imgs_links
                 .get()
@@ -353,7 +396,64 @@ pub fn Page() -> impl IntoView {
                         </div>
                         <div class="flex flex-col gap-2 md:gap-4 justify-between mt-4">
                             <h1 class="text-[1.3rem] text-base0F">"Description"</h1>
-                            <div class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}", if post_api.description_is_empty.get() {"text-base03"} else {"text-base05"} )>{ move || post_api.description.get() }</div>
+                            <div class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}",
+                                 if post_api.description_is_empty.get() {"text-base03"} else {"text-base05"}
+                            )>
+                                { move || post_api.description.get() }
+                            </div>
+                        </div>
+                        <div class="flex flex-col gap-2 md:gap-4 justify-between mt-4">
+                            <div class="flex justify-between">
+                                <h1 class="text-[1.3rem] text-base0F">"tags"</h1>
+                                <div class="flex gap-2 items-center">
+
+                                    <Show when=move || global_state.is_logged_in().unwrap_or_default() >
+                                        <Show when=move || post_api.update_tags_mode.get() >
+                                            <button on:click=move |_| edit_tags_save() class=move || format!("text-center  rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem]  {}",
+                                                if post_api.update_tags_mode.get() {
+                                                    " hover:bg-base05 bg-base0D text-base01" } else {
+                                                    " text-base05 bg-base01 hover:bg-base05 hover:text-base01" }
+                                                )>
+                                                "Save"
+                                            </button>
+                                        </Show>
+                                        <button on:click=move |_| edit_tags() class=move || format!("text-center   rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem] text-base05 bg-base01 hover:bg-base05 hover:text-base01",
+                                                )>
+                                            <Show when={move || post_api.update_tags_mode.get() } fallback={move || "Edit" }>
+                                                "Cancel"
+                                            </Show>
+                                        </button>
+                                    </Show>
+
+                                </div>
+
+                                // <button on:click=move |_| edit_tags() class=move || format!("text-center   rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem]  {}", if false { " hover:bg-base05 bg-base0D text-base01" } else { " text-base05 bg-base01 hover:bg-base05 hover:text-base01" })>
+                                //     <Show when={move || post_api.edit_tags_mode.get() } fallback={move || "Edit" }>
+                                //         "Save"
+                                //     </Show>
+                                // </button>
+                            </div>
+                            <Show when=move || comment_basic.comments_manual.err_fetch.with(|v| !v.is_empty()) >
+                                <ul class="ml-[1rem] text-base08 list-disc">
+                                    {move || post_api.err_tags.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                </ul>
+                            </Show>
+                            <div class=move || format!("text-ellipsis flex flex-wrap gap-1 overflow-hidden padding max-w-[calc(100vw-1rem)] {} ",
+                                    if post_api.tags.with(|v| v.is_empty()) {"text-base03"} else {"text-base05"}
+                                )>
+
+                                <Show when={move || post_api.update_tags_mode.get() } fallback={move || view!{
+                                    <Show when={move || post_api.tags.with(|v| !v.is_empty()) } fallback={move || "No tags." }>
+                                        { tags }
+                                    </Show>
+                                } }>
+                                    <div contenteditable=true
+                                         node_ref=edit_tags_input
+                                         class={move || format!(" text-[1.1rem] break-all focus:outline-none! appearance-none border-none resize w-full rounded bg-base01 px-4 py-2 ")}>
+                                         {move || post_api.tags.get()}
+                                    </div>
+                                </Show>
+                             </div>
                         </div>
                         <div  class="flex flex-col gap-2 md:gap-4 justify-between mt-4 pb-1">
                             <h1 class="text-[1.3rem] text-base0F ">"Comments"</h1>

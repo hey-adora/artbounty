@@ -79,6 +79,7 @@ pub mod app_state {
 
         pub async fn new_testng(time: Arc<Mutex<u128>>, invite_exp_ns: u128) -> Self {
             let db = db::new_mem(*time.lock().await).await;
+
             let settings = Settings::new_testing(invite_exp_ns);
             let f = move || {
                 let time = time.clone();
@@ -432,6 +433,10 @@ pub enum ServerReq {
         time_range: TimeRange,
         order: Order,
         flatten: bool,
+    },
+    EditPostTags {
+        post_key: String,
+        new_tags: String,
     },
     PostId {
         post_key: String,
@@ -1031,6 +1036,7 @@ pub struct UserPost {
     pub show: bool,
     pub title: String,
     pub description: String,
+    pub tags: String,
     pub favorites: u64,
     pub file: Vec<UserPostFile>,
     pub modified_at: u128,
@@ -1245,6 +1251,7 @@ impl From<crate::db::DBUserPost> for UserPost {
             title: value.title,
             show: value.show,
             description: value.description,
+            tags: value.tags,
             favorites: value.favorites,
             modified_at: value.modified_at,
             created_at: value.created_at,
@@ -1871,6 +1878,16 @@ pub trait Api {
         }
     }
 
+    fn update_post_tags(&self, post_key: impl Into<String>, tags: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_POST_UPDATE_TAGS,
+            ServerReq::EditPostTags {
+                post_key: post_key.into(),
+                new_tags: tags.into(),
+            },
+        )
+    }
+
     fn delete_post(&self, post_key: impl Into<String>) -> ApiReq {
         self.into_req(
             crate::path::PATH_API_POST_DELETE,
@@ -2101,7 +2118,7 @@ pub struct ApiTest {
     pub server: axum_test::TestServer,
 
     // this was added as optional to not break existing tests
-    pub pre_load_token: String,
+    pub auth_token_overwrite: String,
 }
 
 #[cfg(test)]
@@ -2109,7 +2126,7 @@ impl ApiTest {
     pub fn new(server: axum_test::TestServer) -> Self {
         Self {
             server,
-            pre_load_token: String::new(),
+            auth_token_overwrite: String::new(),
         }
     }
 
@@ -2125,8 +2142,8 @@ impl Api for ApiTest {
         let url = format!("{}{path}", crate::path::PATH_API);
         // self.server.reqwest_post(&url)
         let mut req = self.server.reqwest_post(&url);
-        if !self.pre_load_token.is_empty() {
-            req = req.header(http::header::COOKIE, self.pre_load_token.clone());
+        if !self.auth_token_overwrite.is_empty() {
+            req = req.header(http::header::COOKIE, self.auth_token_overwrite.clone());
         }
 
         req
@@ -2139,8 +2156,8 @@ impl Api for &ApiTest {
         let path = path.as_ref();
         let url = format!("{}{path}", crate::path::PATH_API);
         let mut req = self.server.reqwest_post(&url);
-        if !self.pre_load_token.is_empty() {
-            req = req.header(http::header::COOKIE, self.pre_load_token.clone());
+        if !self.auth_token_overwrite.is_empty() {
+            req = req.header(http::header::COOKIE, self.auth_token_overwrite.clone());
         }
 
         req
@@ -2442,6 +2459,30 @@ pub mod tests {
 
         pub async fn set_time(&self, time: u128) {
             *self.time.lock().await = time;
+        }
+
+        pub async fn update_post_tags(
+            &self,
+            time: u128,
+            auth_token: impl Into<String>,
+            post_key: impl Into<String>,
+            new_tags: impl Into<String>,
+        ) -> Option<UserPost> {
+            self.set_time(time).await;
+            let auth_token = auth_token.into();
+
+            // TODO
+            let result = self
+                .api
+                .update_post_tags(post_key, new_tags)
+                .send_native_with_token(auth_token.clone())
+                .await;
+            trace!("{result:#?}");
+
+            match result {
+                Ok(crate::api::ServerRes::Post(v)) => Some(v),
+                _ => None,
+            }
         }
 
         pub async fn delete_post(
@@ -3712,5 +3753,45 @@ pub mod tests {
         app.expect_posts(0, 1, 2, 0, 1).await.unwrap();
         app.expect_posts(1, 0, 1, 1, 2).await.unwrap();
         app.expect_posts(2, 0, 0, 2, 2).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn api_post_update_tags() {
+        crate::init_test_log();
+
+        let app = ApiTestApp::new(1).await;
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+
+        let post = app
+            .add_post(0, &auth_token, "title1", "cat", "")
+            .await
+            .unwrap();
+
+        assert_eq!(post.tags, "");
+
+        let post = app
+            .update_post_tags(0, &auth_token, post.key.clone(), "one")
+            .await
+            .unwrap();
+
+        assert_eq!(post.tags, "one");
+
+        let posts = app
+            .get_posts(
+                0,
+                &auth_token,
+                2,
+                TimeRange::MoreOrEqual(0),
+                Order::OneTwoThree,
+                "",
+                "",
+            )
+            .await
+            .unwrap();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0].tags, "one");
     }
 }

@@ -315,7 +315,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        app.api.pre_load_token = auth_token.clone();
+        app.api.auth_token_overwrite = auth_token.clone();
 
         let post_api = GalleryApi::new(&app.api, &app.api, scroll_corerction.clone());
         let size = GalleryContainerSize {
@@ -443,7 +443,7 @@ pub mod tests {
         trace!("ITEMS2: {items:#?}");
         assert_eq!(items.len(), 3);
 
-        app.api.pre_load_token = auth_token2.clone();
+        app.api.auth_token_overwrite = auth_token2.clone();
         let post_api = GalleryApi::new(&app.api, &app.api, scroll_corerction.clone());
 
         app.set_time(5).await;

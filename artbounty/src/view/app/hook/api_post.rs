@@ -14,6 +14,11 @@ pub struct PostApi<API: Api> {
     pub title: RwSignal<String, LocalStorage>,
     pub author: RwSignal<String, LocalStorage>,
     pub author_link: RwSignal<String, LocalStorage>,
+    pub tags: RwSignal<String, LocalStorage>,
+    pub err_tags: RwSignal<String, LocalStorage>,
+    // pub tags_is_empty: RwSignal<bool, LocalStorage>,
+    pub update_tags_mode: RwSignal<bool, LocalStorage>,
+    // pub tags_is_e: RwSignal<String, LocalStorage>,
     pub description: RwSignal<String, LocalStorage>,
     pub description_is_empty: RwSignal<bool, LocalStorage>,
     pub favorites: RwSignal<u64, LocalStorage>,
@@ -50,12 +55,53 @@ impl<API: Api> PostApi<API> {
             title: RwSignal::new_local(String::from("loading...")),
             author: RwSignal::new_local(String::from("loading...")),
             author_link: RwSignal::new_local(link_home()),
+            tags: RwSignal::new_local(String::new()),
+            err_tags: RwSignal::new_local(String::new()),
+            update_tags_mode: RwSignal::new_local(false),
             description: RwSignal::new_local(String::from("loading...")),
             description_is_empty: RwSignal::new_local(true),
             favorites: RwSignal::new_local(0_u64),
             post_state: RwSignal::new_local(PostState::Loading),
             api,
         }
+    }
+
+    pub async fn update_tags(
+        self,
+        post_key: impl Into<String>,
+        tags: impl Into<String>,
+    ) -> Option<()> {
+        self.err_tags.update(|v| v.clear());
+
+        let result = self
+            .api
+            .update_post_tags(post_key, tags)
+            .send_native()
+            .await;
+
+        match result {
+            Ok(crate::api::ServerRes::Post(v)) => {
+                self.tags.set(v.tags);
+                self.update_tags_mode.set(false);
+                return Some(());
+            }
+            Ok(res) => {
+                let err = format!("wrong res, expected Post, got {:?}", res);
+                error!(err);
+                self.err_tags.set(err);
+            }
+            Err(ServerErr::NotFoundErr(Server404Err::NotFound)) => {
+                self.post_state.set(PostState::NotFound);
+                self.err_tags.set("post not found".to_string());
+            }
+            Err(err) => {
+                let err = format!("unexpected err {:#?}", { err });
+                error!(err);
+                self.err_tags.set(err);
+            }
+        }
+
+        None
     }
 
     pub async fn delete(self, post_id: impl Into<String>) -> Option<()> {
@@ -93,6 +139,7 @@ impl<API: Api> PostApi<API> {
                 self.title.set(post.title);
                 self.author.set(post.user.username.clone());
                 self.author_link.set(link_user(post.user.username));
+                self.tags.set(post.tags);
                 if post.description.is_empty() {
                     self.description.set("No description.".to_string());
                     self.description_is_empty.set(true);
@@ -156,6 +203,63 @@ pub mod tests {
     use crate::init_test_log;
 
     #[tokio::test]
+    pub async fn hook_post_api_update_tags() {
+        println!("hello");
+        init_test_log();
+        let owner = Owner::new_root(Some(Arc::new(HydrateSharedContext::new())));
+        let mut app = ApiTestApp::new(10).await;
+        let scroll_correction = ScrollCorrection::new();
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+        app.api.auth_token_overwrite = auth_token.clone();
+        let post_key = {
+            let gallery_api = GalleryApi::new(&app.api, &app.api, scroll_correction.clone());
+            app.set_time(1).await;
+            gallery_api
+                .post(
+                    GalleryContainerSize {
+                        width: 100,
+                        height: 100.0,
+                        row_height: 50,
+                    },
+                    "title1",
+                    "0",
+                    "",
+                    vec![create_img_req("1", 50, 50).await],
+                )
+                .await;
+            gallery_api.items.get()[0].clone().key
+        };
+
+        // testing err
+        let post_api = PostApi::new(&app.api);
+        post_api.get("invalid").await;
+        assert!(!post_api.err_tags.get().is_empty());
+        assert_eq!(post_api.tags.get(), "");
+
+        // testing normal 
+        let post_api = PostApi::new(&app.api);
+        post_api.get(&post_key).await;
+        assert_eq!(post_api.tags.get(), "");
+        post_api.update_tags_mode.set(true);
+        assert!(post_api.err_tags.get().is_empty());
+
+        post_api.update_tags(&post_key, "one").await;
+        assert_eq!(post_api.tags.get(), "one");
+        assert_eq!(post_api.update_tags_mode.get(), false);
+
+        let post_api = PostApi::new(&app.api);
+        post_api.get(&post_key).await;
+        assert_eq!(post_api.tags.get(), "one");
+
+
+        // let items = gallery_api.items.get();
+        // assert_eq!(items.len(), 1);
+    }
+
+    #[tokio::test]
     pub async fn hook_post_api_delete() {
         println!("hello");
         init_test_log();
@@ -169,7 +273,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        app.api.pre_load_token = auth_token.clone();
+        app.api.auth_token_overwrite = auth_token.clone();
 
         let gallery_api = GalleryApi::new(&app.api, &app.api, scroll_correction.clone());
         let size = GalleryContainerSize {
@@ -217,7 +321,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        app.api.pre_load_token = auth_token.clone();
+        app.api.auth_token_overwrite = auth_token.clone();
 
         let gallery_api = GalleryApi::new(&app.api, &app.api, scroll_correction.clone());
         let size = GalleryContainerSize {
