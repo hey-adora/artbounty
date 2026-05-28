@@ -294,6 +294,7 @@ pub mod path {
     pub const PATH_API_CONFIRM_EMAIL_NEW: &'static str = "/confirm_email_new";
     pub const PATH_API_POST_DELETE: &'static str = "/post/delete";
     pub const PATH_API_POST_UPDATE_TAGS: &'static str = "/post/update_tags";
+    pub const PATH_API_POST_UPDATE_DESCRIPTION: &'static str = "/post/update_description";
     pub const PATH_API_POST_ADD: &'static str = "/post/add";
     pub const PATH_API_POST_GET: &'static str = "/post/get";
     pub const PATH_API_POSTS_GET: &'static str = "/post/search";

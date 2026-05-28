@@ -10,17 +10,19 @@ use tracing::{error, info, trace, warn};
 pub struct PostApi<API: Api> {
     // ui
     // pub items: RwSignal<Vec<Img>, LocalStorage>,
+    pub err_tags: RwSignal<String, LocalStorage>,
+    pub err_description: RwSignal<String, LocalStorage>,
     pub imgs_links: RwSignal<Vec<(String, f64)>, LocalStorage>,
     pub title: RwSignal<String, LocalStorage>,
     pub author: RwSignal<String, LocalStorage>,
     pub author_link: RwSignal<String, LocalStorage>,
     pub tags: RwSignal<String, LocalStorage>,
-    pub err_tags: RwSignal<String, LocalStorage>,
     // pub tags_is_empty: RwSignal<bool, LocalStorage>,
     pub update_tags_mode: RwSignal<bool, LocalStorage>,
+    pub update_description_mode: RwSignal<bool, LocalStorage>,
     // pub tags_is_e: RwSignal<String, LocalStorage>,
     pub description: RwSignal<String, LocalStorage>,
-    pub description_is_empty: RwSignal<bool, LocalStorage>,
+    // pub description_is_empty: RwSignal<bool, LocalStorage>,
     pub favorites: RwSignal<u64, LocalStorage>,
     pub post_state: RwSignal<PostState, LocalStorage>,
 
@@ -57,13 +59,53 @@ impl<API: Api> PostApi<API> {
             author_link: RwSignal::new_local(link_home()),
             tags: RwSignal::new_local(String::new()),
             err_tags: RwSignal::new_local(String::new()),
+            err_description: RwSignal::new_local(String::new()),
             update_tags_mode: RwSignal::new_local(false),
+            update_description_mode: RwSignal::new_local(false),
             description: RwSignal::new_local(String::from("loading...")),
-            description_is_empty: RwSignal::new_local(true),
+            // description_is_empty: RwSignal::new_local(true),
             favorites: RwSignal::new_local(0_u64),
             post_state: RwSignal::new_local(PostState::Loading),
             api,
         }
+    }
+
+    pub async fn update_description(
+        self,
+        post_key: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Option<()> {
+        self.err_description.update(|v| v.clear());
+
+        let result = self
+            .api
+            .update_post_description(post_key, description)
+            .send_native()
+            .await;
+
+        match result {
+            Ok(crate::api::ServerRes::Post(v)) => {
+                self.description.set(v.description);
+                self.update_description_mode.set(false);
+                return Some(());
+            }
+            Ok(res) => {
+                let err = format!("wrong res, expected Post, got {:?}", res);
+                error!(err);
+                self.err_description.set(err);
+            }
+            Err(ServerErr::NotFoundErr(Server404Err::NotFound)) => {
+                self.post_state.set(PostState::NotFound);
+                self.err_description.set("post not found".to_string());
+            }
+            Err(err) => {
+                let err = format!("unexpected err {:#?}", { err });
+                error!(err);
+                self.err_description.set(err);
+            }
+        }
+
+        None
     }
 
     pub async fn update_tags(
@@ -140,13 +182,14 @@ impl<API: Api> PostApi<API> {
                 self.author.set(post.user.username.clone());
                 self.author_link.set(link_user(post.user.username));
                 self.tags.set(post.tags);
-                if post.description.is_empty() {
-                    self.description.set("No description.".to_string());
-                    self.description_is_empty.set(true);
-                } else {
-                    self.description.set(post.description);
-                    self.description_is_empty.set(false);
-                }
+                self.description.set(post.description);
+                // if post.description.is_empty() {
+                //     self.description.set("No description.".to_string());
+                //     // self.description_is_empty.set(true);
+                // } else {
+                //     self.description.set(post.description);
+                //     // self.description_is_empty.set(false);
+                // }
 
                 self.favorites.set(post.favorites);
                 self.imgs_links.set(
@@ -201,6 +244,63 @@ pub mod tests {
     use tracing::{debug, trace};
 
     use crate::init_test_log;
+
+    #[tokio::test]
+    pub async fn hook_post_api_update_description() {
+        println!("hello");
+        init_test_log();
+        let owner = Owner::new_root(Some(Arc::new(HydrateSharedContext::new())));
+        let mut app = ApiTestApp::new(10).await;
+        let scroll_correction = ScrollCorrection::new();
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+        app.api.auth_token_overwrite = auth_token.clone();
+        let post_key = {
+            let gallery_api = GalleryApi::new(&app.api, &app.api, scroll_correction.clone());
+            app.set_time(1).await;
+            gallery_api
+                .post(
+                    GalleryContainerSize {
+                        width: 100,
+                        height: 100.0,
+                        row_height: 50,
+                    },
+                    "title1",
+                    "0",
+                    "",
+                    vec![create_img_req("1", 50, 50).await],
+                )
+                .await;
+            gallery_api.items.get()[0].clone().key
+        };
+
+        // testing normal 
+        let post_api = PostApi::new(&app.api);
+        post_api.get(&post_key).await;
+        assert_eq!(post_api.description.get(), "0");
+        post_api.update_description_mode.set(true);
+        assert!(post_api.err_description.get().is_empty());
+
+        post_api.update_description(&post_key, "2").await;
+        assert_eq!(post_api.description.get(), "2");
+        assert_eq!(post_api.update_tags_mode.get(), false);
+        assert!(post_api.err_description.get().is_empty());
+
+        let post_api = PostApi::new(&app.api);
+        post_api.get(&post_key).await;
+        assert_eq!(post_api.description.get(), "2");
+
+        post_api.delete(&post_key).await;
+
+        post_api.update_description(&post_key, "2").await;
+        assert!(!post_api.err_description.get().is_empty());
+
+
+        // let items = gallery_api.items.get();
+        // assert_eq!(items.len(), 1);
+    }
 
     #[tokio::test]
     pub async fn hook_post_api_update_tags() {

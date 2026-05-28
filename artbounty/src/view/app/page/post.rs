@@ -27,7 +27,7 @@ use leptos_router::params::Params;
 use tracing::{debug, error, trace, warn};
 use wasm_bindgen::JsValue;
 use web_sys::{
-    Event, HtmlDivElement, HtmlElement, ScrollBehavior, ScrollIntoViewOptions,
+    Event, HtmlDivElement, HtmlPreElement, HtmlElement, ScrollBehavior, ScrollIntoViewOptions,
     ScrollLogicalPosition, SubmitEvent,
 };
 
@@ -39,6 +39,7 @@ pub struct PostParams {
 
 #[component]
 pub fn Page() -> impl IntoView {
+    // TODO add max limit for description and tags and other stuff
     let main_ref = NodeRef::new();
     let api_post = ApiWeb::new();
     let api_comments = ApiWeb::new();
@@ -81,6 +82,7 @@ pub fn Page() -> impl IntoView {
     let spawner_post = Spawner::new();
     let post_api = PostApi::new(api_post);
     let edit_tags_input = NodeRef::<html::Div>::new();
+    let edit_description_input = NodeRef::<html::Pre>::new();
 
     let spawner_comments = Spawner::new();
     let comment_container_ref = NodeRef::<html::Div>::new();
@@ -264,6 +266,38 @@ pub fn Page() -> impl IntoView {
                 .collect_view()
     };
 
+    let edit_description_mode_toggle = move || {
+        post_api.update_description_mode.update(|v| *v = !*v);
+    };
+    let edit_description_save = move || {
+        let (Some(post_key), Some(new_description)) = (
+            param_post.get(),
+            edit_description_input
+                .get_untracked()
+                .and_then(|v: HtmlPreElement| v.text_content()),
+        ) else {
+            return;
+        };
+        spawner_post.spawn(post_api.update_description(post_key, new_description));
+    };
+    let edit_description_cancel = move || {
+        post_api.description.update(|_v| {()});
+        edit_description_mode_toggle();
+    };
+
+    let description = move || {
+        let mut description = post_api.description.get();
+        if description.is_empty() {
+            description.push_str("No description.");
+        }
+        description
+        // description.split("\n")
+        //     .map(|v| {
+        //         view! {{v}<br/>}
+        //     })
+        //     .collect_view()
+    };
+
     let tags = move || {
         post_api
             .tags
@@ -295,15 +329,6 @@ pub fn Page() -> impl IntoView {
             return;
         };
         spawner_post.spawn(post_api.update_tags(post_key, tags));
-        // let Some(text) = edit_tags_input
-        //     .get_untracked()
-        //     .and_then(|v: HtmlDivElement| v.text_content())
-        // else {
-        //     return;
-        // };
-        // post_api.update_tags_mode.set(true);
-
-        // spawner_post.spawn(comments_manual.update_comment(text));
     };
 
     let previews = move || {
@@ -395,12 +420,79 @@ pub fn Page() -> impl IntoView {
                             </div>
                         </div>
                         <div class="flex flex-col gap-2 md:gap-4 justify-between mt-4">
-                            <h1 class="text-[1.3rem] text-base0F">"Description"</h1>
-                            <div class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}",
-                                 if post_api.description_is_empty.get() {"text-base03"} else {"text-base05"}
-                            )>
-                                { move || post_api.description.get() }
+                            <div class="flex justify-between">
+                                <h1 class="text-[1.3rem] text-base0F">"Description"</h1>
+                                <div class="flex gap-2 items-center">
+
+                                    <Show when=move || global_state.is_logged_in().unwrap_or_default() >
+                                        <Show when=move || post_api.update_description_mode.get() >
+                                            <button on:click=move |_| edit_description_save() class=move || format!("text-center  rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem]  {}",
+                                                if post_api.update_description_mode.get() {
+                                                    " hover:bg-base05 bg-base0D text-base01" } else {
+                                                    " text-base05 bg-base01 hover:bg-base05 hover:text-base01" }
+                                                )>
+                                                "Save"
+                                            </button>
+                                        </Show>
+                                        <Show when={move || post_api.update_description_mode.get() } fallback={move || view! {
+                                                <button on:click=move |_| edit_description_mode_toggle() class=move || format!("text-center   rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem] text-base05 bg-base01 hover:bg-base05 hover:text-base01")>
+                                                    "Edit"
+                                                </button>
+                                            }}>
+                                            <button on:click=move |_| edit_description_cancel() class=move || format!("text-center   rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem] text-base05 bg-base01 hover:bg-base05 hover:text-base01")>
+                                                "Cancel"
+                                            </button>
+                                        </Show>
+                                    </Show>
+
+                                </div>
                             </div>
+                            <Show when=move || post_api.err_description.with(|v| !v.is_empty()) >
+                                <ul class="ml-[1rem] text-base08 list-disc">
+                                    {move || post_api.err_description.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                                </ul>
+                            </Show>
+                            <Show when=move || post_api.update_description_mode.get() fallback=move || view!{
+                                <pre 
+                                    class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] rounded {}",
+                                        if post_api.description.with(|v| v.is_empty()) { "text-base03" }  else { "" }
+
+                                        )>
+                                    { description }
+                                </pre>
+                            }>
+                                <pre 
+                                    node_ref=edit_description_input
+                                    contenteditable=true
+                                    class="text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] bg-base01 text-base05 px-4 py-2 rounded">
+                                    { move || post_api.description.get() }
+                                </pre>
+                            </Show>
+                            // <Show when=move || post_api.update_description_mode.get() >
+                            // </Show>
+                            // <Show when=move || post_api.err_description.with(|v| !v.is_empty()) >
+                            //     <div 
+                            //         node_ref=edit_description_input
+                            //         contenteditable=move || post_api.update_description_mode.get()
+                            //         class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}",
+                            //          if post_api.update_description_mode.get() { "bg-base01 text-base05 px-4 py-2 rounded" }
+                            //          else if post_api.description_is_empty.get() {"text-base03"}
+                            //          else {"text-base05"}
+                            //     )>
+                            //         { move || post_api.description.get() }
+                            //     </div>
+                            // </Show>
+
+                            // <div 
+                            //     node_ref=edit_description_input
+                            //     contenteditable=move || post_api.update_description_mode.get()
+                            //     class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}",
+                            //      if post_api.update_description_mode.get() { "bg-base01 text-base05 px-4 py-2 rounded" }
+                            //      else if post_api.description_is_empty.get() {"text-base03"}
+                            //      else {"text-base05"}
+                            // )>
+                            //     { move || post_api.description.get() }
+                            // </div>
                         </div>
                         <div class="flex flex-col gap-2 md:gap-4 justify-between mt-4">
                             <div class="flex justify-between">
@@ -433,7 +525,7 @@ pub fn Page() -> impl IntoView {
                                 //     </Show>
                                 // </button>
                             </div>
-                            <Show when=move || comment_basic.comments_manual.err_fetch.with(|v| !v.is_empty()) >
+                            <Show when=move || post_api.err_tags.with(|v| !v.is_empty()) >
                                 <ul class="ml-[1rem] text-base08 list-disc">
                                     {move || post_api.err_tags.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                 </ul>

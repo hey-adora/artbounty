@@ -332,6 +332,7 @@ pub fn create_api_router(
         )
         .route(path::PATH_API_POST_ADD, post(api::backend::add_post))
         .route(path::PATH_API_POST_UPDATE_TAGS, post(api::backend::update_post_tags))
+        .route(path::PATH_API_POST_UPDATE_DESCRIPTION, post(api::backend::update_post_description))
         .route(path::PATH_API_POST_DELETE, post(api::backend::delete_post))
         .route_layer(middleware::from_fn_with_state(
             app_state.clone(),

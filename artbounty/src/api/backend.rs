@@ -368,6 +368,30 @@ pub async fn get_posts_older(
     Ok(ServerRes::Posts(posts))
 }
 
+pub async fn update_post_description(
+    State(app): State<AppState>,
+    // auth_token: axum::Extension<AuthToken>,
+    db_user: Extension<DBUser>,
+    req: ServerReq,
+) -> Result<ServerRes, ServerErr> {
+    type ResErr = Server404Err;
+
+    let ServerReq::EditPostDescription { post_key, new_description } = req else {
+        return Err(
+            ServerDesErr::ServerWrongInput(format!("expected EditPostDescription, received: {req:?}")).into(),
+        );
+    };
+
+    let post = app.db.update_post_description(0, db_user.id.clone(), post_key, new_description).await
+        .map_err(|err| match err {
+            DB404Err::NotFound => ResErr::NotFound.into(),
+            _ => ServerErr::DbErr,
+        })?;
+    //
+
+    Ok(ServerRes::Post(post.into()))
+}
+
 pub async fn update_post_tags(
     State(app): State<AppState>,
     // auth_token: axum::Extension<AuthToken>,

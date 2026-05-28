@@ -434,6 +434,10 @@ pub enum ServerReq {
         order: Order,
         flatten: bool,
     },
+    EditPostDescription {
+        post_key: String,
+        new_description: String,
+    },
     EditPostTags {
         post_key: String,
         new_tags: String,
@@ -1888,6 +1892,16 @@ pub trait Api {
         )
     }
 
+    fn update_post_description(&self, post_key: impl Into<String>, description: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_POST_UPDATE_DESCRIPTION,
+            ServerReq::EditPostDescription {
+                post_key: post_key.into(),
+                new_description: description.into(),
+            },
+        )
+    }
+
     fn delete_post(&self, post_key: impl Into<String>) -> ApiReq {
         self.into_req(
             crate::path::PATH_API_POST_DELETE,
@@ -2475,6 +2489,30 @@ pub mod tests {
             let result = self
                 .api
                 .update_post_tags(post_key, new_tags)
+                .send_native_with_token(auth_token.clone())
+                .await;
+            trace!("{result:#?}");
+
+            match result {
+                Ok(crate::api::ServerRes::Post(v)) => Some(v),
+                _ => None,
+            }
+        }
+
+        pub async fn update_post_description(
+            &self,
+            time: u128,
+            auth_token: impl Into<String>,
+            post_key: impl Into<String>,
+            new_description: impl Into<String>,
+        ) -> Option<UserPost> {
+            self.set_time(time).await;
+            let auth_token = auth_token.into();
+
+            // TODO
+            let result = self
+                .api
+                .update_post_description(post_key, new_description)
                 .send_native_with_token(auth_token.clone())
                 .await;
             trace!("{result:#?}");
@@ -3753,6 +3791,46 @@ pub mod tests {
         app.expect_posts(0, 1, 2, 0, 1).await.unwrap();
         app.expect_posts(1, 0, 1, 1, 2).await.unwrap();
         app.expect_posts(2, 0, 0, 2, 2).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn api_post_update_description() {
+        crate::init_test_log();
+
+        let app = ApiTestApp::new(1).await;
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+
+        let post = app
+            .add_post(0, &auth_token, "title1", "cat", "")
+            .await
+            .unwrap();
+
+        assert_eq!(post.description, "cat");
+
+        let post = app
+            .update_post_description(0, &auth_token, post.key.clone(), "one")
+            .await
+            .unwrap();
+
+        assert_eq!(post.description, "one");
+
+        let posts = app
+            .get_posts(
+                0,
+                &auth_token,
+                2,
+                TimeRange::MoreOrEqual(0),
+                Order::OneTwoThree,
+                "",
+                "",
+            )
+            .await
+            .unwrap();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0].description, "one");
     }
 
     #[tokio::test]

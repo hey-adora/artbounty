@@ -1102,9 +1102,7 @@ pub mod post_like {
             // post: RecordId,
         ) -> Result<Vec<DBPostLike>, DB404Err> {
             self.db
-                .query(
-                    "SELECT * FROM ONLY post_like ORDER BY created_at ASC",
-                )
+                .query("SELECT * FROM ONLY post_like ORDER BY created_at ASC")
                 // .bind(("time", time))
                 // .bind(("user_user", user))
                 // .bind(("user_post", post))
@@ -2294,6 +2292,34 @@ impl<C: Connection> Db<C> {
             .and_then_take_all(0)
     }
 
+    pub async fn update_post_description(
+        &self,
+        time: u128,
+        user_id: RecordId,
+        post_key: impl Into<RecordIdKey>,
+        text: impl Into<String>,
+    ) -> Result<DBUserPost, DB404Err> {
+        // TODO maybe remove RETURN if im not using it anywhere
+        let post_id = create_post_id(post_key);
+        let q = r#"
+                 UPDATE post SET
+                    description = $text,
+                    modified_at = $time
+                    WHERE id = $post_id AND user = $user_id
+                 RETURN *, user.*;
+                "#;
+        trace!("about to run {q}");
+        self.db
+            .query(q)
+            .bind(("time", time))
+            .bind(("user_id", user_id))
+            .bind(("post_id", post_id))
+            .bind(("text", text.into()))
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_or(0, DB404Err::NotFound)
+    }
+
     pub async fn update_post_tags(
         &self,
         time: u128,
@@ -2732,8 +2758,12 @@ mod tests {
             .await
             .unwrap();
 
-        db.add_post_like(4, user.id.clone(), post.id.key.to_sql()).await.unwrap();
-        db.add_post_like(4, user.id.clone(), post2.id.key.to_sql()).await.unwrap();
+        db.add_post_like(4, user.id.clone(), post.id.key.to_sql())
+            .await
+            .unwrap();
+        db.add_post_like(4, user.id.clone(), post2.id.key.to_sql())
+            .await
+            .unwrap();
 
         db.delete_post(user.id.clone(), post.id.key.clone())
             .await
@@ -2761,49 +2791,59 @@ mod tests {
         let user2 = db.add_user(0, "hey2", "hey2@hey.com", "123").await.unwrap();
 
         let post = db
-            .add_post(
-                0,
-                "hey",
-                "title",
-                "description",
-                "",
-                0,
-                vec![],
-            )
+            .add_post(0, "hey", "title", "description", "", 0, vec![])
             .await
             .unwrap();
 
-        let result = db.update_post_tags(0, user2.id.clone(), post.id.key.clone(), "one").await;
+        let result = db
+            .update_post_tags(0, user2.id.clone(), post.id.key.clone(), "one")
+            .await;
 
         assert!(result.is_err());
     }
 
     #[tokio::test]
-    async fn db_post_edit() {
+    async fn db_post_edit_tags() {
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate(0).await.unwrap();
         let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
 
         let post = db
-            .add_post(
-                0,
-                "hey",
-                "title",
-                "description",
-                "",
-                0,
-                vec![],
-            )
+            .add_post(0, "hey", "title", "description", "", 0, vec![])
             .await
             .unwrap();
 
         assert_eq!(post.tags, "");
 
-        db.update_post_tags(0, user.id.clone(), post.id.key.clone(), "one").await.unwrap();
+        db.update_post_tags(0, user.id.clone(), post.id.key.clone(), "one")
+            .await
+            .unwrap();
 
         let post = db.get_post(post.id.key.clone()).await.unwrap();
 
         assert_eq!(post.tags, "one");
+    }
+
+    #[tokio::test]
+    async fn db_post_edit_description() {
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate(0).await.unwrap();
+        let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
+
+        let post = db
+            .add_post(0, "hey", "title", "description", "", 0, vec![])
+            .await
+            .unwrap();
+
+        assert_eq!(post.tags, "");
+
+        db.update_post_description(0, user.id.clone(), post.id.key.clone(), "one")
+            .await
+            .unwrap();
+
+        let post = db.get_post(post.id.key.clone()).await.unwrap();
+
+        assert_eq!(post.description, "one");
     }
 
     #[tokio::test]
