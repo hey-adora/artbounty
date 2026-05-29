@@ -13,6 +13,7 @@ use std::str::FromStr;
 use thiserror::Error;
 use tracing::{debug, error, trace};
 use wasm_bindgen_futures::spawn_local;
+use crate::valid::MAX_POST_DESCRIPTION_LENGTH;
 
 use crate::api::shared::post_comment::UserPostComment;
 use crate::path::{
@@ -623,6 +624,9 @@ pub enum ServerErr {
     #[error("add post err {0}")]
     AddPostErr(#[from] ServerAddPostErr),
 
+    #[error("update post err {0}")]
+    UpdatePostErr(#[from] ServerUpdatePostDescriptionErr),
+
     #[error("registration err {0}")]
     RegistrationErr(#[from] ServerRegistrationErr),
 
@@ -721,6 +725,25 @@ pub enum ClientErr {
 
     #[error("failed to send req {0}")]
     ClientSendErr(String),
+}
+
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub enum ServerUpdatePostDescriptionErr {
+    #[error("not found")]
+    NotFound,
+
+    #[error("description cant be longer than {MAX_POST_DESCRIPTION_LENGTH}")]
+    TooLong,
 }
 
 #[derive(
@@ -3791,6 +3814,30 @@ pub mod tests {
         app.expect_posts(0, 1, 2, 0, 1).await.unwrap();
         app.expect_posts(1, 0, 1, 1, 2).await.unwrap();
         app.expect_posts(2, 0, 0, 2, 2).await.unwrap();
+    }
+    
+    #[tokio::test]
+    async fn security_api_post_update_description() {
+        crate::init_test_log();
+
+        let app = ApiTestApp::new(1).await;
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+
+        let post = app
+            .add_post(0, &auth_token, "title1", "cat", "")
+            .await
+            .unwrap();
+
+        let big_description = (0..10000).into_iter().map(|_| 'a').collect::<String>();
+
+        let result = app
+            .update_post_description(0, &auth_token, post.key.clone(), big_description)
+            .await;
+
+        assert!(result.is_none());
     }
 
     #[tokio::test]

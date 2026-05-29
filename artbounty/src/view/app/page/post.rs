@@ -3,6 +3,7 @@ use std::time::Duration;
 use crate::api::shared::post_comment::UserPostComment;
 use crate::api::{Api, ApiWeb, Server404Err, ServerErr};
 use crate::path::{PATH_LOGIN, link_home, link_img, link_user};
+use crate::valid::MAX_POST_DESCRIPTION_LENGTH;
 use crate::view::app::GlobalState;
 use crate::view::app::components::nav::Nav;
 use crate::view::app::hook::api_post::PostApi;
@@ -15,6 +16,7 @@ use crate::view::app::hook::use_infinite_scroll_fn::InfiniteScrollFn;
 use crate::view::app::hook::use_infinite_scroll_virtual::{
     InfiniteStage, use_infinite_scroll_virtual,
 };
+use crate::view::app::hook::use_mutation::Mutation;
 use crate::view::app::hook::use_post_comment::use_post_comment;
 use crate::view::app::hook::use_post_comments_baisc::CommentsBaisc;
 use crate::view::app::hook::use_post_like::{self, PostLikeStage, use_post_like};
@@ -27,8 +29,8 @@ use leptos_router::params::Params;
 use tracing::{debug, error, trace, warn};
 use wasm_bindgen::JsValue;
 use web_sys::{
-    Event, HtmlDivElement, HtmlPreElement, HtmlElement, ScrollBehavior, ScrollIntoViewOptions,
-    ScrollLogicalPosition, SubmitEvent,
+    Event, EventTarget, HtmlDivElement, HtmlElement, HtmlPreElement, ScrollBehavior,
+    ScrollIntoViewOptions, ScrollLogicalPosition, SubmitEvent,
 };
 
 #[derive(Params, PartialEq, Clone)]
@@ -48,41 +50,25 @@ pub fn Page() -> impl IntoView {
     let param = use_params::<PostParams>();
     let param_username = move || param.read().as_ref().ok().and_then(|v| v.username.clone());
     let param_post = Memo::new(move |_| param.read().as_ref().ok().and_then(|v| v.post.clone()));
-    // let imgs_links = RwSignal::new(Vec::<(String, f64)>::new());
-    // let title = RwSignal::new(String::new());
-    // let author = RwSignal::new(String::new());
-    // let description = RwSignal::new(String::from("loading..."));
-    // let favorites = RwSignal::new(0_u64);
-    // let not_found = RwSignal::new(false);
+
     let location = use_location();
 
-    // let rw_signal_tree = RwSignalTree::<String, Vec<UserPostComment>>::new_root();
-
-    // let infinite_fn = InfiniteScrollFn::new(move |v| {
-    //     debug!("boopboopbaap");
-    // });
-    //
-    // Effect::new(move || {
-    //     let Some(elm) = comment_container_ref.get() else {
-    //         return;
-    //     };
-    //
-    //     (infinite_fn.on.to_fn())(elm.into());
-    // });
-    // let virt_comment_input_ref = NodeRef::<html::Textarea>::new();
-    // let virt_comment_container_ref = NodeRef::<html::Div>::new();
-    // let post_comments = use_post_comment(
-    //     false,
-    //     10,
-    //     virt_comment_container_ref,
-    //     virt_comment_input_ref,
-    //     param_post,
-    //     None::<String>,
-    // );
     let spawner_post = Spawner::new();
     let post_api = PostApi::new(api_post);
     let edit_tags_input = NodeRef::<html::Div>::new();
     let edit_description_input = NodeRef::<html::Pre>::new();
+    let description_mutation = Mutation::new(move |a, b| {
+        let description_len = a
+            .first()
+            .and_then(|v| v.target())
+            .map(|v| JsValue::from(v))
+            .and_then(|v| TryInto::<HtmlElement>::try_into(v).ok())
+            .and_then(|v| v.text_content())
+            .map(|v| v.len())
+            .unwrap_or_default();
+        post_api.live_description_length.set(description_len);
+        trace!("description mutated {description_len}");
+    });
 
     let spawner_comments = Spawner::new();
     let comment_container_ref = NodeRef::<html::Div>::new();
@@ -105,39 +91,37 @@ pub fn Page() -> impl IntoView {
         // comment_basic.post.run();
     };
     Effect::new(move || {
+        let Some(post_id) = param_post.get() else {
+            return;
+        };
+
+        spawner_post.spawn(post_api.get(post_id));
+    });
+    Effect::new(move || {
         trace!("comments basic start");
-        let (Some(post_id), Some(comment_input), Some(comment_container_ref)) = (
-            param_post.get(),
-            comment_input_ref.get(),
-            comment_container_ref.get(),
-        ) else {
+        let (Some(post_id), Some(comment_container_ref)) =
+            (param_post.get(), comment_container_ref.get())
+        else {
             return;
         };
 
         trace!("comments basic observe");
-        spawner_comments.spawn(comment_basic.observe_only(
-            // comment_input,
-            comment_container_ref.into(),
-            post_id,
-            // String::new(),
-            // 10,
-        ));
+        spawner_comments.spawn(comment_basic.observe_only(comment_container_ref.into(), post_id));
     });
-
-    // let post_comment_views = move || {
-    //     let time_now = global_state.get_time_ns();
-    //
-    //     post_comments
-    //         .data
-    //         .get()
-    //         .into_iter()
-    //         .map(move |comment| {
-    //             view! {
-    //                 <PostCommentElm comment param_post max_depth=0 parent_depth=0 />
-    //             }
-    //         })
-    //         .collect_view()
-    // };
+    Effect::new(move || {
+        let Some(edit_description_ref) = edit_description_input.get() else {
+            return;
+        };
+        description_mutation.observe_only(
+            edit_description_ref,
+            MutationObserverOptions::new()
+                .character_data()
+                .set_child_list()
+                .subtree(),
+        );
+        // trace!("comments basic observe");
+        // spawner_comments.spawn(comment_basic.observe_only(comment_container_ref.into(), post_id));
+    });
 
     let post_like = use_post_like(param_post);
     let post_like_btn_style = move || {
@@ -156,81 +140,6 @@ pub fn Page() -> impl IntoView {
         PostLikeStage::Unliked => "Favorite",
         PostLikeStage::Loading => "Loading",
     };
-
-    // let fn_link = move || {
-    //     let author = author.get();
-    //     if author.is_empty() {
-    //         link_home()
-    //     } else {
-    //         link_user(author)
-    //     }
-    // };
-    // let fn_title = move || {
-    //     let title = title.get();
-    //     if title.is_empty() {
-    //         "loading...".to_string()
-    //     } else {
-    //         title
-    //     }
-    // };
-    // let fn_author = move || {
-    //     let author = author.get();
-    //     if author.is_empty() {
-    //         "loading...".to_string()
-    //     } else {
-    //         author
-    //     }
-    // };
-    // let fn_description_is_empty = move || description.with(|v| v.is_empty());
-    // let fn_description = move || {
-    //     let description = description.get();
-    //
-    //     if description.is_empty() {
-    //         return "No description.".to_string();
-    //     }
-    //
-    //     description
-    // };
-    // let fn_favorites = move || favorites.get();
-
-    Effect::new(move || {
-        let Some(post_id) = param_post.get() else {
-            return;
-        };
-
-        spawner_post.spawn(post_api.get(post_id));
-
-        // api.get_post(post_id).send_web(move |result| async move {
-        //     match result {
-        //         Ok(crate::api::ServerRes::Post(post)) => {
-        //             title.set(post.title);
-        //             author.set(post.user.username);
-        //             description.set(post.description);
-        //             favorites.set(post.favorites);
-        //             imgs_links.set(
-        //                 post.file
-        //                     .into_iter()
-        //                     .map(|file| {
-        //                         (
-        //                             link_img(file.hash, file.extension),
-        //                             file.width as f64 / file.height as f64,
-        //                         )
-        //                     })
-        //                     .collect(),
-        //             );
-        //         }
-        //         Ok(res) => {
-        //             error!("wrong res, expected Post, got {:?}", res);
-        //         }
-        //         Err(ServerErr::NotFoundErr(Server404Err::NotFound)) => {
-        //             not_found.set(true);
-        //         }
-        //         Err(err) => {
-        //             error!("unexpected err {:#?}", { err });
-        //         }
-        //     }
-        // });
-    });
 
     let selected_img = move || {
         let hash = location.hash.get();
@@ -281,9 +190,26 @@ pub fn Page() -> impl IntoView {
         spawner_post.spawn(post_api.update_description(post_key, new_description));
     };
     let edit_description_cancel = move || {
-        post_api.description.update(|_v| {()});
+        // post_api.description.update(|_v| ());
         edit_description_mode_toggle();
     };
+
+    // let edit_description_keydown = move |e: Event| {
+    //     let v = e
+    //         .target()
+    //         .map(|v: EventTarget| Into::<HtmlPreElement>::into(JsValue::from(v)) )
+    //         .map(|v| v.id())
+    //         ;
+    //
+    //     // let Some(new_description) = (
+    //     //     edit_description_input
+    //     //         .get_untracked()
+    //     //         .and_then(|v: HtmlPreElement| v.text_content()),
+    //     // ) else {
+    //     //     return;
+    //     // };
+    //     trace!("wtf description changed {v:?}");
+    // };
 
     let description = move || {
         let mut description = post_api.description.get();
@@ -291,11 +217,6 @@ pub fn Page() -> impl IntoView {
             description.push_str("No description.");
         }
         description
-        // description.split("\n")
-        //     .map(|v| {
-        //         view! {{v}<br/>}
-        //     })
-        //     .collect_view()
     };
 
     let tags = move || {
@@ -425,6 +346,10 @@ pub fn Page() -> impl IntoView {
                                 <div class="flex gap-2 items-center">
 
                                     <Show when=move || global_state.is_logged_in().unwrap_or_default() >
+                                        <div class=move || format!("{}",
+                                            if post_api.live_description_length.get() >= MAX_POST_DESCRIPTION_LENGTH {"text-base08"}
+                                            else {""}
+                                            ) >{move || post_api.live_description_length.get()}"/"{MAX_POST_DESCRIPTION_LENGTH}</div>
                                         <Show when=move || post_api.update_description_mode.get() >
                                             <button on:click=move |_| edit_description_save() class=move || format!("text-center  rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem]  {}",
                                                 if post_api.update_description_mode.get() {
@@ -434,15 +359,9 @@ pub fn Page() -> impl IntoView {
                                                 "Save"
                                             </button>
                                         </Show>
-                                        <Show when={move || post_api.update_description_mode.get() } fallback={move || view! {
-                                                <button on:click=move |_| edit_description_mode_toggle() class=move || format!("text-center   rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem] text-base05 bg-base01 hover:bg-base05 hover:text-base01")>
-                                                    "Edit"
-                                                </button>
-                                            }}>
-                                            <button on:click=move |_| edit_description_cancel() class=move || format!("text-center   rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem] text-base05 bg-base01 hover:bg-base05 hover:text-base01")>
-                                                "Cancel"
-                                            </button>
-                                        </Show>
+                                        <button on:click=move |_| edit_description_mode_toggle() class=move || format!("text-center   rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem] text-base05 bg-base01 hover:bg-base05 hover:text-base01")>
+                                                { move || if post_api.update_description_mode.get() {"Cancel"} else {"Edit"} }
+                                        </button>
                                     </Show>
 
                                 </div>
@@ -453,25 +372,28 @@ pub fn Page() -> impl IntoView {
                                 </ul>
                             </Show>
                             <Show when=move || post_api.update_description_mode.get() fallback=move || view!{
-                                <pre 
-                                    class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] rounded {}",
+                                <pre
+                                    id="post_description"
+                                    class=move || format!("whitespace-break-spaces break-all text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] rounded {}",
                                         if post_api.description.with(|v| v.is_empty()) { "text-base03" }  else { "" }
 
                                         )>
                                     { description }
                                 </pre>
                             }>
-                                <pre 
+                                <pre
+                                    id="post_description_editable"
+                                    // on:change=edit_description_keydown
                                     node_ref=edit_description_input
                                     contenteditable=true
-                                    class="text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] bg-base01 text-base05 px-4 py-2 rounded">
+                                    class="whitespace-break-spaces break-all text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] bg-base01 text-base05 px-4 py-2 rounded">
                                     { move || post_api.description.get() }
                                 </pre>
                             </Show>
                             // <Show when=move || post_api.update_description_mode.get() >
                             // </Show>
                             // <Show when=move || post_api.err_description.with(|v| !v.is_empty()) >
-                            //     <div 
+                            //     <div
                             //         node_ref=edit_description_input
                             //         contenteditable=move || post_api.update_description_mode.get()
                             //         class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}",
@@ -483,7 +405,7 @@ pub fn Page() -> impl IntoView {
                             //     </div>
                             // </Show>
 
-                            // <div 
+                            // <div
                             //     node_ref=edit_description_input
                             //     contenteditable=move || post_api.update_description_mode.get()
                             //     class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}",
@@ -604,23 +526,6 @@ pub fn Page() -> impl IntoView {
                 </div>
             </Show>
 
-            // <div class="z-20 fixed bg-base00 w-[100dvw] h-[100dvh] grid grid-rows-1">
-            //     <div node_ref=virt_comment_container_ref class=" flex flex-col gap-2 relative overflow-y-scroll">
-            //         <For
-            //             each=move || post_comments.data.get()
-            //             key=|state| state.key.clone()
-            //             let(data)
-            //         >
-            //             {
-            //                 view!{
-            //                     <PostCommentElm comment=data parent_items=None param_post max_depth=2 parent_depth=0 />
-            //                 }.into_any()
-            //             }
-            //         </For>
-            //         // { post_comment_views }
-            //     </div>
-            //
-            // </div>
 
             // TODO probably change 1fr to fixed size or auto or minmax bs
         </main>
@@ -663,16 +568,7 @@ pub fn PostCommentElm(
     param_post: Memo<Option<String>>,
     max_depth: usize,
     parent_depth: usize,
-    // is_last: bool,
-    // comment_key: Option<String>,
 ) -> impl IntoView {
-    // let a = Some(true);
-    // let b = Some(false);
-    // let c = a.and_then(|a| Some(a && b?));
-    // let c = a.map(|a| a && b?);
-    // let c = a == Some(true) || b == Some(true);
-    // let a = a == Some(true);
-
     let current_depth = parent_depth + 1;
     let global_state = expect_context::<GlobalState>();
     let comment_container_ref = NodeRef::<html::Div>::new();
@@ -694,13 +590,6 @@ pub fn PostCommentElm(
                 .unwrap_or_default()
         }
     };
-    // let replies_count = RwSignal::new(comment.replies_count);
-    // let is_last = {
-    //     let key = comment.key.clone();
-    //     move || {
-    //         parent_items.with(|v| v.map(|v| v.))
-    //     }
-    // };
 
     let comment_edit_event = EventListener::new(ev::change, |a| {
         trace!("omg is it working edit magic");
@@ -801,21 +690,6 @@ pub fn PostCommentElm(
         current_depth > 0 && comments_manual.items.with(|v| v.len() > 0) && show_replies_fn()
     };
 
-    // let bubble2 = Memo::new({
-    //     let comment_key = comment_key.clone();
-    //     let is_none = kind.is_none();
-    //     let last = comment.parent_key.last().cloned();
-    //     move |_| {
-    //         if !is_none {
-    //             return None;
-    //         }
-    //         let Some(last) = last.clone() else {
-    //             return None;
-    //         };
-    //         parent_items.with(|v| v.iter().find(|v| v.key == last).cloned())
-    //     }
-    // });
-
     let is_bubble = 'f: {
         if !kind.is_none() {
             break 'f false;
@@ -863,11 +737,6 @@ pub fn PostCommentElm(
             if let Err(err) = result {
                 error!("{err}");
             }
-            // classes.remove
-
-            // elm.key;
-
-            //
         }
     };
     let on_bubble_click_fn = move |_| {
@@ -887,17 +756,6 @@ pub fn PostCommentElm(
         }
 
         comments_manual.edit_mode.set(true);
-        // let Some(elm) = comment_edit_ref.get_untracked() as Option<HtmlDivElement> else {
-        //     return;
-        // };
-        // let is_editable = elm.content_editable() == "true";
-        // if is_editable {
-        //     elm.set_content_editable("false");
-        // } else {
-        //     elm.set_content_editable("true");
-        // }
-
-        //
     };
 
     let click_cancel = move |_| {
@@ -913,47 +771,12 @@ pub fn PostCommentElm(
         comments_manual.edit_mode.set(false);
     };
 
-    // let elm1: JsValue = elm.clone().into();
-    // let elm1: HtmlElement = elm1.into();
-    // let bubble = Memo::new({
-    //     // let comment_key = comment_key.clone();
-    //     let is_none = kind.is_none();
-    //     let last = comment.parent_key.last().cloned();
-    //     move |_| {
-    //         if !is_none {
-    //             return None;
-    //         }
-    //         let Some(last) = last.clone() else {
-    //             return None;
-    //         };
-    //         parent_items.with(|v| v.iter().find(|v| v.key == last).cloned())
-    //     }
-    // });
-
     view! {
-
-        // <div class="flex flex-col gap-4 px-2 py-1 " style:padding-left=format!("{:.3}rem", current_depth as f32 * 0.8) >
         <div class=" flex flex-col "  >
             <div id=comment.key.clone() class=" rounded 0bg-base03 flex flex-col">
-                // <Show when=move || is_bubble>
-                //     {bubble.clone().map(|v| v.text)}
-                //     // "wowza"
-                //     // <div>{move || bubble.with(|v| v.as_ref().map(|v| v.text.clone()).unwrap_or_default() ) }</div>
-                // </Show>
-                // <Show when={move || bubble.with(|v| v.is_some()) }>
-                //     <div>{move || bubble.with(|v| v.as_ref().map(|v| v.text.clone()).unwrap_or_default() ) }</div>
-                // </Show>
                 <Show when=move || is_bubble>
-                    // {
-                    //     // let on_bubble_click_fn = on_bubble_click_fn.clone();
-                    //     view!{
-                    //
-                    //    }
-                    //
-                    // }
                     <button on:click=on_bubble_click_fn.clone() class="cursor-pointer flex gap-2 items-center">
                         <div class="flex place-items-end h-[1.5rem] w-[3.2rem] shrink-0">
-                                // <div class="w-[0.2rem] h-full bg-base05 shrink-0"></div>
                             <div class=" mb-[0.5rem] w-[1.7rem] h-[0.5rem] border-base05 border-l-[0.2rem] border-t-[0.2rem] rounded-tl-[2rem] ml-auto box-border shrink-0"></div>
                         </div>
                         <p class="ml-2 text-[1rem] rounded-full h-[1rem] w-[1rem] shrink-0 bg-base05"></p>
@@ -961,9 +784,6 @@ pub fn PostCommentElm(
                             {bubble.clone().map(|v| v.text).unwrap_or_else(|| "failed to load msg".to_string())}
                         </div>
                     </button>
-
-                    // "wowza"
-                    // <div>{move || bubble.with(|v| v.as_ref().map(|v| v.text.clone()).unwrap_or_default() ) }</div>
                 </Show>
                 <div class="grid grid-cols-[auto_1fr] grid-rows-[100%] ">
                     <div class=" mb-[0.5rem] w-[3.2rem] h-full grid grid-rows-[auto_100%] items-start place-items-center shrink-0">

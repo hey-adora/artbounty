@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 
 use crate::{
-    api::{Api, Server404Err, ServerErr},
+    api::{Api, Server404Err, ServerErr, ServerUpdatePostDescriptionErr},
     path::{link_home, link_img, link_user},
 };
 use tracing::{error, info, trace, warn};
@@ -10,8 +10,10 @@ use tracing::{error, info, trace, warn};
 pub struct PostApi<API: Api> {
     // ui
     // pub items: RwSignal<Vec<Img>, LocalStorage>,
+    pub err_general: RwSignal<String, LocalStorage>,
     pub err_tags: RwSignal<String, LocalStorage>,
     pub err_description: RwSignal<String, LocalStorage>,
+    pub live_description_length: RwSignal<usize, LocalStorage>,
     pub imgs_links: RwSignal<Vec<(String, f64)>, LocalStorage>,
     pub title: RwSignal<String, LocalStorage>,
     pub author: RwSignal<String, LocalStorage>,
@@ -58,6 +60,8 @@ impl<API: Api> PostApi<API> {
             author: RwSignal::new_local(String::from("loading...")),
             author_link: RwSignal::new_local(link_home()),
             tags: RwSignal::new_local(String::new()),
+            live_description_length: RwSignal::new_local(0),
+            err_general: RwSignal::new_local(String::new()),
             err_tags: RwSignal::new_local(String::new()),
             err_description: RwSignal::new_local(String::new()),
             update_tags_mode: RwSignal::new_local(false),
@@ -85,6 +89,7 @@ impl<API: Api> PostApi<API> {
 
         match result {
             Ok(crate::api::ServerRes::Post(v)) => {
+                self.live_description_length.set(v.description.len());
                 self.description.set(v.description);
                 self.update_description_mode.set(false);
                 return Some(());
@@ -94,7 +99,10 @@ impl<API: Api> PostApi<API> {
                 error!(err);
                 self.err_description.set(err);
             }
-            Err(ServerErr::NotFoundErr(Server404Err::NotFound)) => {
+            Err(ServerErr::UpdatePostErr(ServerUpdatePostDescriptionErr::TooLong)) => {
+                self.err_description.set("Description is too long".to_string());
+            }
+            Err(ServerErr::UpdatePostErr(ServerUpdatePostDescriptionErr::NotFound)) => {
                 self.post_state.set(PostState::NotFound);
                 self.err_description.set("post not found".to_string());
             }
@@ -182,6 +190,7 @@ impl<API: Api> PostApi<API> {
                 self.author.set(post.user.username.clone());
                 self.author_link.set(link_user(post.user.username));
                 self.tags.set(post.tags);
+                self.live_description_length.set(post.description.len());
                 self.description.set(post.description);
                 // if post.description.is_empty() {
                 //     self.description.set("No description.".to_string());
@@ -206,13 +215,18 @@ impl<API: Api> PostApi<API> {
                 self.post_state.set(PostState::Normal);
             }
             Ok(res) => {
-                error!("wrong res, expected Post, got {:?}", res);
+                let err = format!("wrong res, expected Post, got {:?}", res);
+                error!(err);
+                self.err_general.set(err);
             }
             Err(ServerErr::NotFoundErr(Server404Err::NotFound)) => {
                 self.post_state.set(PostState::NotFound);
+                self.err_general.set(PostState::NotFound.to_string());
             }
             Err(err) => {
-                error!("unexpected err {:#?}", { err });
+                let err = format!("unexpected err {:#?}", { err });
+                error!(err);
+                self.err_general.set(err);
             }
         }
     }
@@ -279,22 +293,26 @@ pub mod tests {
         // testing normal 
         let post_api = PostApi::new(&app.api);
         post_api.get(&post_key).await;
+        assert_eq!(post_api.live_description_length.get(), 1);
         assert_eq!(post_api.description.get(), "0");
         post_api.update_description_mode.set(true);
         assert!(post_api.err_description.get().is_empty());
 
-        post_api.update_description(&post_key, "2").await;
-        assert_eq!(post_api.description.get(), "2");
+        post_api.update_description(&post_key, "22").await;
+        assert_eq!(post_api.live_description_length.get(), 2);
+        assert_eq!(post_api.description.get(), "22");
         assert_eq!(post_api.update_tags_mode.get(), false);
         assert!(post_api.err_description.get().is_empty());
 
         let post_api = PostApi::new(&app.api);
         post_api.get(&post_key).await;
-        assert_eq!(post_api.description.get(), "2");
+        assert_eq!(post_api.live_description_length.get(), 2);
+        assert_eq!(post_api.description.get(), "22");
 
         post_api.delete(&post_key).await;
 
         post_api.update_description(&post_key, "2").await;
+        assert_eq!(post_api.live_description_length.get(), 2);
         assert!(!post_api.err_description.get().is_empty());
 
 
@@ -336,7 +354,7 @@ pub mod tests {
         // testing err
         let post_api = PostApi::new(&app.api);
         post_api.get("invalid").await;
-        assert!(!post_api.err_tags.get().is_empty());
+        assert!(!post_api.err_general.get().is_empty());
         assert_eq!(post_api.tags.get(), "");
 
         // testing normal 

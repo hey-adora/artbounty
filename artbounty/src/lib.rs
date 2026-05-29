@@ -19,10 +19,13 @@ pub fn init_test_log() {
 }
 
 pub mod valid {
+    pub const MAX_POST_DESCRIPTION_LENGTH: usize = 2000;
 
     use tracing::trace;
 
     pub mod auth {
+
+        use crate::valid::MAX_POST_DESCRIPTION_LENGTH;
 
         use super::Validator;
         use tracing::trace;
@@ -77,7 +80,7 @@ pub mod valid {
         pub fn proccess_post_description<S: AsRef<str>>(description: S) -> Result<String, String> {
             let mut errors = String::new();
             let input = description.as_ref().trim().to_string();
-            if input.is_bigger_than(10240) {
+            if input.len() > MAX_POST_DESCRIPTION_LENGTH {
                 errors += "description must be shorter than 10241 characters length\n";
             }
 

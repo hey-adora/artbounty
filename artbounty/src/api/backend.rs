@@ -1,10 +1,6 @@
 use crate::api::app_state::AppState;
 use crate::api::{
-    AuthToken, ChangeUsernameErr, EmailChangeErr, EmailChangeNewErr, EmailChangeStage,
-    EmailChangeTokenErr, Server404Err, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr,
-    ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerLoginErr, ServerRegistrationErr,
-    ServerReq, ServerRes, ServerTokenErr, User, UserPost, UserPostFile, auth_token_get,
-    hash_password, verify_password,
+    AuthToken, ChangeUsernameErr, EmailChangeErr, EmailChangeNewErr, EmailChangeStage, EmailChangeTokenErr, Server404Err, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes, ServerTokenErr, ServerUpdatePostDescriptionErr, User, UserPost, UserPostFile, auth_token_get, hash_password, verify_password
 };
 use crate::db::email_change::create_email_change_id;
 use crate::db::{AddUserErr, email_change::DBChangeEmailErr};
@@ -374,13 +370,15 @@ pub async fn update_post_description(
     db_user: Extension<DBUser>,
     req: ServerReq,
 ) -> Result<ServerRes, ServerErr> {
-    type ResErr = Server404Err;
+    type ResErr = ServerUpdatePostDescriptionErr;
 
     let ServerReq::EditPostDescription { post_key, new_description } = req else {
         return Err(
             ServerDesErr::ServerWrongInput(format!("expected EditPostDescription, received: {req:?}")).into(),
         );
     };
+
+    let new_description = proccess_post_description(new_description).map_err(|err| ResErr::TooLong)?;
 
     let post = app.db.update_post_description(0, db_user.id.clone(), post_key, new_description).await
         .map_err(|err| match err {
