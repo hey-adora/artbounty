@@ -861,7 +861,7 @@ pub mod login {
                             <a href=link_login_form_password_send() class="underline">"forgot password?"</a>
                         </div>
                         <div class="flex flex-col gap-[1.3rem] mx-auto my-[4rem] text-center">
-                            <input type="submit" value="Login" class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
+                            <input id="login_btn" type="submit" value="Login" class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
                             <a href=link_reg_invite() class="underline">"or Register"</a>
                         </div>
                     </form>

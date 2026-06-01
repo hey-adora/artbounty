@@ -56,18 +56,51 @@ pub fn Page() -> impl IntoView {
     let spawner_post = Spawner::new();
     let post_api = PostApi::new(api_post);
     let edit_tags_input = NodeRef::<html::Div>::new();
-    let edit_description_input = NodeRef::<html::Pre>::new();
-    let description_mutation = Mutation::new(move |a, b| {
-        let description_len = a
-            .first()
-            .and_then(|v| v.target())
-            .map(|v| JsValue::from(v))
-            .and_then(|v| TryInto::<HtmlElement>::try_into(v).ok())
+    let description_input = NodeRef::<html::Pre>::new();
+    let description_input_editor = NodeRef::<html::Pre>::new();
+
+    let get_length = move || {
+        let description_len2 = document()
+            .get_element_by_id("post_description")
             .and_then(|v| v.text_content())
             .map(|v| v.len())
             .unwrap_or_default();
+
+        let description_len = document()
+            .get_element_by_id("post_description_editable")
+            .and_then(|v| v.text_content())
+            .map(|v| v.len())
+            .unwrap_or(description_len2);
+
+        trace!("post_description_mutation normal: {} edit: {}", description_len2, description_len);
+
+        description_len
+
+    };
+
+    let description_mutation = Mutation::new(move |a, b| {
+        let description_len = get_length();
+
+        debug_data_push(
+            "post_description_mutation",
+            description_len.to_string(),
+        );
         post_api.live_description_length.set(description_len);
         trace!("description mutated {description_len}");
+
+            // .map(|v| v.len() as i32)
+            // .map(|v| v.text_content().map(|v|v.len() as i32).unwrap_or(-2))
+            // // .map(|v| v.len() as i32)
+            // .unwrap_or(-1);
+
+        // let description_len = a
+        //     .first()
+        //     .and_then(|v| v.target())
+        //     .map(|v| JsValue::from(v))
+        //     .and_then(|v| TryInto::<HtmlElement>::try_into(v).ok())
+        //     .and_then(|v| v.text_content())
+        //     .map(|v| v.len())
+        //     .unwrap_or_default();
     });
 
     let spawner_comments = Spawner::new();
@@ -109,16 +142,34 @@ pub fn Page() -> impl IntoView {
         spawner_comments.spawn(comment_basic.observe_only(comment_container_ref.into(), post_id));
     });
     Effect::new(move || {
-        let Some(edit_description_ref) = edit_description_input.get() else {
-            return;
-        };
-        description_mutation.observe_only(
-            edit_description_ref,
-            MutationObserverOptions::new()
-                .character_data()
-                .set_child_list()
-                .subtree(),
-        );
+        // let (Some(description_ref), Some(edit_description_ref)) = (
+        //     ) else {
+        //     return;
+        // };
+        description_mutation.disconnect();
+
+        if let Some(elm) = description_input.get() {
+            description_mutation.observe(
+                elm,
+                MutationObserverOptions::new()
+                    .character_data()
+                    .set_child_list()
+                    .subtree(),
+            );
+
+        }
+
+        if let Some(elm) = description_input_editor.get() {
+            description_mutation.observe(
+                elm,
+                MutationObserverOptions::new()
+                    .character_data()
+                    .set_child_list()
+                    .subtree(),
+            );
+        }
+
+
         // trace!("comments basic observe");
         // spawner_comments.spawn(comment_basic.observe_only(comment_container_ref.into(), post_id));
     });
@@ -176,12 +227,14 @@ pub fn Page() -> impl IntoView {
     };
 
     let edit_description_mode_toggle = move || {
+        let description_len = post_api.description.with_untracked(|v| v.len());
+        post_api.live_description_length.set(description_len);
         post_api.update_description_mode.update(|v| *v = !*v);
     };
     let edit_description_save = move || {
         let (Some(post_key), Some(new_description)) = (
             param_post.get(),
-            edit_description_input
+            description_input_editor
                 .get_untracked()
                 .and_then(|v: HtmlPreElement| v.text_content()),
         ) else {
@@ -189,10 +242,10 @@ pub fn Page() -> impl IntoView {
         };
         spawner_post.spawn(post_api.update_description(post_key, new_description));
     };
-    let edit_description_cancel = move || {
-        // post_api.description.update(|_v| ());
-        edit_description_mode_toggle();
-    };
+    // let edit_description_cancel = move || {
+    //     // post_api.description.update(|_v| ());
+    //     edit_description_mode_toggle();
+    // };
 
     // let edit_description_keydown = move |e: Event| {
     //     let v = e
@@ -349,9 +402,9 @@ pub fn Page() -> impl IntoView {
                                         <div class=move || format!("{}",
                                             if post_api.live_description_length.get() >= MAX_POST_DESCRIPTION_LENGTH {"text-base08"}
                                             else {""}
-                                            ) >{move || post_api.live_description_length.get()}"/"{MAX_POST_DESCRIPTION_LENGTH}</div>
+                                            ) ><span id="description_length">{move || post_api.live_description_length.get()}</span>"/"{MAX_POST_DESCRIPTION_LENGTH}</div>
                                         <Show when=move || post_api.update_description_mode.get() >
-                                            <button on:click=move |_| edit_description_save() class=move || format!("text-center  rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem]  {}",
+                                            <button id="description_save_btn" on:click=move |_| edit_description_save() class=move || format!("text-center  rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem]  {}",
                                                 if post_api.update_description_mode.get() {
                                                     " hover:bg-base05 bg-base0D text-base01" } else {
                                                     " text-base05 bg-base01 hover:bg-base05 hover:text-base01" }
@@ -359,15 +412,18 @@ pub fn Page() -> impl IntoView {
                                                 "Save"
                                             </button>
                                         </Show>
-                                        <button on:click=move |_| edit_description_mode_toggle() class=move || format!("text-center   rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem] text-base05 bg-base01 hover:bg-base05 hover:text-base01")>
+                                        <button id=move || if post_api.update_description_mode.get() {"description_cancel_btn"} else {"description_edit_btn"}
+                                                on:click=move |_| edit_description_mode_toggle() 
+                                                class=move || format!("text-center   rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem] text-base05 bg-base01 hover:bg-base05 hover:text-base01")>
                                                 { move || if post_api.update_description_mode.get() {"Cancel"} else {"Edit"} }
                                         </button>
                                     </Show>
 
                                 </div>
                             </div>
+
                             <Show when=move || post_api.err_description.with(|v| !v.is_empty()) >
-                                <ul class="ml-[1rem] text-base08 list-disc">
+                                <ul id="description_errors" class="ml-[1rem] text-base08 list-disc">
                                     {move || post_api.err_description.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                 </ul>
                             </Show>
@@ -384,7 +440,7 @@ pub fn Page() -> impl IntoView {
                                 <pre
                                     id="post_description_editable"
                                     // on:change=edit_description_keydown
-                                    node_ref=edit_description_input
+                                    node_ref=description_input_editor
                                     contenteditable=true
                                     class="whitespace-break-spaces break-all text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] bg-base01 text-base05 px-4 py-2 rounded">
                                     { move || post_api.description.get() }
