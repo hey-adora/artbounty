@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>hell</title>
+    <link rel="stylesheet" type="text/css" href="/pkg/artbounty_1.css">
+    <script src='/pkg/artbounty_1.js'></script>
+    <script>
+      const { csr } = wasm_bindgen;
+
+      async function run() {
+        await wasm_bindgen();
+
+        globalThis.aaa = csr();
+        // const result = add(1, 2);
+        // console.log(`1 + 2 = ${result}`);
+      }
+
+      run();
+    </script>
+  <!--  <link rel="modulepreload" href="/pkg/artbounty_1.js" />
+    <link
+      rel="preload"
+      href="/pkg/artbounty_1_bg.wasm"
+      as="fetch"
+      type="application/wasm"
+      crossorigin=""
+    />-->
+<!--    <script type="module">
+      // var wasm = import("/pkg/artbounty_1.js").then((mod) => {
+      //   mod.default("/pkg/artbounty_1_bg.wasm").then(() => {
+      //     mod.csr();
+      //   });
+      // });
+      function idle(c) {
+        if ("requestIdleCallback" in window) {
+          window.requestIdleCallback(c);
+        } else {
+          c();
+        }
+      }
+      idle(() => {
+        let wasm = import("/pkg/artbounty_1.js").then((mod) => {
+          // wasm = mod;
+          mod.default("/pkg/artbounty_1_bg.wasm").then(() => {
+             globalThis.wtf = mod.csr();
+             globalThis.wasm = mod;
+//             mod.initSync().then((mod) => {
+//
+//             });
+          });
+        });
+      });
+    </script>-->
+  </head>
+
+  <body class="bg-base00 text-base05">
+
+  </body>
+
+</html>
