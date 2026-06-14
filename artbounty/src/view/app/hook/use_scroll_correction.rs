@@ -165,11 +165,16 @@ impl ScrollCorrection {
     }
 
     pub fn reset(&self) {
-
         debug_data_push("scroll_correction_reset", "null");
-        trace!("SCROLL CORRECTION BEFORE {:#?}", self.anchor_first.get_untracked());
+        trace!(
+            "SCROLL CORRECTION BEFORE {:#?}",
+            self.anchor_first.get_untracked()
+        );
         self.anchor_first.set_untracked(None);
         self.anchor_last.set_untracked(None);
-        trace!("SCROLL CORRECTION AFTER {:#?}", self.anchor_first.get_untracked());
+        trace!(
+            "SCROLL CORRECTION AFTER {:#?}",
+            self.anchor_first.get_untracked()
+        );
     }
 }

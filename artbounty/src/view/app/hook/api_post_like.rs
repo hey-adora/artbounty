@@ -16,7 +16,6 @@ pub struct ApiPostLike<API: Api> {
     // pub description: RwSignal<String, LocalStorage>,
     // pub favorites: RwSignal<u64, LocalStorage>,
     // pub not_found: RwSignal<bool, LocalStorage>,
-
     pub api: API,
 }
 

@@ -1,5 +1,5 @@
-use std::fmt::Debug;
 use leptos::{ev::EventDescriptor, prelude::*};
+use std::fmt::Debug;
 use wasm_bindgen::{JsCast, prelude::Closure};
 use web_sys::{Element, HtmlElement, MutationObserver, MutationRecord};
 

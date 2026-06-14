@@ -94,7 +94,7 @@ pub mod tests {
     use crate::api::app_state::AppState;
     use crate::api::shared::post_comment::UserPostComment;
     use crate::api::tests::ApiTestApp;
-    use crate::db::{DBUser, DBEmailIsTakenErr, email_change::DBEmailChange};
+    use crate::db::{DBEmailIsTakenErr, DBUser, email_change::DBEmailChange};
 
     #[tokio::test]
     async fn api_post_like_test() {
@@ -107,7 +107,10 @@ pub mod tests {
             .await
             .unwrap();
 
-        let post = app.add_post(0, &auth_token, "title1", "cat", "one").await.unwrap();
+        let post = app
+            .add_post(0, &auth_token, "title1", "cat", "one")
+            .await
+            .unwrap();
         debug!("wtf is that {post:#?}");
 
         app.check_post_like(0, &auth_token, post.key.clone(), false)

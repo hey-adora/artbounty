@@ -6,16 +6,18 @@ import {
     get_signal_data,
     get_signal_data_latest,
     scroll_down_fn,
+    login,
 } from "./utils";
 
 const MAX_DESCRIPTION_LENGTH = 2000;
 
 test("post_edit_description", async ({ page }) => {
-  await page.goto("http://localhost:3000/login");
-
-  await page.locator('[id="email"]').fill("prime1@heyadora.com");
-  await page.locator('[id="password"]').fill("prime1@heyadora.com");
-  await page.locator('[id="login_btn"]').click();
+  await login(page);
+  // await page.goto("http://localhost:3000/login");
+  //
+  // await page.locator('[id="email"]').fill("prime1@heyadora.com");
+  // await page.locator('[id="password"]').fill("prime1@heyadora.com");
+  // await page.locator('[id="login_btn"]').click();
 
   // await page.goto("http://localhost:3000");
 

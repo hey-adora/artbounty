@@ -1182,7 +1182,7 @@ pub mod post_like {
 
             let user = db.add_user(0, "hey1", "hey1@hey.com", "123").await.unwrap();
             let post = db
-                .add_post(0, "hey1", "title", "description", "", 0, vec![])
+                .add_post(0, "hey1", "title", "description", "", 0)
                 .await
                 .unwrap();
 
@@ -1406,9 +1406,10 @@ pub mod post {
         types::{RecordId, RecordIdKey},
     };
 
+    use crate::db::DBUserPostFile;
     use crate::{
         api::{Order, TimeRange},
-        db::{DBUserPost, Db, SurrealCheckUtils, SurrealSerializeUtils},
+        db::{DB404Err, DBUserPost, Db, SurrealCheckUtils, SurrealSerializeUtils},
     };
     use tracing::trace;
 
@@ -1417,6 +1418,42 @@ pub mod post {
     }
 
     impl<C: Connection> Db<C> {
+        pub async fn add_post_file(
+            &self,
+            time: u128,
+            user_id: RecordId,
+            post_key: impl Into<RecordIdKey>,
+            file_hash: impl Into<String>,
+            file_extension: impl Into<String>,
+            file_width: u32,
+            file_height: u32,
+        ) -> Result<DBUserPost, DB404Err> {
+            let post_file = DBUserPostFile {
+                extension: file_extension.into(),
+                hash: file_hash.into(),
+                width: file_width,
+                height: file_height,
+            };
+            let post_id = create_post_id(post_key);
+            self.db
+                .query(
+                    r#"
+                     UPDATE post SET file += $post_file, modified_at = $time WHERE id = $post_id AND user = $user_id RETURN *, user.*;
+                    "#,
+                )
+                .bind(("post_file", post_file))
+                .bind(("user_id", user_id))
+                .bind(("post_id", post_id))
+                .bind(("time", time))
+                .await
+                .check_good(DB404Err::from)
+                .and_then_take_or(0, DB404Err::NotFound)
+            // .check_good(|err| match err {
+            //     err if err.field_value_null("user_id") => AddPostErr::UserNotFound(username),
+            //     err => err.into(),
+            // })
+            // .and_then_take_expect(2)
+        }
         pub async fn post_search(
             &self,
             limit: usize,
@@ -1538,38 +1575,16 @@ pub mod post {
 
             let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
 
-            let files = vec![
-                DBUserPostFile {
-                    extension: ".png".to_string(),
-                    hash: "A".to_string(),
-                    width: 1,
-                    height: 1,
-                },
-                DBUserPostFile {
-                    extension: ".png".to_string(),
-                    hash: "B".to_string(),
-                    width: 1,
-                    height: 1,
-                },
-            ];
             let post0 = db
-                .add_post(
-                    1,
-                    "hey",
-                    "1",
-                    "description",
-                    "one two three",
-                    0,
-                    files.clone(),
-                )
+                .add_post(1, "hey", "1", "description", "one two three", 0)
                 .await
                 .unwrap();
             let post1 = db
-                .add_post(2, "hey", "2", "description", "one two", 0, files.clone())
+                .add_post(2, "hey", "2", "description", "one two", 0)
                 .await
                 .unwrap();
             let post2 = db
-                .add_post(3, "hey", "3", "description", "one", 0, files.clone())
+                .add_post(3, "hey", "3", "description", "one", 0)
                 .await
                 .unwrap();
 
@@ -1846,6 +1861,7 @@ pub mod email_change {
             time: u128,
             email_change: RecordId,
         ) -> Result<DBEmailChange, surrealdb::Error> {
+            // TODO add username check, for security
             self.db
             .query(
                 r#"
@@ -2356,7 +2372,6 @@ impl<C: Connection> Db<C> {
         description: impl Into<String>,
         tags: impl Into<String>,
         favorites: u64,
-        files: Vec<DBUserPostFile>,
     ) -> Result<DBUserPost, AddPostErr> {
         let username = username.into();
         let title = title.into();
@@ -2374,13 +2389,13 @@ impl<C: Connection> Db<C> {
                 description = $description,
                 tags = $tags,
                 favorites = $favorites,
-                file = $files,
+                file = [],
                 modified_at = $time,
                 created_at = $time;
              SELECT *, user.* FROM $post.id;
             "#,
             )
-            .bind(("files", files))
+            // .bind(("files", files))
             .bind(("username", username.clone()))
             .bind(("title", title))
             .bind(("description", description))
@@ -2677,54 +2692,12 @@ mod tests {
         let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
 
         let post = db
-            .add_post(
-                0,
-                "hey",
-                "title",
-                "description",
-                "",
-                0,
-                vec![
-                    DBUserPostFile {
-                        extension: ".png".to_string(),
-                        hash: "A".to_string(),
-                        width: 1,
-                        height: 1,
-                    },
-                    DBUserPostFile {
-                        extension: ".png".to_string(),
-                        hash: "B".to_string(),
-                        width: 1,
-                        height: 1,
-                    },
-                ],
-            )
+            .add_post(0, "hey", "title", "description", "", 0)
             .await
             .unwrap();
 
         let post2 = db
-            .add_post(
-                0,
-                "hey",
-                "title2",
-                "description",
-                "",
-                0,
-                vec![
-                    DBUserPostFile {
-                        extension: ".png".to_string(),
-                        hash: "A".to_string(),
-                        width: 1,
-                        height: 1,
-                    },
-                    DBUserPostFile {
-                        extension: ".png".to_string(),
-                        hash: "B".to_string(),
-                        width: 1,
-                        height: 1,
-                    },
-                ],
-            )
+            .add_post(0, "hey", "title2", "description", "", 0)
             .await
             .unwrap();
 
@@ -2791,7 +2764,7 @@ mod tests {
         let user2 = db.add_user(0, "hey2", "hey2@hey.com", "123").await.unwrap();
 
         let post = db
-            .add_post(0, "hey", "title", "description", "", 0, vec![])
+            .add_post(0, "hey", "title", "description", "", 0)
             .await
             .unwrap();
 
@@ -2809,7 +2782,7 @@ mod tests {
         let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
 
         let post = db
-            .add_post(0, "hey", "title", "description", "", 0, vec![])
+            .add_post(0, "hey", "title", "description", "", 0)
             .await
             .unwrap();
 
@@ -2831,7 +2804,7 @@ mod tests {
         let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
 
         let post = db
-            .add_post(0, "hey", "title", "description", "", 0, vec![])
+            .add_post(0, "hey", "title", "description", "", 0)
             .await
             .unwrap();
 
@@ -2847,6 +2820,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn db_post_add_file() {
+        crate::init_test_log();
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate(0).await.unwrap();
+        let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
+
+        let post = db
+            .add_post(0, "hey", "title", "description", "", 0)
+            .await
+            .unwrap();
+        assert!(post.file.len() == 0);
+
+        let post = db
+            .add_post_file(
+                0,
+                user.id.clone(),
+                post.id.key.clone(),
+                "hello",
+                "png",
+                50,
+                50,
+            )
+            .await
+            .unwrap();
+        assert!(post.file.len() == 1);
+
+        let post = db
+            .add_post_file(
+                0,
+                user.id.clone(),
+                post.id.key.clone(),
+                "hello2",
+                "png",
+                50,
+                50,
+            )
+            .await
+            .unwrap();
+        assert!(post.file.len() == 2);
+        assert!(post.file[0].hash == "hello");
+        assert!(post.file[1].hash == "hello2");
+
+        //
+    }
+
+    #[tokio::test]
     async fn db_post() {
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate(0).await.unwrap();
@@ -2855,52 +2874,18 @@ mod tests {
 
         //TODO using username instead of id? i dont like it
         let post = db
-            .add_post(
-                0,
-                "hey",
-                "title",
-                "description",
-                "",
-                0,
-                vec![
-                    DBUserPostFile {
-                        extension: ".png".to_string(),
-                        hash: "A".to_string(),
-                        width: 1,
-                        height: 1,
-                    },
-                    DBUserPostFile {
-                        extension: ".png".to_string(),
-                        hash: "B".to_string(),
-                        width: 1,
-                        height: 1,
-                    },
-                ],
-            )
+            .add_post(0, "hey", "title", "description", "", 0)
             .await
             .unwrap();
         trace!("{post:#?}");
-        assert!(post.file.len() == 2);
+        assert!(post.file.len() == 0);
         assert_eq!(post.title, "title");
-        assert_eq!(post.file[0].hash, "A");
-        assert_eq!(post.file[1].hash, "B");
+        // assert_eq!(post.file[0].hash, "A");
+        // assert_eq!(post.file[1].hash, "B");
 
         for i in 1..=3 {
             let _post = db
-                .add_post(
-                    i,
-                    "hey",
-                    format!("title{i}"),
-                    "description",
-                    "",
-                    0,
-                    vec![DBUserPostFile {
-                        extension: ".png".to_string(),
-                        hash: i.to_string(),
-                        width: 1,
-                        height: 1,
-                    }],
-                )
+                .add_post(i, "hey", format!("title{i}"), "description", "", 0)
                 .await
                 .unwrap();
         }

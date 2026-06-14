@@ -97,7 +97,6 @@ pub async fn confirm_email_change(
         }
     }
 
-
     let result = app_state
         .db
         .update_email_change_confirm_current(time, result.id.clone())
@@ -360,7 +359,6 @@ pub async fn resend_email_change(
         }
     }
 
-
     app.send_email_change(
         time,
         result.current.email.clone(),
@@ -414,7 +412,6 @@ pub async fn resend_email_new(
         .new
         .as_ref()
         .ok_or_else(|| ResErr::InvalidStage(format!("expected ReadyToConfirm")))?;
-
 
     app.send_email_new(
         time,

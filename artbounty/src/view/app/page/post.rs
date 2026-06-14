@@ -72,26 +72,25 @@ pub fn Page() -> impl IntoView {
             .map(|v| v.len())
             .unwrap_or(description_len2);
 
-        trace!("post_description_mutation normal: {} edit: {}", description_len2, description_len);
+        trace!(
+            "post_description_mutation normal: {} edit: {}",
+            description_len2, description_len
+        );
 
         description_len
-
     };
 
     let description_mutation = Mutation::new(move |a, b| {
         let description_len = get_length();
 
-        debug_data_push(
-            "post_description_mutation",
-            description_len.to_string(),
-        );
+        debug_data_push("post_description_mutation", description_len.to_string());
         post_api.live_description_length.set(description_len);
         trace!("description mutated {description_len}");
 
-            // .map(|v| v.len() as i32)
-            // .map(|v| v.text_content().map(|v|v.len() as i32).unwrap_or(-2))
-            // // .map(|v| v.len() as i32)
-            // .unwrap_or(-1);
+        // .map(|v| v.len() as i32)
+        // .map(|v| v.text_content().map(|v|v.len() as i32).unwrap_or(-2))
+        // // .map(|v| v.len() as i32)
+        // .unwrap_or(-1);
 
         // let description_len = a
         //     .first()
@@ -156,7 +155,6 @@ pub fn Page() -> impl IntoView {
                     .set_child_list()
                     .subtree(),
             );
-
         }
 
         if let Some(elm) = description_input_editor.get() {
@@ -168,7 +166,6 @@ pub fn Page() -> impl IntoView {
                     .subtree(),
             );
         }
-
 
         // trace!("comments basic observe");
         // spawner_comments.spawn(comment_basic.observe_only(comment_container_ref.into(), post_id));
@@ -413,7 +410,7 @@ pub fn Page() -> impl IntoView {
                                             </button>
                                         </Show>
                                         <button id=move || if post_api.update_description_mode.get() {"description_cancel_btn"} else {"description_edit_btn"}
-                                                on:click=move |_| edit_description_mode_toggle() 
+                                                on:click=move |_| edit_description_mode_toggle()
                                                 class=move || format!("text-center   rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem] text-base05 bg-base01 hover:bg-base05 hover:text-base01")>
                                                 { move || if post_api.update_description_mode.get() {"Cancel"} else {"Edit"} }
                                         </button>

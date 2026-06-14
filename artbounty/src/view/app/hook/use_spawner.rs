@@ -1,5 +1,5 @@
 use leptos::{prelude::*, task::spawn_local};
-use tracing::{warn, trace};
+use tracing::{trace, warn};
 
 #[derive(Clone, Copy, Default)]
 pub struct Spawner {
@@ -11,13 +11,11 @@ impl Spawner {
         Self::default()
     }
 
-
     #[track_caller]
     pub fn spawn<Fut, T>(self, callback: Fut)
-        where
-            Fut: Future<Output = T> + 'static
+    where
+        Fut: Future<Output = T> + 'static,
     {
-
         let is_busy = self.is_busy.clone();
         if is_busy.get_untracked() {
             warn!("trying to spawn while busy");
@@ -33,7 +31,5 @@ impl Spawner {
                 warn!("spawner already disposed");
             }
         });
-
-
     }
 }

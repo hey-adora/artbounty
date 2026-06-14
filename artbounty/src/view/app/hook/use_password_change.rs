@@ -1,4 +1,3 @@
-
 use crate::{
     api::{
         Api, ApiWeb, ChangePasswordErr, ChangeUsernameErr, PasswordChangeStage, ServerErr,
@@ -153,7 +152,6 @@ pub fn use_password_change(
                             err_general.clear();
                         }
                     });
-
             }
             ChangePasswordFormStage::Confirm => {
                 let (Some(password), Some(password_confirmation)) = (

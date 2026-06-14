@@ -1,9 +1,9 @@
 #![recursion_limit = "512"]
 
-pub mod server;
 pub mod api;
 #[cfg(feature = "ssr")]
 pub mod db;
+pub mod server;
 pub mod view;
 
 #[cfg(feature = "ssr")]
@@ -260,7 +260,7 @@ pub mod path {
 
     pub const PATH_API: &'static str = "/api";
 
-    // post comment 
+    // post comment
     pub const PATH_API_POST_COMMENT_UPDATE: &'static str = "/update_post_comment";
     pub const PATH_API_POST_COMMENT_ADD: &'static str = "/add_post_comment";
     pub const PATH_API_POST_COMMENT_GET: &'static str = "/get_post_comment";
@@ -299,6 +299,7 @@ pub mod path {
     pub const PATH_API_POST_UPDATE_TAGS: &'static str = "/post/update_tags";
     pub const PATH_API_POST_UPDATE_DESCRIPTION: &'static str = "/post/update_description";
     pub const PATH_API_POST_ADD: &'static str = "/post/add";
+    pub const PATH_API_POST_FILE_ADD: &'static str = "/post/{post_id}/add_file";
     pub const PATH_API_POST_GET: &'static str = "/post/get";
     pub const PATH_API_POSTS_GET: &'static str = "/post/search";
     pub const PATH_API_POST_GET_OLDER: &'static str = "/post/get_older";
@@ -334,6 +335,10 @@ pub mod path {
     }
     pub fn link_post(user: impl AsRef<str>, post: impl AsRef<str>) -> String {
         format!("/u/{}/{}", user.as_ref(), post.as_ref(),)
+    }
+    pub fn link_api_post_add_file(host: impl AsRef<str>, post_key: impl AsRef<str>) -> String {
+        // http://localhost:3000/api/post/5idoghr47bvsajsi5izx/add_file
+        format!("{}/api/post/{}/add_file", host.as_ref(), post_key.as_ref())
     }
     pub fn link_img(hash: impl AsRef<str>, extension: impl AsRef<str>) -> String {
         format!("/file/{}.{}", hash.as_ref(), extension.as_ref())

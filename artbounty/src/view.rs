@@ -29,7 +29,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <link rel="shortcut icon" type="image/ico" href="/favicon.ico" />
                 <link rel="stylesheet" id="leptos" href="/pkg/artbounty_1.css" />
             </head>
-            <body class="bg-base00">
+            <body class="bg-base00 text-base05">
                 // <span class="tailwidn_placeholder hidden animate-[glow_1s_linear]"/>
                 <App />
             </body>
@@ -40,9 +40,6 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
 // pub static KILLME: Arc<RwSignal<bool>> = Arc::new(RwSignal::new(false));
 // pub static KILLME: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 //
-
-
-
 
 // #[cfg(feature = "testing")]
 // #[wasm_bindgen]

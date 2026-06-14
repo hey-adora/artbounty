@@ -610,7 +610,9 @@ mod use_infinite_scroll_tests {
 
     use crate::{
         init_test_log,
-        view::app::hook::use_infinite_scroll_virtual::{calc_removed, crop_data, crop_view, merge_data},
+        view::app::hook::use_infinite_scroll_virtual::{
+            calc_removed, crop_data, crop_view, merge_data,
+        },
     };
 
     #[test]

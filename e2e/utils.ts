@@ -1,5 +1,13 @@
 import { test, expect } from "@playwright/test";
 
+export let login = async (page)=>{
+  await page.goto("http://localhost:3000/login");
+
+  await page.locator('[id="email"]').fill("prime1@heyadora.com");
+  await page.locator('[id="password"]').fill("prime1@heyadora.com");
+  await page.locator('[id="login_btn"]').click();
+};
+
 export let gallery_search = async (
   page,
   first_parsed_debug,

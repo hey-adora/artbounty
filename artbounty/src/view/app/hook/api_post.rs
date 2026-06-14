@@ -100,7 +100,8 @@ impl<API: Api> PostApi<API> {
                 self.err_description.set(err);
             }
             Err(ServerErr::UpdatePostErr(ServerUpdatePostDescriptionErr::TooLong)) => {
-                self.err_description.set("Description is too long".to_string());
+                self.err_description
+                    .set("Description is too long".to_string());
             }
             Err(ServerErr::UpdatePostErr(ServerUpdatePostDescriptionErr::NotFound)) => {
                 self.post_state.set(PostState::NotFound);
@@ -284,13 +285,13 @@ pub mod tests {
                     "title1",
                     "0",
                     "",
-                    vec![create_img_req("1", 50, 50).await],
+                    // vec![create_img_req("1", 50, 50).await],
                 )
                 .await;
             gallery_api.items.get()[0].clone().key
         };
 
-        // testing normal 
+        // testing normal
         let post_api = PostApi::new(&app.api);
         post_api.get(&post_key).await;
         assert_eq!(post_api.live_description_length.get(), 1);
@@ -314,7 +315,6 @@ pub mod tests {
         post_api.update_description(&post_key, "2").await;
         assert_eq!(post_api.live_description_length.get(), 2);
         assert!(!post_api.err_description.get().is_empty());
-
 
         // let items = gallery_api.items.get();
         // assert_eq!(items.len(), 1);
@@ -345,7 +345,7 @@ pub mod tests {
                     "title1",
                     "0",
                     "",
-                    vec![create_img_req("1", 50, 50).await],
+                    // vec![create_img_req("1", 50, 50).await],
                 )
                 .await;
             gallery_api.items.get()[0].clone().key
@@ -357,7 +357,7 @@ pub mod tests {
         assert!(!post_api.err_general.get().is_empty());
         assert_eq!(post_api.tags.get(), "");
 
-        // testing normal 
+        // testing normal
         let post_api = PostApi::new(&app.api);
         post_api.get(&post_key).await;
         assert_eq!(post_api.tags.get(), "");
@@ -371,7 +371,6 @@ pub mod tests {
         let post_api = PostApi::new(&app.api);
         post_api.get(&post_key).await;
         assert_eq!(post_api.tags.get(), "one");
-
 
         // let items = gallery_api.items.get();
         // assert_eq!(items.len(), 1);
@@ -403,11 +402,8 @@ pub mod tests {
         app.set_time(1).await;
         gallery_api
             .post(
-                size,
-                "title1",
-                "0",
-                "",
-                vec![create_img_req("1", 50, 50).await],
+                size, "title1", "0", "",
+                // vec![create_img_req("1", 50, 50).await],
             )
             .await;
         let post0 = gallery_api.items.get()[0].clone();
@@ -450,11 +446,8 @@ pub mod tests {
         app.set_time(1).await;
         gallery_api
             .post(
-                size,
-                "title1",
-                "0",
-                "",
-                vec![create_img_req("1", 50, 50).await],
+                size, "title1", "0", "",
+                // vec![create_img_req("1", 50, 50).await],
             )
             .await;
         let post0 = gallery_api.items.get()[0].clone();

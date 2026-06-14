@@ -24,26 +24,26 @@
           (final: prev: {
             inherit (playwright.packages.${system}) playwright-test playwright-driver;
           })
-          # (final: prev: {
-          #   wasm-bindgen-cli_0_2_114 = final.rustPlatform.buildRustPackage {
-          #     pname = "wasm-bindgen-cli";
-          #     version = "0.2.114";
-          #     OPENSSL_NO_VENDOR = 1;
-          #     useFetchCargoVendor = true;
-          #     cargoHash = "sha256-Z8+dUXPQq7S+Q7DWNr2Y9d8GMuEdSnq00quUR0wDNPM=";
-          #     doCheck = false;
-          #
-          #     nativeCheckInputs = [ final.nodejs_latest ];
-          #
-          #     buildInputs = [ final.openssl ];
-          #     src = final.fetchCrate {
-          #       pname = "wasm-bindgen-cli";
-          #       version = "0.2.114";
-          #       hash = "sha256-xrCym+rFY6EUQFWyWl6OPA+LtftpUAE5pIaElAIVqW0=";
-          #     };
-          #
-          #   };
-          # })
+          (final: prev: {
+            wasm-bindgen-cli_0_2_122 = final.rustPlatform.buildRustPackage {
+              pname = "wasm-bindgen-cli";
+              version = "0.2.122";
+              OPENSSL_NO_VENDOR = 1;
+              useFetchCargoVendor = true;
+              cargoHash = "sha256-Inup6vvJSG5ghNyeDPyZbfZo4d0LsMG2OJfStoaeDBs=";
+              doCheck = false;
+
+              nativeCheckInputs = [ final.nodejs_latest ];
+
+              buildInputs = [ final.openssl ];
+              src = final.fetchCrate {
+                pname = "wasm-bindgen-cli";
+                version = "0.2.122";
+                hash = "sha256-vO4RSxi/sMWxmsEs3GuljdMfIRSu75A+Q+c5wgYToRU=";
+              };
+
+            };
+          })
 
         ];
 
@@ -73,7 +73,7 @@
               eslint
               # cargo-leptos
               wasm-pack
-              wasm-bindgen-cli_0_2_114
+              wasm-bindgen-cli_0_2_122
               tailwindcss_4
               nodejs_25
               pnpm
@@ -89,9 +89,9 @@
             ];
             RUST_BACKTRACE = 1;
             RUST_SRC_PATH = "${rust_toolchain}/lib/rustlib/src/rust/library";
-            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
-              pkgs.openssl
-            ];
+            # LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
+            #   pkgs.openssl
+            # ];
             PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = 1;
             PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
             # PLAYWRIGHT_BROWSERS_PATH = 0;

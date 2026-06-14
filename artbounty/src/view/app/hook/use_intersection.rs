@@ -2,13 +2,14 @@ use crate::view::toolbox::intersection_observer::new_raw;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{
-    Element, HtmlElement, IntersectionObserver, IntersectionObserverEntry, MutationObserver, MutationRecord
+    Element, HtmlElement, IntersectionObserver, IntersectionObserverEntry, MutationObserver,
+    MutationRecord,
 };
 
 #[derive(Clone, Copy)]
 pub struct Intersection<F>
 where
-    F: FnMut(Vec<IntersectionObserverEntry>, IntersectionObserver) + Clone  + 'static,
+    F: FnMut(Vec<IntersectionObserverEntry>, IntersectionObserver) + Clone + 'static,
 {
     pub observer: StoredValue<Option<IntersectionObserver>, LocalStorage>,
     pub callback: StoredValue<F, LocalStorage>,
@@ -16,7 +17,7 @@ where
 
 impl<F> Intersection<F>
 where
-    F: FnMut(Vec<IntersectionObserverEntry>, IntersectionObserver) + Clone  + 'static,
+    F: FnMut(Vec<IntersectionObserverEntry>, IntersectionObserver) + Clone + 'static,
 {
     pub fn new(callback: F) -> Self {
         let observer = StoredValue::new_local(None::<IntersectionObserver>);

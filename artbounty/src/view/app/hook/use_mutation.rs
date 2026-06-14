@@ -55,7 +55,6 @@ where
         let _ = observer
             .observe_with_options(&target, &options)
             .inspect_err(|err| error!("error observing: {err:?}"));
-
     }
 
     pub fn observe_only<E, O>(&self, target: E, options: O)

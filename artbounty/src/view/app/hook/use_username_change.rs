@@ -116,35 +116,32 @@ pub fn use_change_username(
             };
 
             api.change_username(password_value, username_value)
-                .send_web(move |result| {
-                    async move {
-                        match result {
-                            Ok(crate::api::ServerRes::User {
-                                username: new_username,
-                            }) => {
-                                let old_username = global_state
-                                    .get_username_untracked()
-                                    .unwrap_or("404".to_string());
+                .send_web(move |result| async move {
+                    match result {
+                        Ok(crate::api::ServerRes::User {
+                            username: new_username,
+                        }) => {
+                            let old_username = global_state
+                                .get_username_untracked()
+                                .unwrap_or("404".to_string());
 
-                                global_state.change_username(new_username.clone());
+                            global_state.change_username(new_username.clone());
 
-                                q_stage.set(ChangeUsernameFormStage::Finish);
-                                q_old_username.set(old_username);
-                                q_new_username.set(new_username);
-                            }
-                            Ok(err) => {
-                                error!("expected Post, received {err:?}");
-                                let _ =
-                                    q_err_general.set("SERVER ERROR, wrong response.".to_string());
-                            }
-                            Err(ServerErr::ChangeUsernameErr(
-                                ChangeUsernameErr::UsernameIsTaken(_),
-                            )) => {
-                                q_err_username.set("Username is taken".to_string());
-                            }
-                            Err(err) => {
-                                let _ = q_err_general.set(err.to_string());
-                            }
+                            q_stage.set(ChangeUsernameFormStage::Finish);
+                            q_old_username.set(old_username);
+                            q_new_username.set(new_username);
+                        }
+                        Ok(err) => {
+                            error!("expected Post, received {err:?}");
+                            let _ = q_err_general.set("SERVER ERROR, wrong response.".to_string());
+                        }
+                        Err(ServerErr::ChangeUsernameErr(ChangeUsernameErr::UsernameIsTaken(
+                            _,
+                        ))) => {
+                            q_err_username.set("Username is taken".to_string());
+                        }
+                        Err(err) => {
+                            let _ = q_err_general.set(err.to_string());
                         }
                     }
                 });

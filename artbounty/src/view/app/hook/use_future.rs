@@ -39,7 +39,7 @@ use web_sys::{HtmlElement, IntersectionObserverInit};
 pub struct FutureFn<Input, Fut, F>
 where
     // Input:
-    F: FnRun<Fut, Input>  + 'static,
+    F: FnRun<Fut, Input> + 'static,
     Fut: Future<Output = ()> + 'static,
 {
     pub is_busy: RwSignal<bool>,
@@ -52,7 +52,7 @@ where
 impl<Input, Fut, F> Clone for FutureFn<Input, Fut, F>
 where
     F: FnRun<Fut, Input> + 'static,
-    Fut: Future<Output = ()>  + 'static,
+    Fut: Future<Output = ()> + 'static,
 {
     fn clone(&self) -> Self {
         Self {
@@ -82,8 +82,8 @@ pub enum SendHelp<T> {
 
 impl<Input, Fut, F> FutureFn<Input, Fut, F>
 where
-    F: FnRun<Fut, Input>  + 'static,
-    Fut: Future<Output = ()>  + 'static,
+    F: FnRun<Fut, Input> + 'static,
+    Fut: Future<Output = ()> + 'static,
 {
     pub fn new(f: F) -> Self {
         let busy = RwSignal::new(false);
@@ -98,8 +98,8 @@ where
 
 impl<T1: 'static, Fut, F> FutureFn<(T1,), Fut, F>
 where
-    F: FnRun<Fut, (T1,)>  + 'static,
-    Fut: Future<Output = ()>  + 'static,
+    F: FnRun<Fut, (T1,)> + 'static,
+    Fut: Future<Output = ()> + 'static,
 {
     pub fn run(&self, t1: T1) {
         let busy = self.is_busy.clone();
@@ -120,8 +120,8 @@ where
 
 impl<Fut, F> FutureFn<(), Fut, F>
 where
-    F: FnRun<Fut, ()>  + 'static,
-    Fut: Future<Output = ()>  + 'static,
+    F: FnRun<Fut, ()> + 'static,
+    Fut: Future<Output = ()> + 'static,
 {
     // pub fn new(f: F) -> Self {
     //     let busy = RwSignal::new(false);

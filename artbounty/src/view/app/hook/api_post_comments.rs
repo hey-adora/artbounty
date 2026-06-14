@@ -1347,9 +1347,7 @@ pub mod tests {
     use crate::{
         api::{shared::post_comment::UserPostComment, tests::ApiTestApp},
         view::{
-            app::hook::api_post_comments::{
-                CommentKind, CommentKind2, CommentsApi, CommentsApi2,
-            },
+            app::hook::api_post_comments::{CommentKind, CommentKind2, CommentsApi, CommentsApi2},
             logger,
             toolbox::prelude::*,
         },
@@ -1383,7 +1381,10 @@ pub mod tests {
 
         app.api.auth_token_overwrite = auth_token.clone();
 
-        let post = app.add_post(t(), &auth_token, "title1", "cat", "one").await.unwrap();
+        let post = app
+            .add_post(t(), &auth_token, "title1", "cat", "one")
+            .await
+            .unwrap();
 
         let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
         hook_root.observe_only(post.key.clone());
@@ -1557,7 +1558,10 @@ pub mod tests {
             .await
             .unwrap();
         app.api.auth_token_overwrite = auth_token.clone();
-        let post = app.add_post(1, &auth_token, "title1", "cat", "one").await.unwrap();
+        let post = app
+            .add_post(1, &auth_token, "title1", "cat", "one")
+            .await
+            .unwrap();
         let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
         hook_root.observe_only(post.key.clone());
 
@@ -1593,9 +1597,6 @@ pub mod tests {
 
         assert_eq!(items_root.len(), 1);
         assert_eq!(c0.text, "c0_v2");
-
-
-
     }
 
     #[tokio::test]
@@ -1618,7 +1619,10 @@ pub mod tests {
 
         app.api.auth_token_overwrite = auth_token.clone();
 
-        let post = app.add_post(t(), &auth_token, "title1", "cat", "one").await.unwrap();
+        let post = app
+            .add_post(t(), &auth_token, "title1", "cat", "one")
+            .await
+            .unwrap();
 
         let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
         hook_root.observe_only(post.key.clone());
@@ -1772,7 +1776,10 @@ pub mod tests {
 
             app.api.auth_token_overwrite = auth_token.clone();
 
-            let post = app.add_post(0, &auth_token, "title1", "cat", "one").await.unwrap();
+            let post = app
+                .add_post(0, &auth_token, "title1", "cat", "one")
+                .await
+                .unwrap();
 
             let hook_root = CommentsApi2::new(&app.api, 2, CommentKind2::Root);
             hook_root.post_key.set_value(post.key.clone());

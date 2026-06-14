@@ -2,7 +2,11 @@ use surrealdb::types::ToSql;
 
 use crate::api::app_state::AppState;
 use crate::api::{
-    AuthToken, ChangeUsernameErr, EmailChangeErr, EmailChangeNewErr, EmailChangeStage, EmailChangeTokenErr, Server404Err, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerLoginErr, ServerRegistrationErr, ServerReq, ServerRes, ServerSendInviteErr, ServerTokenErr, User, UserPost, UserPostFile, auth_token_get, hash_password, verify_password
+    AuthToken, ChangeUsernameErr, EmailChangeErr, EmailChangeNewErr, EmailChangeStage,
+    EmailChangeTokenErr, Server404Err, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr,
+    ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerLoginErr, ServerRegistrationErr,
+    ServerReq, ServerRes, ServerSendInviteErr, ServerTokenErr, User, UserPost, UserPostFile,
+    auth_token_get, hash_password, verify_password,
 };
 use crate::db::DB404Err;
 use crate::db::{AddUserErr, DBEmailIsTakenErr};
@@ -249,7 +253,7 @@ pub mod tests {
     use crate::api::app_state::AppState;
     use crate::api::shared::post_comment::UserPostComment;
     use crate::api::tests::ApiTestApp;
-    use crate::db::{DBUser, DBEmailIsTakenErr, email_change::DBEmailChange};
+    use crate::db::{DBEmailIsTakenErr, DBUser, email_change::DBEmailChange};
 
     #[tokio::test]
     async fn api_auth_test() {
@@ -260,12 +264,8 @@ pub mod tests {
             .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
             .await
             .unwrap();
-        app
-            .register_taken(0, "HEY@heyadora.com")
-            .await;
-        app
-            .register_taken(0, " hey@heyadora.com")
-            .await;
+        app.register_taken(0, "HEY@heyadora.com").await;
+        app.register_taken(0, " hey@heyadora.com").await;
         // assert!(auth_token2.is_none());
         app.is_logged_in(0, &auth_token).await.unwrap();
         app.register_fail_expired_taken(0, 2, "hey2", "hey2@heyadora.com", "pas$word123456789")

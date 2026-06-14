@@ -29,9 +29,7 @@ pub enum PostLikeStage {
     Unliked,
 }
 
-pub fn use_post_like(
-    post_id: Memo<Option<String>>,
-) -> PostLike {
+pub fn use_post_like(post_id: Memo<Option<String>>) -> PostLike {
     let api = ApiWeb::new();
     let stage = RwSignal::new(PostLikeStage::Loading);
     let stage_view = move || {

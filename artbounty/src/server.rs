@@ -1,3 +1,5 @@
+#[cfg(feature = "ssr")]
+use axum_server::tls_rustls::RustlsConfig;
 use leptos::{logging, prelude::*};
 #[cfg(feature = "ssr")]
 use tokio::fs;
@@ -92,7 +94,12 @@ pub async fn server() {
         .layer(comppression_layer);
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    // let config = RustlsConfig::from_pem_file("cert.pem", "key.pem")
+    //     .await
+    //     .unwrap();
     logging::log!("listening on http://{}", &addr);
+    // axum_server::bind_rustls(addr, config)
+    //     .serve(app.into_make_service())
     axum::serve(listener, app.into_make_service())
         .await
         .unwrap();
@@ -100,7 +107,7 @@ pub async fn server() {
 
 #[cfg(feature = "ssr")]
 use axum::{
-    extract::State,
+    extract::{DefaultBodyLimit, State},
     http::{
         Request, Response, StatusCode, Uri,
         header::{self, HeaderMap, HeaderName},
@@ -138,10 +145,7 @@ pub async fn fallback_api(
             [(header::CONTENT_TYPE, "application/wasm")],
             "/pkg/artbounty_1_bg.wasm",
         ),
-        "/pkg/artbounty_1.css" => (
-            [(header::CONTENT_TYPE, "text/css")],
-            "/pkg/artbounty_1.css",
-        ),
+        "/pkg/artbounty_1.css" => ([(header::CONTENT_TYPE, "text/css")], "/pkg/artbounty_1.css"),
         // "/pkg/artbounty_1.js"
         "/pkg/artbounty_1.js" => (
             [(header::CONTENT_TYPE, "text/javascript")],
@@ -201,6 +205,17 @@ pub fn create_api_router(
         },
         path::{self},
     };
+    let api_router_upload = Router::new()
+        .route(
+            path::PATH_API_POST_FILE_ADD,
+            // "/test_upload_big_file",
+            post(api::backend::post::post_file_add),
+        )
+        .layer(DefaultBodyLimit::max(1024 * 1000_000_000))
+        .route_layer(middleware::from_fn_with_state(
+            app_state.clone(),
+            auth_middleware,
+        ));
 
     let api_router_public = Router::new()
         .route(
@@ -225,39 +240,39 @@ pub fn create_api_router(
             post(api::backend::auth::send_email_invite),
         )
         .route(path::PATH_API_USER, post(api::backend::get_user))
-        .route(path::PATH_API_POST_GET, post(api::backend::get_post))
-        .route(path::PATH_API_POSTS_GET, post(api::backend::get_posts))
+        .route(path::PATH_API_POST_GET, post(api::backend::post::get_post))
+        .route(path::PATH_API_POSTS_GET, post(api::backend::post::get_posts))
         .route(
             path::PATH_API_POST_GET_OLDER,
-            post(api::backend::get_posts_older),
+            post(api::backend::post::get_posts_older),
         )
         .route(
             path::PATH_API_POST_GET_NEWER,
-            post(api::backend::get_posts_newer),
+            post(api::backend::post::get_posts_newer),
         )
         .route(
             path::PATH_API_POST_GET_OLDER_OR_EQUAL,
-            post(api::backend::get_posts_older_or_equal),
+            post(api::backend::post::get_posts_older_or_equal),
         )
         .route(
             path::PATH_API_POST_GET_NEWER_OR_EQUAL,
-            post(api::backend::get_posts_newer_or_equal),
+            post(api::backend::post::get_posts_newer_or_equal),
         )
         .route(
             path::PATH_API_USER_POST_GET_OLDER,
-            post(api::backend::get_posts_older_for_user),
+            post(api::backend::post::get_posts_older_for_user),
         )
         .route(
             path::PATH_API_USER_POST_GET_NEWER,
-            post(api::backend::get_posts_newer_for_user),
+            post(api::backend::post::get_posts_newer_for_user),
         )
         .route(
             path::PATH_API_USER_POST_GET_OLDER_OR_EQUAL,
-            post(api::backend::get_posts_older_or_equal_for_user),
+            post(api::backend::post::get_posts_older_or_equal_for_user),
         )
         .route(
             path::PATH_API_USER_POST_GET_NEWER_OR_EQUAL,
-            post(api::backend::get_posts_newer_or_equal_for_user),
+            post(api::backend::post::get_posts_newer_or_equal_for_user),
         )
 
         // .fallback(fallback_api)
@@ -330,10 +345,19 @@ pub fn create_api_router(
             path::PATH_API_CONFIRM_EMAIL_NEW,
             post(api::backend::change_email::confirm_email_new),
         )
-        .route(path::PATH_API_POST_ADD, post(api::backend::add_post))
-        .route(path::PATH_API_POST_UPDATE_TAGS, post(api::backend::update_post_tags))
-        .route(path::PATH_API_POST_UPDATE_DESCRIPTION, post(api::backend::update_post_description))
-        .route(path::PATH_API_POST_DELETE, post(api::backend::delete_post))
+        .route(path::PATH_API_POST_ADD, post(api::backend::post::add_post))
+        .route(
+            path::PATH_API_POST_UPDATE_TAGS,
+            post(api::backend::post::update_post_tags),
+        )
+        .route(
+            path::PATH_API_POST_UPDATE_DESCRIPTION,
+            post(api::backend::post::update_post_description),
+        )
+        .route(
+            path::PATH_API_POST_DELETE,
+            post(api::backend::post::delete_post),
+        )
         .route_layer(middleware::from_fn_with_state(
             app_state.clone(),
             auth_middleware,
@@ -348,6 +372,7 @@ pub fn create_api_router(
             auth_optional_middleware,
         ));
     let api_router = Router::new()
+        .merge(api_router_upload)
         .merge(api_router_public)
         .merge(api_router_auth_optional)
         .merge(api_router_auth);

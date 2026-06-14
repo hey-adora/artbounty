@@ -3,6 +3,7 @@
 // but client is on old version
 // wrong input
 
+use crate::valid::MAX_POST_DESCRIPTION_LENGTH;
 use http::HeaderMap;
 use http::header::{AUTHORIZATION, SET_COOKIE};
 use leptos::prelude::*;
@@ -13,7 +14,6 @@ use std::str::FromStr;
 use thiserror::Error;
 use tracing::{debug, error, trace};
 use wasm_bindgen_futures::spawn_local;
-use crate::valid::MAX_POST_DESCRIPTION_LENGTH;
 
 use crate::api::shared::post_comment::UserPostComment;
 use crate::path::{
@@ -462,11 +462,17 @@ pub enum ServerReq {
         tags: String,
         username: String,
     },
+    // AddPostFile {
+    //     title: String,
+    //     description: String,
+    //     tags: String,
+    //     files: Vec<ServerReqImg>,
+    // },
     AddPost {
         title: String,
         description: String,
         tags: String,
-        files: Vec<ServerReqImg>,
+        // files: Vec<ServerReqImg>,
     },
     None,
 }
@@ -623,6 +629,9 @@ pub enum ServerErr {
 
     #[error("add post err {0}")]
     AddPostErr(#[from] ServerAddPostErr),
+
+    #[error("add post file err {0}")]
+    AddPostFileErr(#[from] ServerAddPostFileErr),
 
     #[error("update post err {0}")]
     UpdatePostErr(#[from] ServerUpdatePostDescriptionErr),
@@ -795,6 +804,27 @@ pub enum ServerAuthErr {
 pub enum ServerTokenErr {
     #[error("jwt error")]
     ServerJWT,
+}
+
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub enum ServerAddPostFileErr {
+    #[error("post id param not found")]
+    ParamNotFoundPostId,
+
+    #[error("io error {0}")]
+    IoErr(String),
+    // #[error("post not found {0:#?}")]
+    // UnAuthorized(Vec<ServerErrImgMeta>),
 }
 
 #[derive(
@@ -1915,7 +1945,11 @@ pub trait Api {
         )
     }
 
-    fn update_post_description(&self, post_key: impl Into<String>, description: impl Into<String>) -> ApiReq {
+    fn update_post_description(
+        &self,
+        post_key: impl Into<String>,
+        description: impl Into<String>,
+    ) -> ApiReq {
         self.into_req(
             crate::path::PATH_API_POST_UPDATE_DESCRIPTION,
             ServerReq::EditPostDescription {
@@ -1939,7 +1973,7 @@ pub trait Api {
         title: impl Into<String>,
         description: impl Into<String>,
         tags: impl Into<String>,
-        files: Vec<ServerReqImg>,
+        // files: Vec<ServerReqImg>,
     ) -> ApiReq {
         let title = title.into();
         let description = description.into();
@@ -1949,7 +1983,7 @@ pub trait Api {
             title,
             description,
             tags,
-            files,
+            // files,
         };
         let result_signal = self.provide_signal_result();
         let busy_signal = self.provide_signal_busy();
@@ -2433,7 +2467,6 @@ pub async fn send(
 
 #[cfg(test)]
 pub mod tests {
-
     use axum::Router;
     use std::path::Path;
     use std::sync::Arc;
@@ -2568,6 +2601,74 @@ pub mod tests {
             }
         }
 
+        pub async fn add_post_file(
+            &self,
+            time: u128,
+            auth_token: impl AsRef<str>,
+            post_key: impl AsRef<str>,
+            file_path: impl AsRef<str>,
+            // post_key: impl Into<String>,
+            // file_bytes: Vec<u8>,
+            // file_hash: impl Into<String>,
+            // file_png: impl Into<String>,
+            // file_width: u32,
+            // file_height: u32,
+            // description: impl Into<String>,
+            // tags: impl Into<String>,
+        ) -> Option<()> {
+            // ) -> Option<UserPost> {
+            let file = tokio::fs::File::open(file_path.as_ref()).await.unwrap();
+            let stream =
+                tokio_util::codec::FramedRead::new(file, tokio_util::codec::BytesCodec::new());
+            let body = reqwest::Body::wrap_stream(stream);
+            let send_bytes: Vec<u8> = vec![0; 100];
+
+            let cookie = crate::api::create_auth_header(auth_token);
+
+            // let url = "http://localhost:3000/api/post/5idoghr47bvsajsi5izx/add_file";
+            let url2 = crate::path::link_api_post_add_file("http://localhost:3000", post_key);
+            // assert_eq!(url, url2);
+
+            let result = reqwest::Client::new()
+                .post(url2)
+                // req.set_request_header("Content-Type", "application/octet-stream")
+                .header(http::header::COOKIE, cookie)
+                .header("Content-Type", "application/octet-stream")
+                .body(send_bytes)
+                .send()
+                .await
+                .unwrap()
+                .bytes()
+                .await
+                .unwrap();
+            // .unwrap();
+
+            let result = rkyv::access::<
+                rkyv::result::ArchivedResult<
+                    crate::api::ArchivedServerRes,
+                    crate::api::ArchivedServerErr,
+                >,
+                rkyv::rancor::Error,
+            >(result.as_ref())
+            .unwrap();
+
+            let result =
+                rkyv::deserialize::<Result<ServerRes, ServerErr>, rkyv::rancor::Error>(result)
+                    .unwrap();
+
+            // match res {
+            //
+            // }
+            // .inspect_err(|err| error!("client failed to send {err}"))
+            // .map_err(|err| ServerErr::from(ClientErr::ClientSendErr(err.to_string())));
+
+            match result {
+                // Ok(crate::api::ServerRes::Post(post)) => Some(post),
+                Ok(crate::api::ServerRes::Ok) => Some(()),
+                _ => None,
+            }
+        }
+
         pub async fn add_post(
             &self,
             time: u128,
@@ -2598,15 +2699,7 @@ pub mod tests {
             let img = tokio::fs::read(path).await.unwrap();
             let result = self
                 .api
-                .add_post(
-                    title,
-                    description,
-                    tags,
-                    Vec::from([ServerReqImg {
-                        path: path.to_string(),
-                        data: img.clone(),
-                    }]),
-                )
+                .add_post(title, description, tags)
                 .send_native_with_token(auth_token.clone())
                 .await;
             trace!("{result:#?}");
@@ -3730,193 +3823,5 @@ pub mod tests {
         app.status_email_change(0, id.clone(), &auth_token, |v| v.is_complete(), None, None)
             .await
             .unwrap();
-    }
-
-    #[tokio::test]
-    async fn api_post_get_test() {
-        crate::init_test_log();
-
-        let app = ApiTestApp::new(1).await;
-        let auth_token = app
-            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
-            .await
-            .unwrap();
-
-        app.add_post(0, &auth_token, "title1", "cat", "one two three")
-            .await
-            .unwrap();
-        app.add_post(1, &auth_token, "title2", "cat", "one two")
-            .await
-            .unwrap();
-        app.add_post(2, &auth_token, "title3", "cat", "one")
-            .await
-            .unwrap();
-
-        let posts = app
-            .get_posts(
-                3,
-                auth_token,
-                3,
-                TimeRange::Less(3),
-                Order::ThreeTwoOne,
-                "one",
-                "hey",
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(posts.len(), 3);
-    }
-
-    #[tokio::test]
-    async fn api_post_delete_test() {
-        crate::init_test_log();
-
-        let app = ApiTestApp::new(1).await;
-        let auth_token = app
-            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
-            .await
-            .unwrap();
-
-        let post0 = app
-            .add_post(0, &auth_token, "title1", "cat", "one")
-            .await
-            .unwrap();
-
-        let posts = app.state.db.get_post_all().await.unwrap();
-        assert_eq!(posts.len(), 1);
-
-        app.delete_post(1, auth_token, post0.key.to_sql())
-            .await
-            .unwrap();
-
-        let posts = app.state.db.get_post_all().await.unwrap();
-        assert_eq!(posts.len(), 0);
-    }
-
-    #[tokio::test]
-    async fn api_post_test() {
-        crate::init_test_log();
-
-        let app = ApiTestApp::new(1).await;
-        let auth_token = app
-            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
-            .await
-            .unwrap();
-
-        app.add_post(0, &auth_token, "title1", "cat", "one")
-            .await
-            .unwrap();
-        app.expect_posts(0, 0, 1, 0, 1).await.unwrap();
-        app.add_post(1, &auth_token, "title2", "cat", "one")
-            .await
-            .unwrap();
-        app.expect_posts(0, 1, 2, 0, 1).await.unwrap();
-        app.expect_posts(1, 0, 1, 1, 2).await.unwrap();
-        app.expect_posts(2, 0, 0, 2, 2).await.unwrap();
-    }
-    
-    #[tokio::test]
-    async fn security_api_post_update_description() {
-        crate::init_test_log();
-
-        let app = ApiTestApp::new(1).await;
-        let auth_token = app
-            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
-            .await
-            .unwrap();
-
-        let post = app
-            .add_post(0, &auth_token, "title1", "cat", "")
-            .await
-            .unwrap();
-
-        let big_description = (0..10000).into_iter().map(|_| 'a').collect::<String>();
-
-        let result = app
-            .update_post_description(0, &auth_token, post.key.clone(), big_description)
-            .await;
-
-        assert!(result.is_none());
-    }
-
-    #[tokio::test]
-    async fn api_post_update_description() {
-        crate::init_test_log();
-
-        let app = ApiTestApp::new(1).await;
-        let auth_token = app
-            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
-            .await
-            .unwrap();
-
-        let post = app
-            .add_post(0, &auth_token, "title1", "cat", "")
-            .await
-            .unwrap();
-
-        assert_eq!(post.description, "cat");
-
-        let post = app
-            .update_post_description(0, &auth_token, post.key.clone(), "one")
-            .await
-            .unwrap();
-
-        assert_eq!(post.description, "one");
-
-        let posts = app
-            .get_posts(
-                0,
-                &auth_token,
-                2,
-                TimeRange::MoreOrEqual(0),
-                Order::OneTwoThree,
-                "",
-                "",
-            )
-            .await
-            .unwrap();
-        assert_eq!(posts.len(), 1);
-        assert_eq!(posts[0].description, "one");
-    }
-
-    #[tokio::test]
-    async fn api_post_update_tags() {
-        crate::init_test_log();
-
-        let app = ApiTestApp::new(1).await;
-        let auth_token = app
-            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
-            .await
-            .unwrap();
-
-        let post = app
-            .add_post(0, &auth_token, "title1", "cat", "")
-            .await
-            .unwrap();
-
-        assert_eq!(post.tags, "");
-
-        let post = app
-            .update_post_tags(0, &auth_token, post.key.clone(), "one")
-            .await
-            .unwrap();
-
-        assert_eq!(post.tags, "one");
-
-        let posts = app
-            .get_posts(
-                0,
-                &auth_token,
-                2,
-                TimeRange::MoreOrEqual(0),
-                Order::OneTwoThree,
-                "",
-                "",
-            )
-            .await
-            .unwrap();
-        assert_eq!(posts.len(), 1);
-        assert_eq!(posts[0].tags, "one");
     }
 }

@@ -66,13 +66,13 @@ impl<API: Api> GalleryApi<API> {
         title: impl Into<String>,
         description: impl Into<String>,
         tags: impl Into<String>,
-        files: Vec<ServerReqImg>,
+        // files: Vec<ServerReqImg>,
     ) -> f64 {
         let items = self.items;
 
         let result = self
             .api_top
-            .add_post(title, description, tags, files)
+            .add_post(title, description, tags)
             .send_native()
             .await;
 
@@ -332,31 +332,22 @@ pub mod tests {
         app.set_time(1).await;
         post_api
             .post(
-                size,
-                "title1",
-                "0",
-                "",
-                vec![create_img_req("1", 50, 50).await],
+                size, "title1", "0", "",
+                // vec![create_img_req("1", 50, 50).await],
             )
             .await;
         app.set_time(2).await;
         post_api
             .post(
-                size,
-                "title2",
-                "0",
-                "",
-                vec![create_img_req("2", 50, 50).await],
+                size, "title2", "0", "",
+                // vec![create_img_req("2", 50, 50).await],
             )
             .await;
         app.set_time(3).await;
         post_api
             .post(
-                size,
-                "title3",
-                "0",
-                "",
-                vec![create_img_req("3", 50, 50).await],
+                size, "title3", "0", "",
+                // vec![create_img_req("3", 50, 50).await],
             )
             .await;
         let items = post_api.items.get_untracked();
@@ -453,27 +444,21 @@ pub mod tests {
                 "title1",
                 "0",
                 "one two three",
-                vec![create_img_req("1", 50, 50).await],
+                // vec![create_img_req("1", 50, 50).await],
             )
             .await;
         app.set_time(6).await;
         post_api
             .post(
-                size,
-                "title2",
-                "0",
-                "one two",
-                vec![create_img_req("2", 50, 50).await],
+                size, "title2", "0", "one two",
+                // vec![create_img_req("2", 50, 50).await],
             )
             .await;
         app.set_time(7).await;
         post_api
             .post(
-                size,
-                "title3",
-                "0",
-                "one",
-                vec![create_img_req("3", 50, 50).await],
+                size, "title3", "0", "one",
+                // vec![create_img_req("3", 50, 50).await],
             )
             .await;
 

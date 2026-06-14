@@ -1747,6 +1747,7 @@ pub mod event_listener {
 
 pub mod file {
 
+    use send_wrapper::SendWrapper;
     use thiserror::Error;
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
@@ -1861,7 +1862,9 @@ pub mod file {
         reader: &ReadableStreamDefaultReader,
     ) -> Result<Option<Uint8Array>, ErrorGetStreamChunk> {
         let promise = reader.read();
-        let chunk = JsFuture::from(promise)
+        let fut = JsFuture::from(promise);
+        let fut = SendWrapper::new(fut);
+        let chunk = fut
             .await
             .map_err(|e| {
                 ErrorGetStreamChunk::GetChunk(

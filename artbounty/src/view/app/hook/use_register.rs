@@ -56,8 +56,6 @@ pub enum RegQueryFields {
     Email,
 }
 
-
-
 #[derive(Clone, Copy)]
 pub struct Register {
     pub err_general: RwQuery<String>,
@@ -99,7 +97,11 @@ pub fn use_register(
         let result = api.decode_invite(token).send_native().await;
 
         match result {
-            Ok(ServerRes::InviteToken { email, created_at, exp }) => email,
+            Ok(ServerRes::InviteToken {
+                email,
+                created_at,
+                exp,
+            }) => email,
             Ok(res) => {
                 format!("error, expected InviteToken, received: {res:?}")
             }

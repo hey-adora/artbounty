@@ -1,4 +1,3 @@
-
 use std::time::Duration;
 
 use leptos::prelude::*;
@@ -17,8 +16,6 @@ use crate::api::ServerErr;
 use crate::api::ServerRes;
 use crate::path::link_user;
 use crate::view::toolbox::prelude::*;
-
-
 
 pub mod components;
 pub mod hook;
@@ -44,8 +41,7 @@ impl GlobalState {
         time_now_ns()
     }
     pub fn get_acc_id_tracked(&self) -> Option<String> {
-        self.acc
-            .with(|acc| acc.as_ref().map(|acc| acc.key.clone()))
+        self.acc.with(|acc| acc.as_ref().map(|acc| acc.key.clone()))
     }
     pub fn get_email_tracked(&self) -> Option<String> {
         self.acc
@@ -97,9 +93,17 @@ impl GlobalState {
     }
     pub fn set_auth_from_res(&self, result: Result<ServerRes, ServerErr>) {
         match result {
-            Ok(ServerRes::Acc { username, email, key }) => {
+            Ok(ServerRes::Acc {
+                username,
+                email,
+                key,
+            }) => {
                 info!("logged in as {username}");
-                let r = self.acc.try_set(Some(Acc { username, email, key }));
+                let r = self.acc.try_set(Some(Acc {
+                    username,
+                    email,
+                    key,
+                }));
                 if r.is_some() {
                     error!("global state acc was disposed somehow");
                 }
@@ -172,11 +176,13 @@ pub fn App() -> impl IntoView {
         global_state.update_auth();
     });
 
-    interval::new(move || {
-        let time = time_now_ns();
-        global_state.time.set(time);
-
-    }, Duration::from_secs(1));
+    interval::new(
+        move || {
+            let time = time_now_ns();
+            global_state.time.set(time);
+        },
+        Duration::from_secs(1),
+    );
 
     let redirect_path = move || {
         global_state

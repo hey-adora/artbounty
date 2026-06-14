@@ -6,7 +6,6 @@ use wasm_bindgen::JsCast;
 
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn hydrate() {
-
     artbounty::view::app::hook::api_post_comments::tests::comments_hook();
     // console_error_panic_hook::set_once();
     // logger::simple_web_logger_init();
@@ -23,7 +22,6 @@ pub fn hydrate() {
     //     test_wrapper.clone().unchecked_into(),
     //     || view! {  },
     // );
-
 }
 // #[cfg(test)]
 // mod tests {

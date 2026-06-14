@@ -322,18 +322,33 @@ pub mod settings {
 }
 pub mod upload {
 
+    use std::io::Bytes;
+    use std::iter;
+
     use crate::api::{Api, ApiWeb, ServerAddPostErr, ServerErr, ServerReqImg};
     use crate::path::link_post;
     use crate::valid::auth::{proccess_post_description, proccess_post_title};
     use crate::view::app::components::nav::Nav;
+    use crate::view::app::hook::api_post_file_upload::FileUpload;
     use crate::view::toolbox::prelude::*;
     use leptos::prelude::*;
     use leptos::{Params, task::spawn_local};
     use leptos_router::{hooks::use_params, params::Params};
 
+    use async_stream::stream;
+    use futures_util::pin_mut;
+    use futures_util::stream::StreamExt;
     use leptos_router::hooks::use_query;
     use tracing::{error, trace};
-    use web_sys::{HtmlInputElement, HtmlTextAreaElement, SubmitEvent};
+    use wasm_bindgen::prelude::*;
+    // use wasm_bindgen::{JsCast, JsValue, Closure};
+    use wasm_bindgen_futures::JsFuture;
+    use web_sys::js_sys::{Array, Function, JsString, Number, Promise, Reflect};
+    use web_sys::{
+        Blob, File, FormData, HtmlInputElement, HtmlTextAreaElement, ProgressEvent, RequestInit,
+        RequestMode, SubmitEvent, TransformStream, TransformStreamDefaultController, Transformer,
+        XmlHttpRequest,
+    };
 
     #[derive(Params, PartialEq, Clone)]
     pub struct UserParams {
@@ -354,15 +369,23 @@ pub mod upload {
         let upload_general_err = RwSignal::new(String::new());
         let api = ApiWeb::new();
         let navigate = leptos_router::hooks::use_navigate();
-        // let api_post = controller::post::route::add::client.ground();
+
+        let file_upload = FileUpload::new();
+        let on_file_change = move |_| {
+            let Some(files) = (upload_image.get_untracked() as Option<HtmlInputElement>)
+                .and_then(|f: HtmlInputElement| f.files())
+                .map(|f| f.get_files())
+            else {
+                return;
+            };
+            // file_upload.clear();
+            file_upload.select(&files);
+            trace!("fle selection changed i think");
+        };
+
         let on_upload = move |e: SubmitEvent| {
             e.prevent_default();
-            trace!("uploading...");
-            let navigate = navigate.clone();
-            let (Some(files), Some(title), Some(description), Some(tags)) = (
-                (upload_image.get_untracked() as Option<HtmlInputElement>)
-                    .and_then(|f: HtmlInputElement| f.files())
-                    .map(|f| f.get_files()),
+            let (Some(title), Some(description), Some(tags)) = (
                 upload_title.get_untracked() as Option<HtmlInputElement>,
                 upload_description.get_untracked() as Option<HtmlTextAreaElement>,
                 upload_tags.get_untracked() as Option<HtmlTextAreaElement>,
@@ -381,66 +404,374 @@ pub mod upload {
             let (Ok(title), Ok(description)) = (title, description) else {
                 return;
             };
-            spawn_local(async move {
-                let mut files_data = Vec::<ServerReqImg>::new();
-                'for_file: for file in files {
-                    let stream = match file.get_file_stream() {
-                        Ok(stream) => stream,
-                        Err(err) => {
-                            error!("error getting file stream \"{err}\"");
-                            continue;
-                        }
-                    };
 
-                    let mut data = Vec::<u8>::new();
-                    while let Some(chunk) = match stream.get_stream_chunk().await {
-                        Ok(chunk) => chunk,
-                        Err(err) => {
-                            error!("error getting file stream chunk \"{err}\"");
-                            continue 'for_file;
-                        }
-                    } {
-                        chunk.push_to_vec(&mut data);
+            file_upload.upload();
+        };
+
+        // let api_post = controller::post::route::add::client.ground();
+        // let on_upload = move |e: SubmitEvent| {
+        //     e.prevent_default();
+        //     trace!("uploading...");
+        //     let navigate = navigate.clone();
+        //     let (Some(files), Some(title), Some(description), Some(tags)) = (
+        //         (upload_image.get_untracked() as Option<HtmlInputElement>)
+        //             .and_then(|f: HtmlInputElement| f.files())
+        //             .map(|f| f.get_files()),
+        //         upload_title.get_untracked() as Option<HtmlInputElement>,
+        //         upload_description.get_untracked() as Option<HtmlTextAreaElement>,
+        //         upload_tags.get_untracked() as Option<HtmlTextAreaElement>,
+        //     ) else {
+        //         return;
+        //     };
+        //
+        //     let title = proccess_post_title(title.value());
+        //     let description = proccess_post_description(description.value());
+        //     let tags = tags.value();
+        //
+        //     upload_title_err.set(title.clone().err().unwrap_or_default());
+        //     upload_description_err.set(description.clone().err().unwrap_or_default());
+        //     upload_image_err.set(String::new());
+        //     upload_general_err.set(String::new());
+        //     let (Ok(title), Ok(description)) = (title, description) else {
+        //         return;
+        //     };
+        //
+        //     // let file = files[0].clone().into();
+        //
+        //     file_upload.upload();
+        //     return;
+        //
+        //     // let closure = Closure::<dyn Fn()>::new(callback.clone()).into_js_value();
+        //     spawn_local(async move {
+        //         let result = JsFuture::from(Promise::new(
+        //             &mut move |resolve: Function, reject: Function| {
+        //                 let req = XmlHttpRequest::new().unwrap();
+        //                 let req_upload = req.upload().unwrap();
+        //
+        //                 req_upload
+        //                     .add_event_listener_with_callback(
+        //                         "progress",
+        //                         &Closure::<dyn FnMut(_)>::new(move |event: ProgressEvent| {
+        //                             trace!("uploading... {}/{}", event.loaded(), event.total());
+        //                             //
+        //                         })
+        //                         .into_js_value()
+        //                         .unchecked_into(),
+        //                     )
+        //                     .unwrap();
+        //
+        //                 req.add_event_listener_with_callback(
+        //                     "progress",
+        //                     &Closure::<dyn FnMut(_)>::new(move |event: ProgressEvent| {
+        //                         trace!("downloading... {}/{}", event.loaded(), event.total());
+        //                         //
+        //                     })
+        //                     .into_js_value()
+        //                     .unchecked_into(),
+        //                 )
+        //                 .unwrap();
+        //
+        //                 req.add_event_listener_with_callback(
+        //                     "loaded",
+        //                     &Closure::<dyn FnMut()>::new(move || {
+        //                         trace!("complete");
+        //                         resolve.call1(&JsValue::NULL, &"done".into());
+        //                     })
+        //                     .into_js_value()
+        //                     .unchecked_into(),
+        //                 )
+        //                 .unwrap();
+        //
+        //                 let form = FormData::new().unwrap();
+        //                 form.set_with_str("what", "nooooooooo").unwrap();
+        //
+        //                 req.open_with_async(
+        //                     "POST",
+        //                     "https://localhost:3000/api/test_upload_big_file",
+        //                     true,
+        //                 );
+        //
+        //                 // req.set_request_header("Content-Type", "multipart/form-data");
+        //                 req.set_request_header("Content-Type", "application/octet-stream");
+        //                 // req.send_with_opt_str(Some("hello")).unwrap();
+        //                 req.send_with_opt_blob(Some(&file)).unwrap();
+        //
+        //                 // req.send_with_opt_form_data(Some(&form)).unwrap();
+        //             },
+        //         ))
+        //         .await
+        //         .unwrap()
+        //         .as_string()
+        //         .unwrap();
+        //
+        //         trace!("testing file streaming end: {result:?}");
+        //     });
+        //
+        //     return;
+        //     //
+        //     // // let origin = location().origin().unwrap();
+        //     // // let path = path.as_ref();
+        //     // // let url = format!("{origin}{}{path}", crate::path::PATH_API);
+        //     //
+        //     // let first_file = files[0].clone();
+        //     // let first_file2 = files[0].clone();
+        //     // // let a = tokio_util::io::ReaderStream::new(stream_reader);
+        //     // let file_name = first_file.name();
+        //     //
+        //     // // let stream = first_file.get_file_stream().unwrap();
+        //     // // let stream2 = futures_util::stream::poll_fn(f);
+        //     //
+        //     // let stream3 = stream! {
+        //     //     let stream = first_file2.get_file_stream().unwrap();
+        //     //     while let Some(chunk) = match stream.get_stream_chunk().await {
+        //     //         Ok(chunk) => chunk,
+        //     //         Err(err) => {
+        //     //             error!("error getting file stream chunk \"{err}\"");
+        //     //             return ();
+        //     //             // return Ok::<_, ()>(None);
+        //     //         }
+        //     //     } {
+        //     //         // let mut data = Bytes::;
+        //     //         let mut data = Vec::<u8>::new();
+        //     //         chunk.push_to_vec(&mut data);
+        //     //         // let data: bytes::Bytes = data.into();
+        //     //         yield Ok::<_, anyhow::Error>(data);
+        //     //         // yield data;
+        //     //     }
+        //     //     // None
+        //     //     // Ok(None)
+        //     //     // for i in 0..3 {
+        //     //     //     yield i;
+        //     //     // }
+        //     // };
+        //
+        //     // let iter = iter::from_fn(move || {
+        //     //     let a = stream.get_stream_chunk().await;
+        //     //     None
+        //     // });
+        //     // let stream = first_file.stream();
+        //     // let stream = futures_util::stream::(stream);
+        //     // let stream = futures_util::stream::iter(stream);
+        //
+        //     spawn_local(async move {
+        //         // let stream_reader = first_file.stream();
+        //         // let f: tokio::fs::File = tokio::fs::File::open("wtf.txt").await.unwrap();
+        //         // let mut stream2 = tokio_util::io::ReaderStream::new(f);
+        //         //
+        //         //
+        //         // let async_stream = async_stream::stream! {
+        //         //     while let Some(chunk) = stream2.next().await {
+        //         //         yield chunk;
+        //         //     }
+        //         // };
+        //
+        //         // let body = reqwest::Body::wrap(stream3);
+        //         // let body = reqwest::Body::wrap_stream(stream3);
+        //
+        //         // let part = reqwest::multipart::Part::stream(stream3).await.unwrap();
+        //         // let part = reqwest::multipart::Part::file(first_file).await.unwrap();
+        //         // let part = reqwest::multipart::Part::file("woops", file_name);
+        //         // let form = reqwest::multipart::Form::new().part("data", part);
+        //         // trace!("weird file name: {file_name}");
+        //         // // while let Some(chunk) = match stream.get_stream_chunk().await {
+        //
+        //         let part = reqwest::multipart::Part::text("wowwowowo");
+        //         let form = reqwest::multipart::Form::new().part("data", part);
+        //         // let part = reqwest::multipart::Part::fi;
+        //         // let part = reqwest::multipart::Part::ne;
+        //         // let form = reqwest::multipart::Form::new()
+        //         //         .part("data", "helloo");
+        //         //     // .file("woops", file_name).await.unwrap();
+        //         //     ;
+        //
+        //         let numbers: Array<Number> = Array::new_typed();
+        //         numbers.push(&Number::from(42));
+        //         let file =
+        //             web_sys::File::new_with_str_sequence(&numbers.into(), "wowza.txt").unwrap();
+        //         let origin = location().origin().unwrap();
+        //         let path = "/test_upload_big_file";
+        //         let url = format!("{origin}{}{path}", crate::path::PATH_API);
+        //         // let url = "https://httpbin.org/put";
+        //
+        //         let transformer = Transformer::new();
+        //
+        //         let transform_fn: Function =
+        //             Closure::<dyn FnMut(Array, TransformStreamDefaultController)>::new(
+        //                 move |chunk: Array, controller: TransformStreamDefaultController| {
+        //                     controller.enqueue_with_chunk(&chunk.into());
+        //                     trace!("wowza");
+        //                 },
+        //             )
+        //             .into_js_value()
+        //             .unchecked_into();
+        //
+        //         let flush_fn: Function =
+        //             Closure::<dyn FnMut(TransformStreamDefaultController)>::new(
+        //                 move |controller: TransformStreamDefaultController| {
+        //                     trace!("done");
+        //                 },
+        //             )
+        //             .into_js_value()
+        //             .unchecked_into();
+        //
+        //         transformer.set_transform(&transform_fn);
+        //         transformer.set_flush(&flush_fn);
+        //
+        //         let transformer_stream =
+        //             TransformStream::new_with_transformer(&transformer.into()).unwrap();
+        //
+        //         // const blob = new Blob([new Uint8Array(10 * 1024 * 1024)]);
+        //         let blob =
+        //             Blob::new_with_str_sequence(&Array::from_iter([JsValue::from_str("hello")]))
+        //                 .unwrap();
+        //         // let stream = file
+        //         let stream = blob
+        //             .clone()
+        //             .stream()
+        //             .pipe_through(&transformer_stream.unchecked_into());
+        //
+        //         // let form: JsValue = form.try_into().unwrap();
+        //
+        //         // let url = format!("https://jsonplaceholder.typicode.com/posts/1/comments");
+        //
+        //         let form = FormData::new().unwrap();
+        //         // form.set_with_str("what", &"nooooooooo".into()).unwrap();
+        //
+        //         // form_data.set_with_blob("what", &file.into()).unwrap();
+        //         // form_data.set_with_blob("what", &stream.into()).unwrap();
+        //         // form_data.set_with_blob_and_filename("what", &JsValue::from(stream).unchecked_into(), "huh.txt").unwrap();
+        //         // form_data.set_with_blob_and_filename("what", &stream.unchecked_into(), "huh.txt").unwrap();
+        //
+        //         let opts = RequestInit::new();
+        //         // opts.set_method("PUT");
+        //         opts.set_method("POST");
+        //         let headers = web_sys::Headers::new().unwrap();
+        //         headers
+        //             .append("Content-Type", "application/octet-stream")
+        //             .unwrap();
+        //         opts.set_headers_headers(&headers);
+        //         opts.set_mode(RequestMode::Cors);
+        //         // opts.set_body_opt_readable_stream(Some(&stream));
+        //         Reflect::set(
+        //             opts.as_ref(),
+        //             &JsValue::from_str("duplex"),
+        //             &JsValue::from_str("half"),
+        //             // &JsValue::from_str("full"),
+        //         )
+        //         .unwrap();
+        //         let stream_type = stream.js_typeof().as_string().unwrap();
+        //         trace!("stream type: {stream_type:?}");
+        //         opts.set_body(&stream);
+        //         // opts.set_body(&form_data.into());
+        //
+        //         let request = web_sys::Request::new_with_str_and_init(&url, &opts).unwrap();
+        //         let window = web_sys::window().unwrap();
+        //         let resp_value = JsFuture::from(window.fetch_with_request(&request))
+        //             .await
+        //             .unwrap();
+        //
+        //         let resp: web_sys::Response = resp_value.dyn_into().unwrap();
+        //         // let json = JsFuture::from(resp.json().unwrap()).await.unwrap();
+        //         trace!("res from fetch: {resp:#?}");
+        //         return;
+        //
+        //         // let res = reqwest::Client::new()
+        //         //     .post(&url)
+        //         //     .multipart(form)
+        //         //     .send()
+        //         //     .await
+        //         //     .inspect_err(|err| error!("client failed to send {err}"));
+        //         // let res = res.unwrap().bytes().await.unwrap();
+        //         // let res = String::from_utf8_lossy(&res);
+        //         // trace!("testing send res: {res:#?}");
+        //         // .map_err(|err| ServerErr::from(ClientErr::ClientSendErr(err.to_string())));
+        //     });
+        //     return;
+        //     spawn_local(async move {
+        //         let mut files_data = Vec::<ServerReqImg>::new();
+        //         'for_file: for file in files {
+        //             let stream = match file.get_file_stream() {
+        //                 Ok(stream) => stream,
+        //                 Err(err) => {
+        //                     error!("error getting file stream \"{err}\"");
+        //                     continue;
+        //                 }
+        //             };
+        //
+        //             let mut data = Vec::<u8>::new();
+        //             while let Some(chunk) = match stream.get_stream_chunk().await {
+        //                 Ok(chunk) => chunk,
+        //                 Err(err) => {
+        //                     error!("error getting file stream chunk \"{err}\"");
+        //                     continue 'for_file;
+        //                 }
+        //             } {
+        //                 chunk.push_to_vec(&mut data);
+        //             }
+        //             let path = file.name();
+        //             trace!("file: {}", path);
+        //             files_data.push(ServerReqImg { data, path });
+        //         }
+        //         trace!("files data read");
+        //         api.add_post(title, description, tags, files_data)
+        //             .send_web(move |res| {
+        //                 let navigate = navigate.clone();
+        //                 async move {
+        //                     match res {
+        //                         Ok(crate::api::ServerRes::Post(post)) => {
+        //                             navigate(
+        //                                 &link_post(post.user.username, post.key),
+        //                                 Default::default(),
+        //                             );
+        //                         }
+        //                         Err(ServerErr::AddPostErr(ServerAddPostErr::ServerImgErr(
+        //                             errs,
+        //                         ))) => {
+        //                             let msg = errs
+        //                                 .clone()
+        //                                 .into_iter()
+        //                                 .map(|err| err.err.to_string())
+        //                                 .collect::<Vec<String>>()
+        //                                 .join("\n");
+        //                             let _ = upload_image_err.try_set(msg);
+        //                         }
+        //                         Ok(err) => {
+        //                             error!("expected Post, received {err:?}");
+        //                             let _ = upload_general_err
+        //                                 .try_set("SERVER ERROR, wrong response.".to_string());
+        //                         }
+        //                         Err(err) => {
+        //                             let _ = upload_general_err.try_set(err.to_string());
+        //                         }
+        //                     };
+        //                 }
+        //             });
+        //     });
+        // };
+
+        let files_selected = move || {
+            file_upload
+                .post_files
+                .get()
+                .into_iter()
+                .enumerate()
+                .map(|(i, file_progress)| {
+                    let name = file_progress.file_name.clone();
+                    let percent = file_progress.get_upload_percentage().to_string();
+                    // match self {
+                    //     UploadProgress::Selected { file_name, .. } => file_name == name,
+                    //     UploadProgress::Uploading { file_name, .. } => file_name == name,
+                    //     UploadProgress::Completed { file_name, .. } => file_name == name,
+                    // }
+                    view! {
+                        <div class="px-2 py-1 bg-base02">
+                            <span>{ name }</span>
+                            <span> " " { percent }" / 100"</span>
+                            // <img id=move || format!("id{i}") class="" src=url />
+                        </div>
                     }
-                    let path = file.name();
-                    trace!("file: {}", path);
-                    files_data.push(ServerReqImg { data, path });
-                }
-                trace!("files data read");
-                api.add_post(title, description, tags, files_data)
-                    .send_web(move |res| {
-                        let navigate = navigate.clone();
-                        async move {
-                            match res {
-                                Ok(crate::api::ServerRes::Post(post)) => {
-                                    navigate(
-                                        &link_post(post.user.username, post.key),
-                                        Default::default(),
-                                    );
-                                }
-                                Err(ServerErr::AddPostErr(ServerAddPostErr::ServerImgErr(
-                                    errs,
-                                ))) => {
-                                    let msg = errs
-                                        .clone()
-                                        .into_iter()
-                                        .map(|err| err.err.to_string())
-                                        .collect::<Vec<String>>()
-                                        .join("\n");
-                                    let _ = upload_image_err.try_set(msg);
-                                }
-                                Ok(err) => {
-                                    error!("expected Post, received {err:?}");
-                                    let _ = upload_general_err
-                                        .try_set("SERVER ERROR, wrong response.".to_string());
-                                }
-                                Err(err) => {
-                                    let _ = upload_general_err.try_set(err.to_string());
-                                }
-                            };
-                        }
-                    });
-            });
+                })
+                .collect_view()
         };
 
         view! {
@@ -461,7 +792,7 @@ pub mod upload {
                                         {move || upload_title_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
-                                <input placeholder="Funny looking cat" id="title" name="name" node_ref=upload_title type="text" class="border-b-2 border-base05 w-full mt-1 " />
+                                <input placeholder="Funny looking cat" id="title" name="title" node_ref=upload_title type="text" class="border-b-2 border-base05 w-full mt-1 " />
                             </div>
                             <div class="flex flex-col gap-0">
                                 <label for="image" class="text-[1.2rem] ">"Images"</label>
@@ -470,7 +801,8 @@ pub mod upload {
                                         {move || upload_image_err.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                     </ul>
                                 </div>
-                                <input type="file" id="image" name="image" node_ref=upload_image multiple />
+                                { files_selected }
+                                <input on:change=on_file_change type="file" id="image" name="image" node_ref=upload_image multiple />
                             </div>
                             <div class="flex flex-col gap-0">
                                 <label for="description" class="text-[1.2rem] ">"Description"</label>
@@ -492,7 +824,7 @@ pub mod upload {
                             </div>
                         </div>
                         <div class="flex flex-col gap-[1.3rem] mx-auto my-[4rem] text-center">
-                            <input type="submit" value="Post" class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
+                            <input id="upload_btn" type="submit" value="Post" class="border-2 border-base05 text-[1.3rem] font-bold px-4 py-1 hover:bg-base05 hover:text-gray-950"/>
                         </div>
                     </form>
                 </div>
