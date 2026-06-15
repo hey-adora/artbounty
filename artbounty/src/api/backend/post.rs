@@ -1,3 +1,4 @@
+use std::hash::{DefaultHasher, Hasher};
 use std::io::Cursor;
 use std::path::Path;
 use std::str::FromStr;
@@ -9,12 +10,14 @@ use crate::api::{
     EmailChangeTokenErr, Server404Err, ServerAddPostErr, ServerAddPostFileErr, ServerAuthErr,
     ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerLoginErr,
     ServerRegistrationErr, ServerReq, ServerRes, ServerTokenErr, ServerUpdatePostDescriptionErr,
-    User, UserPost, UserPostFile, auth_token_get, hash_password, verify_password,
+    ServerUpdatePostTagsErr, ServerUpdatePostTitleErr, User, UserPost, UserPostFile,
+    auth_token_get, hash_password, verify_password,
 };
 use crate::db::{AddUserErr, DBPostCommentErr, DBUser};
 use crate::db::{DB404Err, DBUserPostFile};
 use crate::valid::auth::{
-    proccess_password, proccess_post_description, proccess_post_title, proccess_username,
+    proccess_password, proccess_post_description, proccess_post_tags, proccess_post_title,
+    proccess_username,
 };
 use axum::Extension;
 use axum::body::Body;
@@ -29,8 +32,8 @@ use image::ImageReader;
 use little_exif::filetype::FileExtension;
 use std::{io, pin::pin};
 use tokio::fs;
-use tokio::{fs::File, io::BufWriter};
 use tokio::io::AsyncWriteExt;
+use tokio::{fs::File, io::BufWriter};
 use tokio_util::io::StreamReader;
 use tracing::{debug, error, info, trace};
 
@@ -328,6 +331,41 @@ pub async fn get_posts_older(
     Ok(ServerRes::Posts(posts))
 }
 
+pub async fn update_post_title(
+    State(app): State<AppState>,
+    // auth_token: axum::Extension<AuthToken>,
+    db_user: Extension<DBUser>,
+    req: ServerReq,
+) -> Result<ServerRes, ServerErr> {
+    type ResErr = ServerUpdatePostTitleErr;
+
+    let ServerReq::EditPostTitle {
+        post_key,
+        new_title,
+    } = req
+    else {
+        return Err(ServerDesErr::ServerWrongInput(format!(
+            "expected EditPostDescription, received: {req:?}"
+        ))
+        .into());
+    };
+
+    let new_title = new_title.trim();
+    proccess_post_title(new_title).map_err(|err| ResErr::TooLong)?;
+
+    let post = app
+        .db
+        .update_post_title(0, db_user.id.clone(), post_key, new_title)
+        .await
+        .map_err(|err| match err {
+            DB404Err::NotFound => ResErr::NotFound.into(),
+            _ => ServerErr::DbErr,
+        })?;
+    //
+
+    Ok(ServerRes::Post(post.into()))
+}
+
 pub async fn update_post_description(
     State(app): State<AppState>,
     // auth_token: axum::Extension<AuthToken>,
@@ -347,8 +385,8 @@ pub async fn update_post_description(
         .into());
     };
 
-    let new_description =
-        proccess_post_description(new_description).map_err(|err| ResErr::TooLong)?;
+    let new_description = new_description.trim();
+    proccess_post_description(new_description).map_err(|err| ResErr::TooLong)?;
 
     let post = app
         .db
@@ -369,7 +407,7 @@ pub async fn update_post_tags(
     db_user: Extension<DBUser>,
     req: ServerReq,
 ) -> Result<ServerRes, ServerErr> {
-    type ResErr = Server404Err;
+    type ResErr = ServerUpdatePostTagsErr;
 
     let ServerReq::EditPostTags { post_key, new_tags } = req else {
         return Err(
@@ -377,6 +415,8 @@ pub async fn update_post_tags(
         );
     };
 
+    let new_tags = new_tags.trim();
+    proccess_post_tags(new_tags).map_err(|err| ResErr::TooLong)?;
     // app.db
     //     .delete_post(db_user.id.clone(), post_key)
     //     .await
@@ -446,8 +486,7 @@ pub async fn post_file_add(
         .ok_or(Err::ParamNotFoundPostId)
         .map(|(_, value)| value)?;
 
-
-
+    // post_key.
     let file_path = app.get_file_path().await;
     let file_path = Path::new(&file_path).join(file_name).with_extension("part");
 
@@ -461,13 +500,44 @@ pub async fn post_file_add(
     trace!("hello from streaming");
 
     // let path = std::path::Path::new("/home/hey/github/artbounty/target/tmp/here.part");
-    let mut file = BufWriter::new(File::create(file_path).await.unwrap());
+    let file = File::create(file_path)
+        .await
+        .map_err(|err| Err::IoErr(err.to_string()))?;
+    let mut file = BufWriter::new(file);
+    let mut hasher = DefaultHasher::new();
+    let mut size = 0_u32;
+
     while let Some(value) = stream.next().await {
         let bytes = value.map_err(|v| Err::IoErr(v.to_string()))?;
-        file.write(&bytes).await.map_err(|v| Err::IoErr(v.to_string()))?;
+        size += bytes.len() as u32;
+        hasher.write(&bytes);
+        file.write(&bytes)
+            .await
+            .map_err(|v| Err::IoErr(v.to_string()))?;
         // trace!("wtf: {value:#?}");
     }
     file.flush().await.map_err(|v| Err::IoErr(v.to_string()))?;
+    let hash = hasher.finish().to_string();
+    // let hash = "what".to_string();
+
+    // gxhash128(&img_data_org, 0);
+    // file_name
+
+    let post = app
+        .db
+        .update_post_file(
+            time,
+            db_user.id.clone(),
+            post_key,
+            size,
+            hash,
+            "jpg",
+            100,
+            100,
+        )
+        .await
+        .map_err(|v| ServerErr::DbErr)?;
+
     // tokio::io::copy(&mut body_reader, &mut file).await.unwrap();
 
     // let post = app
@@ -498,14 +568,13 @@ pub async fn post_file_add(
     //     .inspect_err(|err| error!("failed to save images {err:?}"))
     //     .map_err(|_| ServerErr::DbErr)?;
 
-
     // while let Some(value) = stream.next().await {
     //     trace!("wtf: {value:#?}");
     // }
     // trace!("wtf {body:#?}");
 
-    // Ok(ServerRes::Post(post.into()))
-    Ok(ServerRes::Ok)
+    Ok(ServerRes::Post(post.into()))
+    // Ok(ServerRes::Ok)
     // "done"
 }
 // pub async fn test_upload_big_file(mut multipart: Multipart) -> impl IntoResponse {
@@ -538,6 +607,7 @@ pub async fn add_post(
     db_user: Extension<DBUser>,
     req: ServerReq,
 ) -> Result<ServerRes, ServerErr> {
+    type Err = ServerAddPostErr;
     let ServerReq::AddPost {
         title,
         description,
@@ -550,12 +620,17 @@ pub async fn add_post(
         );
     };
     let time = app.clock.now().await;
-    let file_path = app.get_file_path().await;
 
-    let title = proccess_post_title(title)
-        .map_err(|err| ServerAddPostErr::InvalidTitle(err.to_string()))?;
-    let description = proccess_post_description(description)
-        .map_err(|err| ServerAddPostErr::InvalidDescription(err.to_string()))?;
+    // let file_path = app.get_file_path().await;
+
+    let tags = tags.trim();
+    let title = title.trim();
+    let description = description.trim();
+
+    proccess_post_tags(tags).map_err(|err| Err::InvalidTags(err.to_string()))?;
+    proccess_post_title(title).map_err(|err| Err::InvalidTitle(err.to_string()))?;
+    proccess_post_description(description)
+        .map_err(|err| Err::InvalidDescription(err.to_string()))?;
 
     // let (files, errs) = files
     //     .into_iter()
@@ -689,8 +764,8 @@ pub async fn add_post(
         .add_post(
             time,
             &db_user.username,
-            &title,
-            &description,
+            title,
+            description,
             tags,
             0,
             // post_files,
@@ -704,6 +779,7 @@ pub async fn add_post(
 #[cfg(test)]
 mod tests {
     use axum::Router;
+    use std::hash::{DefaultHasher, Hasher};
     use std::path::Path;
     use std::sync::Arc;
     use std::time::Duration;
@@ -794,8 +870,12 @@ mod tests {
     #[tokio::test]
     async fn api_post_file_add() {
         crate::init_test_log();
+        // crate::init_test_log();
+
+        // let app = ApiTestApp::new(1).await;
 
         let app = ApiTestApp::new(1).await;
+
         let auth_token = app
             .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
             .await
@@ -808,17 +888,22 @@ mod tests {
 
         assert_eq!(post.file.len(), 0);
 
-        let post = app
-            .add_post_file(
-                0,
-                auth_token,
-                post.key.clone(),
-                "/home/hey/github/artbounty/flake.nix",
-            )
-            .await
-            .unwrap();
+        let files = ["../assets/favicon.ico", "../assets/upload.svg"];
+        for (i, file) in files.into_iter().enumerate() {
+            let post = app
+                .add_post_file(0, &auth_token, post.key.clone(), file)
+                .await
+                .unwrap();
+            let file = tokio::fs::read(file).await.unwrap();
+            let mut hasher = DefaultHasher::new();
+            hasher.write(&file);
+            let hash = hasher.finish().to_string();
 
-        // assert_eq!(post.file.len(), 1);
+            assert_eq!(post.file.len(), i + 1); // +1 because its length
+            assert_eq!(post.file[i].proccesed, false);
+            assert_eq!(post.file[i].size_bytes, file.len() as u32);
+            assert_eq!(post.file[i].hash, hash);
+        }
     }
 
     #[tokio::test]
@@ -865,6 +950,46 @@ mod tests {
             .await;
 
         assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn api_post_update_title() {
+        crate::init_test_log();
+
+        let app = ApiTestApp::new(1).await;
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+
+        let post = app
+            .add_post(0, &auth_token, "title1", "cat", "")
+            .await
+            .unwrap();
+
+        assert_eq!(post.title, "title1");
+
+        let post = app
+            .update_post_title(0, &auth_token, post.key.clone(), "title2")
+            .await
+            .unwrap();
+
+        assert_eq!(post.title, "title2");
+
+        let posts = app
+            .get_posts(
+                0,
+                &auth_token,
+                2,
+                TimeRange::MoreOrEqual(0),
+                Order::OneTwoThree,
+                "",
+                "",
+            )
+            .await
+            .unwrap();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0].title, "title2");
     }
 
     #[tokio::test]

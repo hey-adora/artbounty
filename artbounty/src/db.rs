@@ -170,8 +170,10 @@ pub struct DBUserPost {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, SurrealValue)]
 pub struct DBUserPostFile {
+    pub proccesed: bool,
     pub extension: String,
     pub hash: String,
+    pub size_bytes: u32,
     pub width: u32,
     pub height: u32,
 }
@@ -757,8 +759,10 @@ pub mod migration {
                     DEFINE FIELD tags ON TABLE post TYPE string;
                     DEFINE FIELD favorites ON TABLE post TYPE number;
                     DEFINE FIELD file ON TABLE post TYPE array<object>;
+                    DEFINE FIELD file.*.proccesed ON TABLE post TYPE bool;
                     DEFINE FIELD file.*.extension ON TABLE post TYPE string;
                     DEFINE FIELD file.*.hash ON TABLE post TYPE string;
+                    DEFINE FIELD file.*.size_bytes ON TABLE post TYPE int;
                     DEFINE FIELD file.*.width ON TABLE post TYPE int;
                     DEFINE FIELD file.*.height ON TABLE post TYPE int;
                     DEFINE FIELD modified_at ON TABLE post TYPE number;
@@ -1418,19 +1422,101 @@ pub mod post {
     }
 
     impl<C: Connection> Db<C> {
-        pub async fn add_post_file(
+        pub async fn update_post_description(
             &self,
             time: u128,
             user_id: RecordId,
             post_key: impl Into<RecordIdKey>,
+            text: impl Into<String>,
+        ) -> Result<DBUserPost, DB404Err> {
+            // TODO maybe remove RETURN if im not using it anywhere
+            let post_id = create_post_id(post_key);
+            let q = r#"
+                 UPDATE post SET
+                    description = $text,
+                    modified_at = $time
+                    WHERE id = $post_id AND user = $user_id
+                 RETURN *, user.*;
+                "#;
+            trace!("about to run {q}");
+            self.db
+                .query(q)
+                .bind(("time", time))
+                .bind(("user_id", user_id))
+                .bind(("post_id", post_id))
+                .bind(("text", text.into()))
+                .await
+                .check_good(DB404Err::from)
+                .and_then_take_or(0, DB404Err::NotFound)
+        }
+
+        pub async fn update_post_tags(
+            &self,
+            time: u128,
+            user_id: RecordId,
+            post_key: impl Into<RecordIdKey>,
+            text: impl Into<String>,
+        ) -> Result<DBUserPost, DB404Err> {
+            // TODO maybe remove RETURN if im not using it anywhere
+            let post_id = create_post_id(post_key);
+            let q = r#"
+                 UPDATE post SET
+                    tags = $tags,
+                    modified_at = $time
+                    WHERE id = $post_id AND user = $user_id
+                 RETURN *, user.*;
+                "#;
+            trace!("about to run {q}");
+            self.db
+                .query(q)
+                .bind(("time", time))
+                .bind(("user_id", user_id))
+                .bind(("post_id", post_id))
+                .bind(("tags", text.into()))
+                .await
+                .check_good(DB404Err::from)
+                .and_then_take_or(0, DB404Err::NotFound)
+        }
+        pub async fn update_post_title(
+            &self,
+            time: u128,
+            user_id: RecordId,
+            post_key: impl Into<RecordIdKey>,
+            title: impl Into<String>,
+        ) -> Result<DBUserPost, DB404Err> {
+            let post_id = create_post_id(post_key);
+            let title = title.into();
+
+            self.db
+                .query(
+                    r#"
+                     UPDATE post SET title = $title, modified_at = $time WHERE id = $post_id AND user = $user_id RETURN *, user.*;
+                    "#,
+                )
+                .bind(("title", title))
+                .bind(("user_id", user_id))
+                .bind(("post_id", post_id))
+                .bind(("time", time))
+                .await
+                .check_good(DB404Err::from)
+                .and_then_take_or(0, DB404Err::NotFound)
+        }
+        pub async fn update_post_file(
+            &self,
+            time: u128,
+            user_id: RecordId,
+            post_key: impl Into<RecordIdKey>,
+            file_size: u32,
             file_hash: impl Into<String>,
             file_extension: impl Into<String>,
             file_width: u32,
             file_height: u32,
         ) -> Result<DBUserPost, DB404Err> {
             let post_file = DBUserPostFile {
+                proccesed: false,
                 extension: file_extension.into(),
                 hash: file_hash.into(),
+                size_bytes: file_size,
                 width: file_width,
                 height: file_height,
             };
@@ -1441,6 +1527,7 @@ pub mod post {
                      UPDATE post SET file += $post_file, modified_at = $time WHERE id = $post_id AND user = $user_id RETURN *, user.*;
                     "#,
                 )
+                // .bind(("file_size", file_size))
                 .bind(("post_file", post_file))
                 .bind(("user_id", user_id))
                 .bind(("post_id", post_id))
@@ -2308,62 +2395,6 @@ impl<C: Connection> Db<C> {
             .and_then_take_all(0)
     }
 
-    pub async fn update_post_description(
-        &self,
-        time: u128,
-        user_id: RecordId,
-        post_key: impl Into<RecordIdKey>,
-        text: impl Into<String>,
-    ) -> Result<DBUserPost, DB404Err> {
-        // TODO maybe remove RETURN if im not using it anywhere
-        let post_id = create_post_id(post_key);
-        let q = r#"
-                 UPDATE post SET
-                    description = $text,
-                    modified_at = $time
-                    WHERE id = $post_id AND user = $user_id
-                 RETURN *, user.*;
-                "#;
-        trace!("about to run {q}");
-        self.db
-            .query(q)
-            .bind(("time", time))
-            .bind(("user_id", user_id))
-            .bind(("post_id", post_id))
-            .bind(("text", text.into()))
-            .await
-            .check_good(DB404Err::from)
-            .and_then_take_or(0, DB404Err::NotFound)
-    }
-
-    pub async fn update_post_tags(
-        &self,
-        time: u128,
-        user_id: RecordId,
-        post_key: impl Into<RecordIdKey>,
-        text: impl Into<String>,
-    ) -> Result<DBUserPost, DB404Err> {
-        // TODO maybe remove RETURN if im not using it anywhere
-        let post_id = create_post_id(post_key);
-        let q = r#"
-                 UPDATE post SET
-                    tags = $tags,
-                    modified_at = $time
-                    WHERE id = $post_id AND user = $user_id
-                 RETURN *, user.*;
-                "#;
-        trace!("about to run {q}");
-        self.db
-            .query(q)
-            .bind(("time", time))
-            .bind(("user_id", user_id))
-            .bind(("post_id", post_id))
-            .bind(("tags", text.into()))
-            .await
-            .check_good(DB404Err::from)
-            .and_then_take_or(0, DB404Err::NotFound)
-    }
-
     pub async fn add_post(
         &self,
         time: u128,
@@ -2833,10 +2864,11 @@ mod tests {
         assert!(post.file.len() == 0);
 
         let post = db
-            .add_post_file(
+            .update_post_file(
                 0,
                 user.id.clone(),
                 post.id.key.clone(),
+                10,
                 "hello",
                 "png",
                 50,
@@ -2847,10 +2879,11 @@ mod tests {
         assert!(post.file.len() == 1);
 
         let post = db
-            .add_post_file(
+            .update_post_file(
                 0,
                 user.id.clone(),
                 post.id.key.clone(),
+                10,
                 "hello2",
                 "png",
                 50,
@@ -2866,7 +2899,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn db_post() {
+    async fn db_post_add() {
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate(0).await.unwrap();
         let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();

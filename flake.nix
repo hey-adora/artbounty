@@ -74,8 +74,9 @@
               # cargo-leptos
               wasm-pack
               wasm-bindgen-cli_0_2_122
+              # wasm-bindgen-cli_0_2_121
               tailwindcss_4
-              nodejs_25
+              nodejs_latest
               pnpm
               # watchman
               # yarn

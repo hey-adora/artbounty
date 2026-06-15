@@ -99,11 +99,11 @@ impl<API: Api> PostApi<API> {
                 error!(err);
                 self.err_description.set(err);
             }
-            Err(ServerErr::UpdatePostErr(ServerUpdatePostDescriptionErr::TooLong)) => {
+            Err(ServerErr::UpdatePostDescriptionErr(ServerUpdatePostDescriptionErr::TooLong)) => {
                 self.err_description
                     .set("Description is too long".to_string());
             }
-            Err(ServerErr::UpdatePostErr(ServerUpdatePostDescriptionErr::NotFound)) => {
+            Err(ServerErr::UpdatePostDescriptionErr(ServerUpdatePostDescriptionErr::NotFound)) => {
                 self.post_state.set(PostState::NotFound);
                 self.err_description.set("post not found".to_string());
             }

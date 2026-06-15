@@ -83,10 +83,10 @@ async fn main() {
                         "title1",
                         "wow",
                         "",
-                        Vec::from([ServerReqImg {
-                            path: path.to_string(),
-                            data: img.clone(),
-                        }]),
+                        // Vec::from([ServerReqImg {
+                        //     path: path.to_string(),
+                        //     data: img.clone(),
+                        // }]),
                     )
                     .send_native_with_token(token.clone())
                     .await

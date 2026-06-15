@@ -1,6 +1,6 @@
 pub mod nav {
 
-    use crate::path::{link_home, link_home_search};
+    use crate::path::{link_home, link_home_search, link_post};
     use crate::{
         api::{Api, ApiWeb},
         path::{PATH_LOGIN, PATH_UPLOAD, link_settings, link_user},
@@ -19,6 +19,7 @@ pub mod nav {
         let (get_query_tags, set_query_tags) = query_signal::<String>("tags");
         let navigate = leptos_router::hooks::use_navigate();
         // let search_ref = NodeRef::new();
+        let api_upload = ApiWeb::new();
         let api = ApiWeb::new();
         let logout_or_loading = move || {
             if api.is_pending_tracked() {
@@ -32,6 +33,34 @@ pub mod nav {
                 .acc
                 .with(|v| v.as_ref().map(|v| v.username.clone()))
                 .unwrap_or("error".to_string())
+        };
+        let on_upload = {
+            let navigate = navigate.clone();
+            move |e: SubmitEvent| {
+                e.prevent_default();
+                let navigate = navigate.clone();
+
+                api_upload
+                    .add_post("", "", "")
+                    .send_web(async move |result| {
+                        match result {
+                            Ok(crate::api::ServerRes::Post(post)) => {
+                                navigate(
+                                    &link_post(post.user.username, post.key),
+                                    Default::default(),
+                                );
+                            }
+                            Ok(err) => {
+
+                                //
+                            }
+                            Err(err) => {
+
+                                //
+                            }
+                        }
+                    });
+            }
         };
         let on_logout = move |e: SubmitEvent| {
             e.prevent_default();
@@ -145,7 +174,10 @@ pub mod nav {
                     <a href=PATH_LOGIN>"Login"</a>
                 </div>
                 <div class=move||format!("flex gap-2 {}", if global_state.is_logged_in().unwrap_or_default() { "" } else { "hidden" })>
-                    <a href=PATH_UPLOAD>"U"</a>
+                    // <a href=PATH_UPLOAD>"U"</a>
+                    <form method="POST" action="" on:submit=on_upload >
+                        <input type="submit" value="Upload" class="transition-all duration-300 ease-in hover:font-bold"/>
+                    </form>
                     <a href=move|| link_user(acc_username())>{acc_username}</a>
                     <a href=move|| link_settings()>"Settings"</a>
                     <form method="POST" action="" on:submit=on_logout >
@@ -749,6 +781,8 @@ pub mod gallery {
             let post_thumbnail = user_post.file.first().cloned().unwrap_or(UserPostFile {
                 width: 400,
                 height: 400,
+                size_bytes: 400 * 400,
+                proccesed: true,
                 hash: "404".to_string(),
                 extension: "webp".to_string(),
             });

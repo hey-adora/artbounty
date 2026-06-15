@@ -20,12 +20,14 @@ pub fn init_test_log() {
 
 pub mod valid {
     pub const MAX_POST_DESCRIPTION_LENGTH: usize = 2000;
+    pub const MAX_POST_TAGS_LENGTH: usize = 2000;
+    pub const MAX_POST_TITLE_LENGTH: usize = 120;
 
     use tracing::trace;
 
     pub mod auth {
 
-        use crate::valid::MAX_POST_DESCRIPTION_LENGTH;
+        use crate::valid::{MAX_POST_DESCRIPTION_LENGTH, MAX_POST_TAGS_LENGTH, MAX_POST_TITLE_LENGTH};
 
         use super::Validator;
         use tracing::trace;
@@ -58,18 +60,17 @@ pub mod valid {
             }
         }
 
-        pub fn proccess_post_title<S: AsRef<str>>(title: S) -> Result<String, String> {
+        // TODO more unit tests for validation
+        pub fn proccess_post_tags<S: AsRef<str>>(tags: S) -> Result<(), String> {
             let mut errors = String::new();
-            let input = title.as_ref().trim().to_string();
-            if input.is_smaller_than(1) {
-                errors += "title must be at least 1 characters length\n";
-            }
-            if input.is_bigger_than(120) {
-                errors += "title must be shorter than 121 characters length\n";
+            let input = tags.as_ref();
+
+            if input.is_bigger_than(MAX_POST_TAGS_LENGTH) {
+                errors += "tags max length is 2000 characters\n";
             }
 
             if errors.is_empty() {
-                Ok(input)
+                Ok(())
             } else {
                 let _ = errors.pop();
                 trace!("errors {errors}");
@@ -77,15 +78,34 @@ pub mod valid {
             }
         }
 
-        pub fn proccess_post_description<S: AsRef<str>>(description: S) -> Result<String, String> {
+
+        pub fn proccess_post_title<S: AsRef<str>>(title: S) -> Result<(), String> {
             let mut errors = String::new();
-            let input = description.as_ref().trim().to_string();
+            let input = title.as_ref();
+
+            if input.is_bigger_than(MAX_POST_TITLE_LENGTH) {
+                errors += "title must be shorter than 121 characters length\n";
+            }
+
+            if errors.is_empty() {
+                Ok(())
+            } else {
+                let _ = errors.pop();
+                trace!("errors {errors}");
+                Err(errors)
+            }
+        }
+
+        pub fn proccess_post_description<S: AsRef<str>>(description: S) -> Result<(), String> {
+            let mut errors = String::new();
+            let input = description.as_ref();
+
             if input.len() > MAX_POST_DESCRIPTION_LENGTH {
                 errors += "description must be shorter than 10241 characters length\n";
             }
 
             if errors.is_empty() {
-                Ok(input)
+                Ok(())
             } else {
                 let _ = errors.pop();
                 trace!("errors {errors}");
@@ -297,6 +317,7 @@ pub mod path {
     pub const PATH_API_CONFIRM_EMAIL_NEW: &'static str = "/confirm_email_new";
     pub const PATH_API_POST_DELETE: &'static str = "/post/delete";
     pub const PATH_API_POST_UPDATE_TAGS: &'static str = "/post/update_tags";
+    pub const PATH_API_POST_UPDATE_TITLE: &'static str = "/post/update_title";
     pub const PATH_API_POST_UPDATE_DESCRIPTION: &'static str = "/post/update_description";
     pub const PATH_API_POST_ADD: &'static str = "/post/add";
     pub const PATH_API_POST_FILE_ADD: &'static str = "/post/{post_id}/add_file";
@@ -336,10 +357,14 @@ pub mod path {
     pub fn link_post(user: impl AsRef<str>, post: impl AsRef<str>) -> String {
         format!("/u/{}/{}", user.as_ref(), post.as_ref(),)
     }
-    pub fn link_api_post_add_file(host: impl AsRef<str>, post_key: impl AsRef<str>) -> String {
+    pub fn link_api_post_add_file(post_key: impl AsRef<str>) -> String {
         // http://localhost:3000/api/post/5idoghr47bvsajsi5izx/add_file
-        format!("{}/api/post/{}/add_file", host.as_ref(), post_key.as_ref())
+        format!("/api/post/{}/add_file", post_key.as_ref())
     }
+    // pub fn link_absolute_api_post_add_file(host: impl AsRef<str>, post_key: impl AsRef<str>) -> String {
+    //     // http://localhost:3000/api/post/5idoghr47bvsajsi5izx/add_file
+    //     format!("{}/api/post/{}/add_file", host.as_ref(), post_key.as_ref())
+    // }
     pub fn link_img(hash: impl AsRef<str>, extension: impl AsRef<str>) -> String {
         format!("/file/{}.{}", hash.as_ref(), extension.as_ref())
     }

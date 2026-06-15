@@ -347,6 +347,10 @@ pub fn create_api_router(
         )
         .route(path::PATH_API_POST_ADD, post(api::backend::post::add_post))
         .route(
+            path::PATH_API_POST_UPDATE_TITLE,
+            post(api::backend::post::update_post_title),
+        )
+        .route(
             path::PATH_API_POST_UPDATE_TAGS,
             post(api::backend::post::update_post_tags),
         )

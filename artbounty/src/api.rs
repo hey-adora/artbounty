@@ -4,6 +4,8 @@
 // wrong input
 
 use crate::valid::MAX_POST_DESCRIPTION_LENGTH;
+use crate::valid::MAX_POST_TITLE_LENGTH;
+use crate::valid::MAX_POST_TAGS_LENGTH;
 use http::HeaderMap;
 use http::header::{AUTHORIZATION, SET_COOKIE};
 use leptos::prelude::*;
@@ -308,7 +310,7 @@ pub mod settings {
                     name: "artbounty".to_string(),
                     address: "http://localhost:3000".to_string(),
                     address_host: "0.0.0.0:3000".to_string(),
-                    files_path: "../target/tmp/files".to_string(),
+                    files_path: "/tmp".to_string(),
                 },
                 auth: Auth {
                     secret: "secret".to_string(),
@@ -443,6 +445,10 @@ pub enum ServerReq {
         post_key: String,
         new_tags: String,
     },
+    EditPostTitle {
+        post_key: String,
+        new_title: String,
+    },
     PostId {
         post_key: String,
     },
@@ -468,6 +474,7 @@ pub enum ServerReq {
     //     tags: String,
     //     files: Vec<ServerReqImg>,
     // },
+    // AddPost,
     AddPost {
         title: String,
         description: String,
@@ -634,7 +641,13 @@ pub enum ServerErr {
     AddPostFileErr(#[from] ServerAddPostFileErr),
 
     #[error("update post err {0}")]
-    UpdatePostErr(#[from] ServerUpdatePostDescriptionErr),
+    UpdatePostTagsErr(#[from] ServerUpdatePostTagsErr),
+
+    #[error("update post err {0}")]
+    UpdatePostTitleErr(#[from] ServerUpdatePostTitleErr),
+
+    #[error("update post err {0}")]
+    UpdatePostDescriptionErr(#[from] ServerUpdatePostDescriptionErr),
 
     #[error("registration err {0}")]
     RegistrationErr(#[from] ServerRegistrationErr),
@@ -747,6 +760,44 @@ pub enum ClientErr {
     rkyv::Serialize,
     rkyv::Deserialize,
 )]
+pub enum ServerUpdatePostTagsErr {
+    #[error("not found")]
+    NotFound,
+
+    #[error("tags cant be longer than {MAX_POST_TAGS_LENGTH}")]
+    TooLong,
+}
+
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub enum ServerUpdatePostTitleErr {
+    #[error("not found")]
+    NotFound,
+
+    #[error("title cant be longer than {MAX_POST_TITLE_LENGTH}")]
+    TooLong,
+}
+
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum ServerUpdatePostDescriptionErr {
     #[error("not found")]
     NotFound,
@@ -844,6 +895,9 @@ pub enum ServerAddPostErr {
 
     #[error("file system err {0}")]
     ServerFSErr(String),
+
+    #[error("invalid tags {0}")]
+    InvalidTags(String),
 
     #[error("invalid title {0}")]
     InvalidTitle(String),
@@ -1329,6 +1383,8 @@ impl From<crate::db::DBUserPost> for UserPost {
 pub struct UserPostFile {
     pub extension: String,
     pub hash: String,
+    pub proccesed: bool,
+    pub size_bytes: u32,
     pub width: u32,
     pub height: u32,
 }
@@ -1339,6 +1395,8 @@ impl From<crate::db::DBUserPostFile> for UserPostFile {
         Self {
             extension: value.extension,
             hash: value.hash,
+            proccesed: value.proccesed,
+            size_bytes: value.size_bytes,
             width: value.width,
             height: value.height,
         }
@@ -1935,6 +1993,16 @@ pub trait Api {
         }
     }
 
+    fn update_post_title(&self, post_key: impl Into<String>, title: impl Into<String>) -> ApiReq {
+        self.into_req(
+            crate::path::PATH_API_POST_UPDATE_TITLE,
+            ServerReq::EditPostTitle {
+                post_key: post_key.into(),
+                new_title: title.into(),
+            },
+        )
+    }
+
     fn update_post_tags(&self, post_key: impl Into<String>, tags: impl Into<String>) -> ApiReq {
         self.into_req(
             crate::path::PATH_API_POST_UPDATE_TAGS,
@@ -2467,6 +2535,7 @@ pub async fn send(
 
 #[cfg(test)]
 pub mod tests {
+    use anyhow::anyhow;
     use axum::Router;
     use std::path::Path;
     use std::sync::Arc;
@@ -2555,6 +2624,29 @@ pub mod tests {
             }
         }
 
+        pub async fn update_post_title(
+            &self,
+            time: u128,
+            auth_token: impl Into<String>,
+            post_key: impl Into<String>,
+            new_title: impl Into<String>,
+        ) -> anyhow::Result<UserPost> {
+            self.set_time(time).await;
+            let auth_token = auth_token.into();
+
+            let result = self
+                .api
+                .update_post_title(post_key, new_title)
+                .send_native_with_token(auth_token.clone())
+                .await?;
+            trace!("{result:#?}");
+
+            match result {
+                crate::api::ServerRes::Post(v) => Ok(v),
+                err => Err(anyhow!("invalid response, expected Post, got {err:?}")),
+            }
+        }
+
         pub async fn update_post_description(
             &self,
             time: u128,
@@ -2615,26 +2707,35 @@ pub mod tests {
             // file_height: u32,
             // description: impl Into<String>,
             // tags: impl Into<String>,
-        ) -> Option<()> {
+        ) -> anyhow::Result<UserPost> {
             // ) -> Option<UserPost> {
-            let file = tokio::fs::File::open(file_path.as_ref()).await.unwrap();
+            let current_dir = std::env::current_dir().unwrap();
+            let file_path = current_dir.join(file_path.as_ref());
+            trace!("full file path {:?}", file_path);
+            let file = tokio::fs::File::open(file_path).await.unwrap();
             let stream =
                 tokio_util::codec::FramedRead::new(file, tokio_util::codec::BytesCodec::new());
             let body = reqwest::Body::wrap_stream(stream);
-            let send_bytes: Vec<u8> = vec![0; 100];
+            // let send_bytes: Vec<u8> = vec![0; 100];
 
             let cookie = crate::api::create_auth_header(auth_token);
 
             // let url = "http://localhost:3000/api/post/5idoghr47bvsajsi5izx/add_file";
-            let url2 = crate::path::link_api_post_add_file("http://localhost:3000", post_key);
+            let url2 = crate::path::link_api_post_add_file(post_key);
+            // let url2 = crate::path::link_api_post_add_file("http://localhost:3000", post_key);
             // assert_eq!(url, url2);
 
+            let url = self.api.server.server_url(&url2).unwrap();
+            trace!("server url: {url}");
+            // let client = self.api.server.reqwest_post(&url2);
+            // let result = client
             let result = reqwest::Client::new()
-                .post(url2)
+                .post(url)
                 // req.set_request_header("Content-Type", "application/octet-stream")
                 .header(http::header::COOKIE, cookie)
                 .header("Content-Type", "application/octet-stream")
-                .body(send_bytes)
+                .body(body)
+                // .body(send_bytes)
                 .send()
                 .await
                 .unwrap()
@@ -2663,9 +2764,10 @@ pub mod tests {
             // .map_err(|err| ServerErr::from(ClientErr::ClientSendErr(err.to_string())));
 
             match result {
-                // Ok(crate::api::ServerRes::Post(post)) => Some(post),
-                Ok(crate::api::ServerRes::Ok) => Some(()),
-                _ => None,
+                Ok(crate::api::ServerRes::Post(post)) => Ok(post),
+                // Ok(crate::api::ServerRes::Ok) => Some(()),
+                Ok(err) => Err(anyhow!("wrong response {err:?}")),
+                Err(err) => Err(err.into()),
             }
         }
 

@@ -327,7 +327,7 @@ pub mod upload {
 
     use crate::api::{Api, ApiWeb, ServerAddPostErr, ServerErr, ServerReqImg};
     use crate::path::link_post;
-    use crate::valid::auth::{proccess_post_description, proccess_post_title};
+    use crate::valid::auth::{proccess_post_description, proccess_post_tags, proccess_post_title};
     use crate::view::app::components::nav::Nav;
     use crate::view::app::hook::api_post_file_upload::FileUpload;
     use crate::view::toolbox::prelude::*;
@@ -385,27 +385,31 @@ pub mod upload {
 
         let on_upload = move |e: SubmitEvent| {
             e.prevent_default();
-            let (Some(title), Some(description), Some(tags)) = (
-                upload_title.get_untracked() as Option<HtmlInputElement>,
-                upload_description.get_untracked() as Option<HtmlTextAreaElement>,
-                upload_tags.get_untracked() as Option<HtmlTextAreaElement>,
-            ) else {
-                return;
-            };
-
-            let title = proccess_post_title(title.value());
-            let description = proccess_post_description(description.value());
-            let tags = tags.value();
-
-            upload_title_err.set(title.clone().err().unwrap_or_default());
-            upload_description_err.set(description.clone().err().unwrap_or_default());
-            upload_image_err.set(String::new());
-            upload_general_err.set(String::new());
-            let (Ok(title), Ok(description)) = (title, description) else {
-                return;
-            };
-
-            file_upload.upload();
+            // let (Some(title), Some(description), Some(tags)) = (
+            //     upload_title.get_untracked() as Option<HtmlInputElement>,
+            //     upload_description.get_untracked() as Option<HtmlTextAreaElement>,
+            //     upload_tags.get_untracked() as Option<HtmlTextAreaElement>,
+            // ) else {
+            //     return;
+            // };
+            //
+            // let title = title.value().trim();
+            // let description = description.value().trim();
+            // let tags = tags.value().trim();
+            //
+            // let title_errs = proccess_post_title(title);
+            // let description_errs = proccess_post_description(description);
+            // let tags_errs = proccess_post_tags(tags);
+            //
+            // upload_title_err.set(title_errs.clone().err().unwrap_or_default());
+            // upload_description_err.set(description_errs.clone().err().unwrap_or_default());
+            // upload_image_err.set(String::new());
+            // upload_general_err.set(String::new());
+            // let (Ok(title), Ok(description)) = (title, description) else {
+            //     return;
+            // };
+            //
+            // file_upload.upload();
         };
 
         // let api_post = controller::post::route::add::client.ground();
