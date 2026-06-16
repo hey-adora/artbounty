@@ -1,6 +1,8 @@
+use std::ffi::OsStr;
 use std::hash::{DefaultHasher, Hasher};
 use std::io::Cursor;
 use std::path::Path;
+use std::process::Stdio;
 use std::str::FromStr;
 
 use crate::api::app_state::AppState;
@@ -15,14 +17,16 @@ use crate::api::{
 };
 use crate::db::{AddUserErr, DBPostCommentErr, DBUser};
 use crate::db::{DB404Err, DBUserPostFile};
+use crate::valid::SUPPORTED_FILE_EXTENSIONS;
 use crate::valid::auth::{
     proccess_password, proccess_post_description, proccess_post_tags, proccess_post_title,
     proccess_username,
 };
-use axum::Extension;
+use anyhow::anyhow;
 use axum::body::Body;
 use axum::extract::{Multipart, State};
 use axum::response::IntoResponse;
+use axum::{Extension, Json};
 use futures::TryStreamExt;
 use futures_util::StreamExt;
 use gxhash::gxhash128;
@@ -469,114 +473,370 @@ pub async fn delete_post(
 
 //params: RawPathParams,
 // pub async fn post_file_add(body: Body) -> impl IntoResponse {
+// ) -> Result<ServerRes, ServerErr> {
 pub async fn post_file_add(
     State(app): State<AppState>,
     params: axum::extract::RawPathParams,
     db_user: Extension<DBUser>,
-    body: Body,
-) -> Result<ServerRes, ServerErr> {
+    // body: Body,
+    mut multipart: Multipart,
+) -> impl IntoResponse {
     type Err = ServerAddPostFileErr;
 
-    let time = app.clock.now().await;
-    let file_name = app.gen_key().await;
+    let mut inner = async || -> Result<ServerRes, ServerErr> {
+        let time = app.clock.now().await;
 
-    let post_key = params
-        .iter()
-        .find(|(name, _)| *name == "post_id")
-        .ok_or(Err::ParamNotFoundPostId)
-        .map(|(_, value)| value)?;
+        let post_key = params
+            .iter()
+            .find(|(name, _)| *name == "post_id")
+            .ok_or(ServerErr::from(Err::ParamNotFoundPostId))
+            .map(|(_, value)| value)?;
 
-    // post_key.
-    let file_path = app.get_file_path().await;
-    let file_path = Path::new(&file_path).join(file_name).with_extension("part");
+        // post_key.
 
-    trace!("file_path {file_path:?}");
-    trace!("PATH PARAMS {post_key:?}");
+        trace!("PATH PARAMS {post_key:?}");
 
-    let mut stream = body.into_data_stream();
-    // let body_with_io_error = stream.map_err(io::Error::other);
-    // let mut body_reader = pin!(StreamReader::new(body_with_io_error));
+        // let mut stream = body.into_data_stream();
+        // let body_with_io_error = stream.map_err(io::Error::other);
+        // let mut body_reader = pin!(StreamReader::new(body_with_io_error));
 
-    trace!("hello from streaming");
+        trace!("hello from streaming");
 
-    // let path = std::path::Path::new("/home/hey/github/artbounty/target/tmp/here.part");
-    let file = File::create(file_path)
-        .await
-        .map_err(|err| Err::IoErr(err.to_string()))?;
-    let mut file = BufWriter::new(file);
-    let mut hasher = DefaultHasher::new();
-    let mut size = 0_u32;
+        // let path = std::path::Path::new("/home/hey/github/artbounty/target/tmp/here.part");
 
-    while let Some(value) = stream.next().await {
-        let bytes = value.map_err(|v| Err::IoErr(v.to_string()))?;
-        size += bytes.len() as u32;
-        hasher.write(&bytes);
-        file.write(&bytes)
-            .await
-            .map_err(|v| Err::IoErr(v.to_string()))?;
-        // trace!("wtf: {value:#?}");
-    }
-    file.flush().await.map_err(|v| Err::IoErr(v.to_string()))?;
-    let hash = hasher.finish().to_string();
-    // let hash = "what".to_string();
+        while let Ok(Some(mut field)) = multipart.next_field().await {
+            let file_name = if let Some(file_name) = field.file_name() {
+                file_name.to_owned()
+            } else {
+                continue;
+            };
 
-    // gxhash128(&img_data_org, 0);
-    // file_name
+            // let extension = file_path.extension().unwrap_or(OsStr::new(".part"));
+            let Some(extension) = Path::new(&file_name).extension().and_then(|v| v.to_str()) else {
+                return Err(ServerErr::from(Err::FileHasNoExtension(
+                    file_name.to_string(),
+                )));
+            };
+            let is_supported = SUPPORTED_FILE_EXTENSIONS
+                .into_iter()
+                .any(|v| *v == extension);
+            if !is_supported {
+                return Err(ServerErr::from(Err::UnsupportedExtension(
+                    extension.to_string(),
+                )));
+            }
 
-    let post = app
-        .db
-        .update_post_file(
-            time,
-            db_user.id.clone(),
-            post_key,
-            size,
-            hash,
-            "jpg",
-            100,
-            100,
-        )
-        .await
-        .map_err(|v| ServerErr::DbErr)?;
+            let tmp_name = app.gen_key().await;
+            let file_path_tmp = Path::new("/tmp/").join(&tmp_name).with_extension(extension);
 
-    // tokio::io::copy(&mut body_reader, &mut file).await.unwrap();
+            trace!("file_path {file_path_tmp:?}");
+            let file = File::create(&file_path_tmp)
+                .await
+                .map_err(|err| ServerErr::from(Err::IoErr(err.to_string())))?;
+            let mut file = BufWriter::new(file);
 
-    // let post = app
-    //     .db
-    //     .add_post_file(
-    //         time,
-    //         db_user.id.clone(),
-    //         post_key,
-    //         file_hash: impl Into<String>,
-    //         file_extension: impl Into<String>,
-    //         file_width: u32,
-    //         file_height: u32,
-    //
-    //     );
+            let mut hasher = DefaultHasher::new();
+            let mut size = 0_usize;
 
-    // let post = app
-    //     .db
-    //     .add_post(
-    //         time,
-    //         &db_user.username,
-    //         &title,
-    //         &description,
-    //         tags,
-    //         0,
-    //         // post_files,
-    //     )
-    //     .await
-    //     .inspect_err(|err| error!("failed to save images {err:?}"))
-    //     .map_err(|_| ServerErr::DbErr)?;
+            while let Some(value) = field.next().await {
+                let bytes = value.map_err(|v| ServerErr::from(Err::IoErr(v.to_string())))?;
+                size += bytes.len();
+                hasher.write(&bytes);
+                file.write(&bytes)
+                    .await
+                    .map_err(|v| ServerErr::from(Err::IoErr(v.to_string())))?;
+            }
 
-    // while let Some(value) = stream.next().await {
-    //     trace!("wtf: {value:#?}");
-    // }
-    // trace!("wtf {body:#?}");
+            file.flush()
+                .await
+                .map_err(|v| ServerErr::from(Err::IoErr(v.to_string())))?;
+            let hash = hasher.finish().to_string();
 
-    Ok(ServerRes::Post(post.into()))
+            let file_path = {
+                let file_path = app.get_file_path().await;
+                let file_path = Path::new(&file_path).join(&hash).with_extension(&extension);
+                if file_path.exists() {
+                    trace!("file removed");
+                    tokio::fs::remove_file(file_path_tmp)
+                        .await
+                        .map_err(|v| ServerErr::from(Err::IoErr(v.to_string())))?;
+                } else {
+                    trace!("file moved");
+                    tokio::fs::rename(&file_path_tmp, &file_path)
+                        .await
+                        .inspect_err(|err| {
+                            error!(
+                                "move err from {file_path_tmp:?} to {}/{} {err}",
+                                std::env::current_dir().unwrap().into_string().unwrap(),
+                                file_path.clone().into_string().unwrap(),
+                            )
+                        })
+                        .map_err(|v| ServerErr::from(Err::IoErr(v.to_string())))?;
+                }
+                file_path
+            };
+
+            let mut command = tokio::process::Command::new("ffprobe");
+            // let command = command.stdout(Stdio::piped());
+            // "ffprobe",
+            // "-v",
+            // "error",
+            // "-select_streams",
+            // "v:0",
+            // "-show_entries",
+            // "stream=width,height",
+            // "-of",
+            // "csv=s=x:p=0",
+            let command = command.args(&[
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "csv=s=x:p=0",
+                // "-v error",
+                // "-select_streams v:0",
+                // "-show_entries stream=width,height",
+                // "-of csv=s=x:p=0",
+                file_path.to_str().unwrap(),
+            ]);
+            let result = command
+                // .stdout(Stdio::piped())
+                .output()
+                .await
+                .map_err(|v| ServerErr::from(Err::IoErr(v.to_string())))?;
+
+            let result = String::from_utf8(result.stdout)
+                .map_err(|v| ServerErr::from(Err::ReadingResolutionErr(v.to_string())))?;
+            let result = result.trim();
+            trace!("command output {result}");
+            let (width, height) = resolution_from_str(result)
+                .map_err(|v| ServerErr::from(Err::ReadingResolutionErr(v.to_string())))?;
+            //ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 test.webp
+
+            let post = app
+                .db
+                .update_post_file(
+                    time,
+                    db_user.id.clone(),
+                    post_key,
+                    size,
+                    hash,
+                    extension,
+                    width,
+                    height,
+                )
+                .await
+                .map_err(|v| ServerErr::DbErr)?;
+
+            // let body_with_io_error = field.map_err(io::Error::other);
+            // let mut body_reader = pin!(StreamReader::new(body_with_io_error));
+            // let path = std::path::Path::new(UPLOADS_DIRECTORY).join(&file_name);
+            // let mut file = BufWriter::new(File::create(path).await.unwrap());
+            // tokio::io::copy(&mut body_reader, &mut file).await.unwrap();
+
+            trace!("{tmp_name}");
+        }
+        // while let Some(value) = stream.next().await {
+        //     let bytes = value.map_err(|v| Err::IoErr(v.to_string()))?;
+        //     size += bytes.len() as u32;
+        //     hasher.write(&bytes);
+        //     file.write(&bytes)
+        //         .await
+        //         .map_err(|v| Err::IoErr(v.to_string()))?;
+        //     // trace!("wtf: {value:#?}");
+        // }
+
+        // let hash = "what".to_string();
+
+        // gxhash128(&img_data_org, 0);
+        // file_name
+
+        // tokio::io::copy(&mut body_reader, &mut file).await.unwrap();
+
+        // let post = app
+        //     .db
+        //     .add_post_file(
+        //         time,
+        //         db_user.id.clone(),
+        //         post_key,
+        //         file_hash: impl Into<String>,
+        //         file_extension: impl Into<String>,
+        //         file_width: u32,
+        //         file_height: u32,
+        //
+        //     );
+
+        // let post = app
+        //     .db
+        //     .add_post(
+        //         time,
+        //         &db_user.username,
+        //         &title,
+        //         &description,
+        //         tags,
+        //         0,
+        //         // post_files,
+        //     )
+        //     .await
+        //     .inspect_err(|err| error!("failed to save images {err:?}"))
+        //     .map_err(|_| ServerErr::DbErr)?;
+
+        // while let Some(value) = stream.next().await {
+        //     trace!("wtf: {value:#?}");
+        // }
+        // trace!("wtf {body:#?}");
+
+        let post = app.db.get_post(post_key).await.map_err(|err| match err {
+            DB404Err::NotFound => Err::NotFound.into(),
+            DB404Err::DB(_) => ServerErr::DbErr,
+        })?;
+
+        Ok(ServerRes::Post(post.into()))
+    };
+    let result = inner().await;
+    Json(result)
     // Ok(ServerRes::Ok)
     // "done"
 }
+
+pub fn resolution_from_str(res: impl AsRef<str>) -> anyhow::Result<(u32, u32)> {
+    let res = res.as_ref();
+    // let width = ['0'; 11];
+    // let height = ['0'; 11];
+    // let mut index: usize = 0;
+    let x_pos = res
+        .chars()
+        .position(|v| v == 'x')
+        .ok_or_else(|| anyhow!("x was not found, example input: 10x10, received: {res}"))?;
+    if res.len() <= x_pos + 1 {
+        return Err(anyhow!(
+            "invalid input, example input: 10x10, received: {res}"
+        ));
+    }
+    let input = &res[..x_pos];
+    let width = u32::from_str(input).map_err(|v| anyhow!("input \"{input}\" err: {v}"))?;
+    let input = &res[x_pos + 1..];
+    let height = u32::from_str(input).map_err(|v| anyhow!("input \"{input}\" err: {v}"))?;
+
+    Ok((width, height))
+    // for c in res.chars() {
+    //     if c >= '0' {
+    //         width
+    //     }
+    // }
+}
+// pub async fn post_file_add(
+//     State(app): State<AppState>,
+//     params: axum::extract::RawPathParams,
+//     db_user: Extension<DBUser>,
+//     body: Body,
+// ) -> Result<ServerRes, ServerErr> {
+//     type Err = ServerAddPostFileErr;
+//
+//     let time = app.clock.now().await;
+//     let file_name = app.gen_key().await;
+//
+//     let post_key = params
+//         .iter()
+//         .find(|(name, _)| *name == "post_id")
+//         .ok_or(Err::ParamNotFoundPostId)
+//         .map(|(_, value)| value)?;
+//
+//     // post_key.
+//     let file_path = app.get_file_path().await;
+//     let file_path = Path::new(&file_path).join(file_name).with_extension("part");
+//
+//     trace!("file_path {file_path:?}");
+//     trace!("PATH PARAMS {post_key:?}");
+//
+//     let mut stream = body.into_data_stream();
+//     // let body_with_io_error = stream.map_err(io::Error::other);
+//     // let mut body_reader = pin!(StreamReader::new(body_with_io_error));
+//
+//     trace!("hello from streaming");
+//
+//     // let path = std::path::Path::new("/home/hey/github/artbounty/target/tmp/here.part");
+//     let file = File::create(file_path)
+//         .await
+//         .map_err(|err| Err::IoErr(err.to_string()))?;
+//     let mut file = BufWriter::new(file);
+//     let mut hasher = DefaultHasher::new();
+//     let mut size = 0_u32;
+//
+//     while let Some(value) = stream.next().await {
+//         let bytes = value.map_err(|v| Err::IoErr(v.to_string()))?;
+//         size += bytes.len() as u32;
+//         hasher.write(&bytes);
+//         file.write(&bytes)
+//             .await
+//             .map_err(|v| Err::IoErr(v.to_string()))?;
+//         // trace!("wtf: {value:#?}");
+//     }
+//     file.flush().await.map_err(|v| Err::IoErr(v.to_string()))?;
+//     let hash = hasher.finish().to_string();
+//
+//     // let hash = "what".to_string();
+//
+//     // gxhash128(&img_data_org, 0);
+//     // file_name
+//
+//     let post = app
+//         .db
+//         .update_post_file(
+//             time,
+//             db_user.id.clone(),
+//             post_key,
+//             size,
+//             hash,
+//             "jpg",
+//             0,
+//             0,
+//         )
+//         .await
+//         .map_err(|v| ServerErr::DbErr)?;
+//
+//     // tokio::io::copy(&mut body_reader, &mut file).await.unwrap();
+//
+//     // let post = app
+//     //     .db
+//     //     .add_post_file(
+//     //         time,
+//     //         db_user.id.clone(),
+//     //         post_key,
+//     //         file_hash: impl Into<String>,
+//     //         file_extension: impl Into<String>,
+//     //         file_width: u32,
+//     //         file_height: u32,
+//     //
+//     //     );
+//
+//     // let post = app
+//     //     .db
+//     //     .add_post(
+//     //         time,
+//     //         &db_user.username,
+//     //         &title,
+//     //         &description,
+//     //         tags,
+//     //         0,
+//     //         // post_files,
+//     //     )
+//     //     .await
+//     //     .inspect_err(|err| error!("failed to save images {err:?}"))
+//     //     .map_err(|_| ServerErr::DbErr)?;
+//
+//     // while let Some(value) = stream.next().await {
+//     //     trace!("wtf: {value:#?}");
+//     // }
+//     // trace!("wtf {body:#?}");
+//
+//     Ok(ServerRes::Post(post.into()))
+//     // Ok(ServerRes::Ok)
+//     // "done"
+// }
 // pub async fn test_upload_big_file(mut multipart: Multipart) -> impl IntoResponse {
 //     trace!("wtf");
 //     const UPLOADS_DIRECTORY: &'static str = "/home/hey/github/artbounty/target/tmp/";
@@ -792,6 +1052,7 @@ mod tests {
     use tracing::{debug, error, trace};
 
     use crate::api::app_state::AppState;
+    use crate::api::backend::post::resolution_from_str;
     use crate::api::shared::post_comment::UserPostComment;
     use crate::api::tests::ApiTestApp;
     use crate::api::{
@@ -868,6 +1129,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn resolution_from_str_test() {
+        let result = resolution_from_str("10x10").unwrap();
+        assert_eq!(result, (10, 10));
+        let result = resolution_from_str("10x1").unwrap();
+        assert_eq!(result, (10, 1));
+        let result = resolution_from_str("10x");
+        assert!(result.is_err());
+        let result = resolution_from_str("x");
+        assert!(result.is_err());
+        let result = resolution_from_str("10z10");
+        assert!(result.is_err());
+        let result = resolution_from_str("999999999999999x1000000000000000000000");
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
     async fn api_post_file_add() {
         crate::init_test_log();
         // crate::init_test_log();
@@ -888,21 +1165,41 @@ mod tests {
 
         assert_eq!(post.file.len(), 0);
 
-        let files = ["../assets/favicon.ico", "../assets/upload.svg"];
-        for (i, file) in files.into_iter().enumerate() {
+        let files = [
+            (45, 45, "../assets/favicon.ico"),
+            (15, 15, "../assets/upload.svg"),
+        ];
+        for (i, (width, height, file_path)) in files.into_iter().enumerate() {
             let post = app
-                .add_post_file(0, &auth_token, post.key.clone(), file)
+                .add_post_file(0, &auth_token, post.key.clone(), file_path)
                 .await
                 .unwrap();
-            let file = tokio::fs::read(file).await.unwrap();
+            let file = tokio::fs::read(file_path).await.unwrap();
             let mut hasher = DefaultHasher::new();
             hasher.write(&file);
             let hash = hasher.finish().to_string();
 
             assert_eq!(post.file.len(), i + 1); // +1 because its length
             assert_eq!(post.file[i].proccesed, false);
-            assert_eq!(post.file[i].size_bytes, file.len() as u32);
+            assert_eq!(post.file[i].size_bytes, file.len());
             assert_eq!(post.file[i].hash, hash);
+            assert_eq!(post.file[i].width, width);
+            assert_eq!(post.file[i].height, height);
+
+            {
+                let extension = Path::new(&file_path).extension().unwrap();
+                let file_path = Path::new(&app.state.settings.site.files_path)
+                    .join(hash)
+                    .with_extension(extension);
+                let file = tokio::fs::read(file_path).await.unwrap();
+
+                let mut hasher = DefaultHasher::new();
+                hasher.write(&file);
+                let hash = hasher.finish().to_string();
+
+                assert_eq!(post.file[i].size_bytes, file.len());
+                assert_eq!(post.file[i].hash, hash);
+            }
         }
     }
 

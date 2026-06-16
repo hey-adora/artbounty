@@ -173,7 +173,7 @@ pub struct DBUserPostFile {
     pub proccesed: bool,
     pub extension: String,
     pub hash: String,
-    pub size_bytes: u32,
+    pub size_bytes: usize,
     pub width: u32,
     pub height: u32,
 }
@@ -1506,7 +1506,7 @@ pub mod post {
             time: u128,
             user_id: RecordId,
             post_key: impl Into<RecordIdKey>,
-            file_size: u32,
+            file_size: usize,
             file_hash: impl Into<String>,
             file_extension: impl Into<String>,
             file_width: u32,

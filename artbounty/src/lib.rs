@@ -19,6 +19,7 @@ pub fn init_test_log() {
 }
 
 pub mod valid {
+    pub const SUPPORTED_FILE_EXTENSIONS: &[&str] = &["ico", "svg"];
     pub const MAX_POST_DESCRIPTION_LENGTH: usize = 2000;
     pub const MAX_POST_TAGS_LENGTH: usize = 2000;
     pub const MAX_POST_TITLE_LENGTH: usize = 120;

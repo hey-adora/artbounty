@@ -4,8 +4,8 @@
 // wrong input
 
 use crate::valid::MAX_POST_DESCRIPTION_LENGTH;
-use crate::valid::MAX_POST_TITLE_LENGTH;
 use crate::valid::MAX_POST_TAGS_LENGTH;
+use crate::valid::MAX_POST_TITLE_LENGTH;
 use http::HeaderMap;
 use http::header::{AUTHORIZATION, SET_COOKIE};
 use leptos::prelude::*;
@@ -34,7 +34,7 @@ pub mod app_state {
 
     use std::{sync::Arc, time::Duration};
 
-    use rand::distr::{Alphanumeric, SampleString};
+use rand::distr::{Alphanumeric, SampleString};
     use surrealdb::types::{RecordId, ToSql};
     use tokio::sync::{Mutex, RwLock};
     use tracing::trace;
@@ -69,6 +69,12 @@ pub mod app_state {
     impl AppState {
         pub async fn new(time: u128) -> Self {
             let settings = Settings::new_from_file();
+            {
+                let path = std::path::Path::new(&settings.site.files_path);
+                if !path.exists() {
+                    tokio::fs::create_dir_all(path).await.unwrap();
+                }
+            }
             let db = db::new_local(time, &settings.db.path).await;
             let f = move || async move { time_now_ns() };
             let clock = Clock::new(f);
@@ -84,6 +90,13 @@ pub mod app_state {
             let db = db::new_mem(*time.lock().await).await;
 
             let settings = Settings::new_testing(invite_exp_ns);
+            {
+                let path = std::path::Path::new(&settings.site.files_path);
+                if !path.exists() {
+                    tokio::fs::create_dir_all(path).await.unwrap();
+                }
+            }
+            
             let f = move || {
                 let time = time.clone();
                 async move {
@@ -310,7 +323,8 @@ pub mod settings {
                     name: "artbounty".to_string(),
                     address: "http://localhost:3000".to_string(),
                     address_host: "0.0.0.0:3000".to_string(),
-                    files_path: "/tmp".to_string(),
+                    // files_path: "/tmp".to_string(),
+                    files_path: "../files".to_string(),
                 },
                 auth: Auth {
                     secret: "secret".to_string(),
@@ -872,8 +886,20 @@ pub enum ServerAddPostFileErr {
     #[error("post id param not found")]
     ParamNotFoundPostId,
 
+    #[error("ffmpeg err {0}")]
+    ReadingResolutionErr(String),
+
     #[error("io error {0}")]
     IoErr(String),
+
+    #[error("post not found")]
+    NotFound,
+
+    #[error("file \"{0}\" must have extension in their name, such as .png")]
+    FileHasNoExtension(String),
+
+    #[error("file extension {0} is not supported")]
+    UnsupportedExtension(String),
     // #[error("post not found {0:#?}")]
     // UnAuthorized(Vec<ServerErrImgMeta>),
 }
@@ -1384,7 +1410,7 @@ pub struct UserPostFile {
     pub extension: String,
     pub hash: String,
     pub proccesed: bool,
-    pub size_bytes: u32,
+    pub size_bytes: usize,
     pub width: u32,
     pub height: u32,
 }
@@ -1396,7 +1422,7 @@ impl From<crate::db::DBUserPostFile> for UserPostFile {
             extension: value.extension,
             hash: value.hash,
             proccesed: value.proccesed,
-            size_bytes: value.size_bytes,
+            size_bytes: value.size_bytes, 
             width: value.width,
             height: value.height,
         }
@@ -2712,10 +2738,21 @@ pub mod tests {
             let current_dir = std::env::current_dir().unwrap();
             let file_path = current_dir.join(file_path.as_ref());
             trace!("full file path {:?}", file_path);
-            let file = tokio::fs::File::open(file_path).await.unwrap();
-            let stream =
-                tokio_util::codec::FramedRead::new(file, tokio_util::codec::BytesCodec::new());
-            let body = reqwest::Body::wrap_stream(stream);
+
+            // let file = tokio::fs::File::open(file_path).await.unwrap();
+            // let stream =
+            //     tokio_util::codec::FramedRead::new(file, tokio_util::codec::BytesCodec::new());
+            // let body = reqwest::Body::wrap_stream(stream);
+
+            // let part = reqwest::multipart::Part::file(file_path).await.unwrap();
+            // let form = reqwest::multipart::Form::new().part("data", part);
+            //
+            let form2 = reqwest::multipart::Form::new()
+                .file("key", file_path)
+                .await
+                .unwrap();
+
+            // let body = reqwest::Body::wrap_stream(form2);
             // let send_bytes: Vec<u8> = vec![0; 100];
 
             let cookie = crate::api::create_auth_header(auth_token);
@@ -2729,33 +2766,42 @@ pub mod tests {
             trace!("server url: {url}");
             // let client = self.api.server.reqwest_post(&url2);
             // let result = client
-            let result = reqwest::Client::new()
+
+            let client = reqwest::Client::new();
+            // let client = reqwest::blocking::Client::new();
+
+            let result = client
                 .post(url)
+                .multipart(form2)
+                // .body(body)
                 // req.set_request_header("Content-Type", "application/octet-stream")
                 .header(http::header::COOKIE, cookie)
                 .header("Content-Type", "application/octet-stream")
-                .body(body)
                 // .body(send_bytes)
                 .send()
                 .await
                 .unwrap()
-                .bytes()
+                .text()
                 .await
                 .unwrap();
+            // .await
+            // .unwrap();
             // .unwrap();
 
-            let result = rkyv::access::<
-                rkyv::result::ArchivedResult<
-                    crate::api::ArchivedServerRes,
-                    crate::api::ArchivedServerErr,
-                >,
-                rkyv::rancor::Error,
-            >(result.as_ref())
-            .unwrap();
-
-            let result =
-                rkyv::deserialize::<Result<ServerRes, ServerErr>, rkyv::rancor::Error>(result)
-                    .unwrap();
+            trace!("{result}");
+            let result: Result<ServerRes, ServerErr> = serde_json::from_str(&result).unwrap();
+            // let result = rkyv::access::<
+            //     rkyv::result::ArchivedResult<
+            //         crate::api::ArchivedServerRes,
+            //         crate::api::ArchivedServerErr,
+            //     >,
+            //     rkyv::rancor::Error,
+            // >(result.as_ref())
+            // .unwrap();
+            //
+            // let result =
+            //     rkyv::deserialize::<Result<ServerRes, ServerErr>, rkyv::rancor::Error>(result)
+            //         .unwrap();
 
             // match res {
             //

@@ -58,6 +58,7 @@
           with pkgs;
           mkShell {
             packages = [
+              ffmpeg-full
               # perf
               # samply
               # surrealdb
