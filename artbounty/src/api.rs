@@ -883,6 +883,15 @@ pub enum ServerTokenErr {
     rkyv::Deserialize,
 )]
 pub enum ServerAddPostFileErr {
+    // #[error("max file size {max_bytes} bytes, upload stopped at {got_bytes} bytes")]
+    // FileTooBig { max_bytes: usize, got_bytes: usize },
+    //
+    // #[error("io err {0}")]
+    // IoErr(#[from] std::io::Error),
+    //
+    // #[error(transparent)]
+    // StreamErr(#[from] anyhow::Error),
+
     #[error("post id param not found")]
     ParamNotFoundPostId,
 
@@ -891,6 +900,14 @@ pub enum ServerAddPostFileErr {
 
     #[error("io error {0}")]
     IoErr(String),
+
+    #[error("stream error {0}")]
+    StreamErr(String),
+
+    #[error("file {0} is too big")]
+    FileTooBig(String),
+    // #[error(transparent)]
+    // StreamErr(#[from] anyhow::Error),
 
     #[error("post not found")]
     NotFound,

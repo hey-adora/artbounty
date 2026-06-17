@@ -1,7 +1,9 @@
+use std::error::Error;
 use std::ffi::OsStr;
 use std::hash::{DefaultHasher, Hasher};
 use std::io::Cursor;
-use std::path::Path;
+use std::ops::{FromResidual, Try};
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::str::FromStr;
 
@@ -27,7 +29,8 @@ use axum::body::Body;
 use axum::extract::{Multipart, State};
 use axum::response::IntoResponse;
 use axum::{Extension, Json};
-use futures::TryStreamExt;
+use bytes::Bytes;
+use futures::{Stream, TryStreamExt};
 use futures_util::StreamExt;
 use gxhash::gxhash128;
 // use axum_extra::extract::CookieJar;
@@ -470,6 +473,116 @@ pub async fn delete_post(
 //
 //     "done"
 // }
+pub struct SavedFile {
+    pub hash: String,
+    pub saved_path: PathBuf,
+    pub size_bytes: usize,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum SaveFileErr {
+    #[error("max file size {max_bytes} bytes, upload stopped at {got_bytes} bytes")]
+    FileTooBig { max_bytes: usize, got_bytes: usize },
+
+    #[error("io err {0}")]
+    IoErr(#[from] std::io::Error),
+
+    #[error(transparent)]
+    StreamErr(#[from] anyhow::Error),
+}
+
+pub async fn handle_file_saving<S, StreamErr>(
+    mut stream: S,
+    extension: impl AsRef<str>,
+    save_path: impl AsRef<str>,
+    max_storage_per_file: usize,
+    // used_storage: usize,
+    // max_storage: usize,
+) -> Result<SavedFile, SaveFileErr>
+where
+    S: StreamExt + Stream<Item = Result<Bytes, StreamErr>> + Unpin,
+    StreamErr: Sync + Send,
+    SaveFileErr: From<StreamErr>, // S::Item: Error + Try,
+{
+    use rand::distr::SampleString;
+    let tmp_name = rand::distr::Alphanumeric.sample_string(&mut rand::rng(), 16);
+    let file_path_tmp = Path::new("/tmp/").join(&tmp_name).with_extension(".part");
+    // extension.as_ref()
+    let file = File::create(&file_path_tmp).await?;
+    let mut file = BufWriter::new(file);
+
+    let mut hasher = DefaultHasher::new();
+    let mut size = 0_usize;
+
+    while let Some(value) = stream.next().await {
+        let bytes = value?;
+        size += bytes.len();
+        if size > max_storage_per_file {
+            file.flush().await?;
+            drop(file);
+            tokio::fs::remove_file(file_path_tmp).await?;
+            return Err(SaveFileErr::FileTooBig {
+                max_bytes: max_storage_per_file,
+                got_bytes: size,
+            });
+        }
+        hasher.write(&bytes);
+        file.write(&bytes).await?;
+    }
+
+    file.flush().await?;
+    let hash = hasher.finish().to_string();
+
+    let file_path = {
+        let file_path = Path::new(save_path.as_ref())
+            .join(&hash)
+            .with_extension(extension.as_ref());
+        if file_path.exists() {
+            trace!("file removed");
+            tokio::fs::remove_file(file_path_tmp).await?;
+        } else {
+            trace!("file moved");
+            tokio::fs::rename(&file_path_tmp, &file_path)
+                .await
+                .inspect_err(|err| {
+                    error!(
+                        "move err from {file_path_tmp:?} to {}/{} {err}",
+                        std::env::current_dir().unwrap().into_string().unwrap(),
+                        file_path.clone().into_string().unwrap(),
+                    )
+                })?;
+        }
+        file_path
+    };
+
+    Ok(SavedFile {
+        hash,
+        size_bytes: size,
+        saved_path: file_path,
+    })
+}
+
+pub async fn get_img_resolution(img_path: impl AsRef<str>) -> anyhow::Result<(u32, u32)> {
+    let mut command = tokio::process::Command::new("ffprobe");
+    let command = command.args(&[
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height",
+        "-of",
+        "csv=s=x:p=0",
+        img_path.as_ref(),
+    ]);
+    let result = command.output().await?;
+
+    let result = String::from_utf8(result.stdout)?;
+    let result = result.trim();
+    trace!("command output {result}");
+
+    resolution_from_str(result)
+}
 
 //params: RawPathParams,
 // pub async fn post_file_add(body: Body) -> impl IntoResponse {
@@ -482,6 +595,8 @@ pub async fn post_file_add(
     mut multipart: Multipart,
 ) -> impl IntoResponse {
     type Err = ServerAddPostFileErr;
+    let max_storage = db_user.max_storage_bytes;
+    let max_storage_per_file = db_user.max_storage_per_file_bytes;
 
     let mut inner = async || -> Result<ServerRes, ServerErr> {
         let time = app.clock.now().await;
@@ -492,26 +607,15 @@ pub async fn post_file_add(
             .ok_or(ServerErr::from(Err::ParamNotFoundPostId))
             .map(|(_, value)| value)?;
 
-        // post_key.
-
         trace!("PATH PARAMS {post_key:?}");
 
-        // let mut stream = body.into_data_stream();
-        // let body_with_io_error = stream.map_err(io::Error::other);
-        // let mut body_reader = pin!(StreamReader::new(body_with_io_error));
-
-        trace!("hello from streaming");
-
-        // let path = std::path::Path::new("/home/hey/github/artbounty/target/tmp/here.part");
-
-        while let Ok(Some(mut field)) = multipart.next_field().await {
+        while let Ok(Some(field)) = multipart.next_field().await {
             let file_name = if let Some(file_name) = field.file_name() {
                 file_name.to_owned()
             } else {
                 continue;
             };
 
-            // let extension = file_path.extension().unwrap_or(OsStr::new(".part"));
             let Some(extension) = Path::new(&file_name).extension().and_then(|v| v.to_str()) else {
                 return Err(ServerErr::from(Err::FileHasNoExtension(
                     file_name.to_string(),
@@ -526,95 +630,21 @@ pub async fn post_file_add(
                 )));
             }
 
-            let tmp_name = app.gen_key().await;
-            let file_path_tmp = Path::new("/tmp/").join(&tmp_name).with_extension(extension);
-
-            trace!("file_path {file_path_tmp:?}");
-            let file = File::create(&file_path_tmp)
+            let file_path = app.get_file_path().await;
+            let stream = field.map_err(io::Error::other);
+            let file = handle_file_saving(stream, extension, file_path, max_storage_per_file)
                 .await
-                .map_err(|err| ServerErr::from(Err::IoErr(err.to_string())))?;
-            let mut file = BufWriter::new(file);
+                .map_err(|err| match err {
+                    SaveFileErr::FileTooBig { .. } => {
+                        ServerErr::from(Err::FileTooBig(file_name.to_string()))
+                    }
+                    SaveFileErr::IoErr(err) => ServerErr::from(Err::IoErr(err.to_string())),
+                    SaveFileErr::StreamErr(err) => ServerErr::from(Err::StreamErr(err.to_string())),
+                })?;
 
-            let mut hasher = DefaultHasher::new();
-            let mut size = 0_usize;
-
-            while let Some(value) = field.next().await {
-                let bytes = value.map_err(|v| ServerErr::from(Err::IoErr(v.to_string())))?;
-                size += bytes.len();
-                hasher.write(&bytes);
-                file.write(&bytes)
-                    .await
-                    .map_err(|v| ServerErr::from(Err::IoErr(v.to_string())))?;
-            }
-
-            file.flush()
+            let (width, height) = get_img_resolution(file.saved_path.to_str().unwrap())
                 .await
-                .map_err(|v| ServerErr::from(Err::IoErr(v.to_string())))?;
-            let hash = hasher.finish().to_string();
-
-            let file_path = {
-                let file_path = app.get_file_path().await;
-                let file_path = Path::new(&file_path).join(&hash).with_extension(&extension);
-                if file_path.exists() {
-                    trace!("file removed");
-                    tokio::fs::remove_file(file_path_tmp)
-                        .await
-                        .map_err(|v| ServerErr::from(Err::IoErr(v.to_string())))?;
-                } else {
-                    trace!("file moved");
-                    tokio::fs::rename(&file_path_tmp, &file_path)
-                        .await
-                        .inspect_err(|err| {
-                            error!(
-                                "move err from {file_path_tmp:?} to {}/{} {err}",
-                                std::env::current_dir().unwrap().into_string().unwrap(),
-                                file_path.clone().into_string().unwrap(),
-                            )
-                        })
-                        .map_err(|v| ServerErr::from(Err::IoErr(v.to_string())))?;
-                }
-                file_path
-            };
-
-            let mut command = tokio::process::Command::new("ffprobe");
-            // let command = command.stdout(Stdio::piped());
-            // "ffprobe",
-            // "-v",
-            // "error",
-            // "-select_streams",
-            // "v:0",
-            // "-show_entries",
-            // "stream=width,height",
-            // "-of",
-            // "csv=s=x:p=0",
-            let command = command.args(&[
-                "-v",
-                "error",
-                "-select_streams",
-                "v:0",
-                "-show_entries",
-                "stream=width,height",
-                "-of",
-                "csv=s=x:p=0",
-                // "-v error",
-                // "-select_streams v:0",
-                // "-show_entries stream=width,height",
-                // "-of csv=s=x:p=0",
-                file_path.to_str().unwrap(),
-            ]);
-            let result = command
-                // .stdout(Stdio::piped())
-                .output()
-                .await
-                .map_err(|v| ServerErr::from(Err::IoErr(v.to_string())))?;
-
-            let result = String::from_utf8(result.stdout)
-                .map_err(|v| ServerErr::from(Err::ReadingResolutionErr(v.to_string())))?;
-            let result = result.trim();
-            trace!("command output {result}");
-            let (width, height) = resolution_from_str(result)
-                .map_err(|v| ServerErr::from(Err::ReadingResolutionErr(v.to_string())))?;
-            //ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 test.webp
+                .map_err(|err| ServerErr::from(Err::ReadingResolutionErr(err.to_string())))?;
 
             let post = app
                 .db
@@ -622,8 +652,8 @@ pub async fn post_file_add(
                     time,
                     db_user.id.clone(),
                     post_key,
-                    size,
-                    hash,
+                    file.size_bytes,
+                    file.hash,
                     extension,
                     width,
                     height,
@@ -631,63 +661,11 @@ pub async fn post_file_add(
                 .await
                 .map_err(|v| ServerErr::DbErr)?;
 
-            // let body_with_io_error = field.map_err(io::Error::other);
-            // let mut body_reader = pin!(StreamReader::new(body_with_io_error));
-            // let path = std::path::Path::new(UPLOADS_DIRECTORY).join(&file_name);
-            // let mut file = BufWriter::new(File::create(path).await.unwrap());
-            // tokio::io::copy(&mut body_reader, &mut file).await.unwrap();
+                // TODO check if user reached max upload limit
+            // post.user +
 
-            trace!("{tmp_name}");
+            // trace!("{tmp_name}");
         }
-        // while let Some(value) = stream.next().await {
-        //     let bytes = value.map_err(|v| Err::IoErr(v.to_string()))?;
-        //     size += bytes.len() as u32;
-        //     hasher.write(&bytes);
-        //     file.write(&bytes)
-        //         .await
-        //         .map_err(|v| Err::IoErr(v.to_string()))?;
-        //     // trace!("wtf: {value:#?}");
-        // }
-
-        // let hash = "what".to_string();
-
-        // gxhash128(&img_data_org, 0);
-        // file_name
-
-        // tokio::io::copy(&mut body_reader, &mut file).await.unwrap();
-
-        // let post = app
-        //     .db
-        //     .add_post_file(
-        //         time,
-        //         db_user.id.clone(),
-        //         post_key,
-        //         file_hash: impl Into<String>,
-        //         file_extension: impl Into<String>,
-        //         file_width: u32,
-        //         file_height: u32,
-        //
-        //     );
-
-        // let post = app
-        //     .db
-        //     .add_post(
-        //         time,
-        //         &db_user.username,
-        //         &title,
-        //         &description,
-        //         tags,
-        //         0,
-        //         // post_files,
-        //     )
-        //     .await
-        //     .inspect_err(|err| error!("failed to save images {err:?}"))
-        //     .map_err(|_| ServerErr::DbErr)?;
-
-        // while let Some(value) = stream.next().await {
-        //     trace!("wtf: {value:#?}");
-        // }
-        // trace!("wtf {body:#?}");
 
         let post = app.db.get_post(post_key).await.map_err(|err| match err {
             DB404Err::NotFound => Err::NotFound.into(),
@@ -1038,9 +1016,13 @@ pub async fn add_post(
 }
 #[cfg(test)]
 mod tests {
+    use async_stream::stream;
     use axum::Router;
+    use bytes::Bytes;
+    use futures::StreamExt;
     use std::hash::{DefaultHasher, Hasher};
     use std::path::Path;
+    use std::pin::pin;
     use std::sync::Arc;
     use std::time::Duration;
     use surrealdb::types::{RecordId, ToSql};
@@ -1052,7 +1034,7 @@ mod tests {
     use tracing::{debug, error, trace};
 
     use crate::api::app_state::AppState;
-    use crate::api::backend::post::resolution_from_str;
+    use crate::api::backend::post::{SaveFileErr, handle_file_saving, resolution_from_str};
     use crate::api::shared::post_comment::UserPostComment;
     use crate::api::tests::ApiTestApp;
     use crate::api::{
@@ -1142,6 +1124,56 @@ mod tests {
         assert!(result.is_err());
         let result = resolution_from_str("999999999999999x1000000000000000000000");
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn handle_file_saving_test() {
+        crate::init_test_log();
+
+        let app = ApiTestApp::new(1).await;
+
+        let stream = stream! {
+            for i in 0..3 {
+                yield Ok::<bytes::Bytes, anyhow::Error>(bytes::Bytes::from(vec![i]));
+            }
+        };
+        let stream = pin!(stream);
+
+        let save_path = &app.state.settings.site.files_path;
+        let result = handle_file_saving(stream, "jpg", save_path, 10)
+            .await
+            .unwrap();
+
+        assert_eq!(result.size_bytes, 3);
+
+        let file_path = Path::new(&result.saved_path);
+        let file = tokio::fs::read(file_path).await.unwrap();
+
+        let mut hasher = DefaultHasher::new();
+        hasher.write(&file);
+        let hash = hasher.finish().to_string();
+
+        assert_eq!(result.size_bytes, file.len());
+        assert_eq!(result.hash, hash);
+
+        tokio::fs::remove_file(&result.saved_path).await.unwrap();
+
+        let stream = stream! {
+            for i in 0..3 {
+                yield Ok::<bytes::Bytes, anyhow::Error>(bytes::Bytes::from(vec![i]));
+            }
+        };
+        let stream = pin!(stream);
+
+        let save_path = &app.state.settings.site.files_path;
+        let result = handle_file_saving(stream, "jpg", save_path, 2).await;
+        assert!(matches!(
+            result,
+            Err(SaveFileErr::FileTooBig {
+                max_bytes,
+                got_bytes
+            })
+        ));
     }
 
     #[tokio::test]

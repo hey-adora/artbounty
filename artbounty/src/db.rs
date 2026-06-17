@@ -12,6 +12,7 @@ use thiserror::Error;
 use tracing::{error, trace};
 
 use crate::db::post::create_post_id;
+use crate::valid::{MAX_STORAGE, MAX_STORAGE_PER_FILE};
 
 pub type DbEngine = Db<local::Db>;
 pub async fn new_local(time: u128, path: impl AsRef<str>) -> Db<local::Db> {
@@ -147,6 +148,9 @@ pub struct Db<C: Connection> {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, SurrealValue)]
 pub struct DBUser {
     pub id: RecordId,
+    pub used_storage_bytes: usize,
+    pub max_storage_per_file_bytes: usize,
+    pub max_storage_bytes: usize,
     pub username: String,
     pub email: String,
     pub password: String,
@@ -163,6 +167,7 @@ pub struct DBUserPost {
     pub tags: String,
     pub description: String,
     pub favorites: u64,
+    pub size_bytes: usize,
     pub file: Vec<DBUserPostFile>,
     pub modified_at: u128,
     pub created_at: u128,
@@ -684,6 +689,9 @@ pub mod migration {
                     -- user
                     DEFINE TABLE user SCHEMAFULL;
                     DEFINE FIELD username ON TABLE user TYPE string;
+                    DEFINE FIELD used_storage_bytes ON TABLE user TYPE number;
+                    DEFINE FIELD max_storage_per_file_bytes ON TABLE user TYPE number;
+                    DEFINE FIELD max_storage_bytes ON TABLE user TYPE number;
                     DEFINE FIELD email ON TABLE user TYPE string;
                     DEFINE FIELD password ON TABLE user TYPE string;
                     DEFINE FIELD modified_at ON TABLE user TYPE number;
@@ -755,6 +763,7 @@ pub mod migration {
                     DEFINE FIELD user ON TABLE post TYPE record<user>;
                     DEFINE FIELD show ON TABLE post TYPE bool;
                     DEFINE FIELD title ON TABLE post TYPE string;
+                    DEFINE FIELD size_bytes ON TABLE post TYPE number;
                     DEFINE FIELD description ON TABLE post TYPE string;
                     DEFINE FIELD tags ON TABLE post TYPE string;
                     DEFINE FIELD favorites ON TABLE post TYPE number;
@@ -1524,17 +1533,27 @@ pub mod post {
             self.db
                 .query(
                     r#"
-                     UPDATE post SET file += $post_file, modified_at = $time WHERE id = $post_id AND user = $user_id RETURN *, user.*;
+                    BEGIN TRANSACTION;
+                     UPDATE $user_id SET 
+                        used_storage_bytes += $size_bytes, 
+                        modified_at = $time;
+                     UPDATE post SET 
+                        file += $post_file, 
+                        size_bytes += $size_bytes, 
+                        modified_at = $time 
+                     WHERE id = $post_id AND user = $user_id
+                     RETURN *, user.*;
+                    COMMIT TRANSACTION;
                     "#,
                 )
-                // .bind(("file_size", file_size))
+                .bind(("size_bytes", file_size))
                 .bind(("post_file", post_file))
                 .bind(("user_id", user_id))
                 .bind(("post_id", post_id))
                 .bind(("time", time))
                 .await
                 .check_good(DB404Err::from)
-                .and_then_take_or(0, DB404Err::NotFound)
+                .and_then_take_or(1, DB404Err::NotFound)
             // .check_good(|err| match err {
             //     err if err.field_value_null("user_id") => AddPostErr::UserNotFound(username),
             //     err => err.into(),
@@ -2408,6 +2427,7 @@ impl<C: Connection> Db<C> {
         let title = title.into();
         let description = description.into();
         let tags = tags.into();
+        // TODO when adding files from this function, make sure to set size
 
         self.db
             .query(
@@ -2419,6 +2439,7 @@ impl<C: Connection> Db<C> {
                 title = $title,
                 description = $description,
                 tags = $tags,
+                size_bytes = 0,
                 favorites = $favorites,
                 file = [],
                 modified_at = $time,
@@ -2526,6 +2547,29 @@ impl<C: Connection> Db<C> {
             .and_then_take_or(0, DB404Err::NotFound)
     }
 
+    pub async fn update_user_storage(
+        &self,
+        time: u128,
+        user: RecordId,
+        max_storage_bytes: usize,
+        max_storage_per_file_bytes: usize,
+    ) -> Result<DBUser, DB404Err> {
+        self.db
+            .query(
+                "UPDATE $user_id SET 
+                    modified_at = $time, 
+                    max_storage_bytes = $max_storage, 
+                    max_storage_per_file_bytes = $max_storage_per_file;",
+            )
+            .bind(("user_id", user))
+            .bind(("max_storage", max_storage_bytes))
+            .bind(("max_storage_per_file", max_storage_per_file_bytes))
+            .bind(("time", time))
+            .await
+            .check_good(DB404Err::from)
+            .and_then_take_or(0, DB404Err::NotFound)
+    }
+
     pub async fn update_user_username(
         &self,
         user: RecordId,
@@ -2601,11 +2645,16 @@ impl<C: Connection> Db<C> {
              CREATE user SET
                 username = $username,
                 email = $email,
+                used_storage_bytes = 10,
+                max_storage_per_file_bytes = $max_storage_per_file,
+                max_storage_bytes = $max_storage,
                 password = $password,
                 modified_at = $time,
                 created_at = $time;
             "#,
             )
+            .bind(("max_storage", MAX_STORAGE))
+            .bind(("max_storage_per_file", MAX_STORAGE_PER_FILE))
             .bind(("time", time))
             .bind(("username", username.clone()))
             .bind(("email", email.clone()))
@@ -2673,6 +2722,7 @@ mod tests {
             AddUserErr, DB404Err, DBChangeUsernameErr, DBEmailIsTakenErr, DBSentEmailReason,
             DBUserPostFile, Db,
         },
+        valid::{MAX_STORAGE, MAX_STORAGE_PER_FILE},
     };
 
     #[tokio::test]
@@ -2891,9 +2941,18 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(post.file.len() == 2);
-        assert!(post.file[0].hash == "hello");
-        assert!(post.file[1].hash == "hello2");
+
+        let post = db.get_post(post.id.key).await.unwrap();
+
+        assert_eq!(post.file.len(), 2);
+        assert_eq!(post.file[0].hash, "hello");
+        assert_eq!(post.file[0].size_bytes, 10);
+        assert_eq!(post.file[1].hash, "hello2");
+        assert_eq!(post.file[1].size_bytes, 10);
+        assert_eq!(post.size_bytes, 20);
+
+        let user = db.get_user_by_username(user.username).await.unwrap();
+        assert_eq!(user.used_storage_bytes, 20);
 
         //
     }
@@ -2970,7 +3029,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn db_user() {
+    async fn db_user_update_storage() {
+        crate::init_test_log();
+        let db = Db::new::<Mem>(()).await.unwrap();
+        let time = 0;
+        db.migrate(time).await.unwrap();
+        let user = db
+            .add_user(time, "hey", "hey@hey.com", "hey")
+            .await
+            .unwrap();
+
+        assert_eq!(user.max_storage_bytes, MAX_STORAGE);
+        assert_eq!(user.max_storage_per_file_bytes, MAX_STORAGE_PER_FILE);
+
+        db.update_user_storage(0, user.id, 20, 10).await.unwrap();
+
+        let user = db.get_user_by_username(user.username).await.unwrap();
+        assert_eq!(user.max_storage_bytes, 20);
+        assert_eq!(user.max_storage_per_file_bytes, 10);
+    }
+
+    #[tokio::test]
+    async fn db_user_add() {
         crate::init_test_log();
         let db = Db::new::<Mem>(()).await.unwrap();
         let time = 0;

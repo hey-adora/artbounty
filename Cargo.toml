@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["artbounty", "artbounty-seed", "tmp_wasm"]
+members = ["artbounty", "artbounty-seed"]
 
 [workspace.dependencies]
 # chromiumoxide = "0.9.1"
@@ -9,7 +9,7 @@ leptos_router = { version = "0.8.12" }
 leptos_axum = { version = "0.8.8" }
 leptos_meta = { version = "0.8.6" }
 hydration_context = { version = "0.3.0" }
-any_spawner = { version = "0.3.0" }
+# any_spawner = { version = "0.3.0" }
 strum = { version = "0.27.1", features = ["strum_macros", "derive"] }
 artbounty = { path = "artbounty" }
 little_exif = "0.6.14"

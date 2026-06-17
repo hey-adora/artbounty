@@ -1,4 +1,5 @@
 #![recursion_limit = "512"]
+#![feature(try_trait_v2)]
 
 pub mod api;
 #[cfg(feature = "ssr")]
@@ -19,6 +20,11 @@ pub fn init_test_log() {
 }
 
 pub mod valid {
+                // used_storage_bytes = 10;
+                // max_size_per_file_bytes ;
+                // max_total_storage_bytes;
+    pub const MAX_STORAGE_PER_FILE: usize = 1024 * 30; // 30MB
+    pub const MAX_STORAGE: usize = 1024 * 1000 * 2; // 2GB
     pub const SUPPORTED_FILE_EXTENSIONS: &[&str] = &["ico", "svg"];
     pub const MAX_POST_DESCRIPTION_LENGTH: usize = 2000;
     pub const MAX_POST_TAGS_LENGTH: usize = 2000;
