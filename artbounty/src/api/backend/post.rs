@@ -595,8 +595,10 @@ pub async fn post_file_add(
     mut multipart: Multipart,
 ) -> impl IntoResponse {
     type Err = ServerAddPostFileErr;
+
     let max_storage = db_user.max_storage_bytes;
     let max_storage_per_file = db_user.max_storage_per_file_bytes;
+    let mut used_storage = db_user.used_storage_bytes;
 
     let mut inner = async || -> Result<ServerRes, ServerErr> {
         let time = app.clock.now().await;
@@ -630,14 +632,33 @@ pub async fn post_file_add(
                 )));
             }
 
+            let storage_left = max_storage.saturating_sub(used_storage);
+            let storage_per_file = if storage_left < max_storage_per_file {
+                storage_left
+            } else {
+                max_storage_per_file
+            };
+
+            if max_storage_per_file == 0 {
+                return Err(ServerErr::from(Err::MaxUserStorageReched {
+                    max: max_storage,
+                    used: used_storage,
+                }));
+            }
+
             let file_path = app.get_file_path().await;
             let stream = field.map_err(io::Error::other);
-            let file = handle_file_saving(stream, extension, file_path, max_storage_per_file)
+            let file = handle_file_saving(stream, extension, file_path, storage_per_file)
                 .await
                 .map_err(|err| match err {
-                    SaveFileErr::FileTooBig { .. } => {
-                        ServerErr::from(Err::FileTooBig(file_name.to_string()))
-                    }
+                    SaveFileErr::FileTooBig {
+                        got_bytes,
+                        max_bytes,
+                    } => ServerErr::from(Err::FileTooBig {
+                        file_name: file_name.to_string(),
+                        max: max_bytes,
+                        got: got_bytes,
+                    }),
                     SaveFileErr::IoErr(err) => ServerErr::from(Err::IoErr(err.to_string())),
                     SaveFileErr::StreamErr(err) => ServerErr::from(Err::StreamErr(err.to_string())),
                 })?;
@@ -661,8 +682,9 @@ pub async fn post_file_add(
                 .await
                 .map_err(|v| ServerErr::DbErr)?;
 
-                // TODO check if user reached max upload limit
-            // post.user +
+            used_storage = post.user.used_storage_bytes;
+
+            // post.user.used_storage_bytes >
 
             // trace!("{tmp_name}");
         }
@@ -1039,8 +1061,9 @@ mod tests {
     use crate::api::tests::ApiTestApp;
     use crate::api::{
         Api, ApiTest, EmailChangeErr, EmailChangeNewErr, EmailChangeStage, EmailChangeTokenErr,
-        Order, PostLikeErr, Server404Err, ServerAuthErr, ServerErr, ServerLoginErr,
-        ServerRegistrationErr, ServerReqImg, ServerRes, ServerSendInviteErr, TimeRange, UserPost,
+        Order, PostLikeErr, Server404Err, ServerAddPostFileErr, ServerAuthErr, ServerErr,
+        ServerLoginErr, ServerRegistrationErr, ServerReqImg, ServerRes, ServerSendInviteErr,
+        TimeRange, UserPost,
     };
     use crate::db::DB404Err;
     use crate::db::email_change::create_email_change_id;
@@ -1177,11 +1200,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn api_post_file_add_fail() {
+        crate::init_test_log();
+
+        let app = ApiTestApp::new(1).await;
+
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+
+        let user = app.state.db.get_user_by_username("hey").await.unwrap();
+
+        let post = app
+            .add_post(0, &auth_token, "title1", "cat", "one")
+            .await
+            .unwrap();
+
+        let upload_fn = async |max_storage: usize, max_file: usize, file_path: &str| {
+            let user = app
+                .state
+                .db
+                .update_user_storage(0, user.id.clone(), max_storage, max_file)
+                .await
+                .unwrap();
+
+            let result = app
+                .add_post_file(0, &auth_token, post.key.clone(), file_path)
+                .await
+                .map_err(|err| err.downcast::<ServerErr>().unwrap());
+
+            result
+        };
+
+        for (max_storage, max_file_size) in [(3605, 3605), (3605, 3606), (3606, 3605)] {
+            let result = upload_fn(max_storage, max_file_size, "../assets/favicon.ico")
+                .await
+                .err()
+                .unwrap();
+
+            assert!(matches!(
+                result,
+                ServerErr::AddPostFileErr(ServerAddPostFileErr::FileTooBig {
+                    file_name,
+                    max,
+                    got
+                })
+            ));
+        }
+
+        let result = upload_fn(3606, 3606, "../assets/favicon.ico")
+            .await
+            .unwrap();
+
+        assert_eq!(result.user.used_storage_bytes, 3606);
+    }
+
+    #[tokio::test]
     async fn api_post_file_add() {
         crate::init_test_log();
-        // crate::init_test_log();
-
-        // let app = ApiTestApp::new(1).await;
 
         let app = ApiTestApp::new(1).await;
 
@@ -1211,12 +1288,14 @@ mod tests {
             hasher.write(&file);
             let hash = hasher.finish().to_string();
 
+            let total_size = post.file.iter().fold(0_usize, |a, b| a + b.size_bytes);
             assert_eq!(post.file.len(), i + 1); // +1 because its length
             assert_eq!(post.file[i].proccesed, false);
             assert_eq!(post.file[i].size_bytes, file.len());
             assert_eq!(post.file[i].hash, hash);
             assert_eq!(post.file[i].width, width);
             assert_eq!(post.file[i].height, height);
+            assert_eq!(post.user.used_storage_bytes, total_size);
 
             {
                 let extension = Path::new(&file_path).extension().unwrap();

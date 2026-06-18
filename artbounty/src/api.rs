@@ -34,7 +34,7 @@ pub mod app_state {
 
     use std::{sync::Arc, time::Duration};
 
-use rand::distr::{Alphanumeric, SampleString};
+    use rand::distr::{Alphanumeric, SampleString};
     use surrealdb::types::{RecordId, ToSql};
     use tokio::sync::{Mutex, RwLock};
     use tracing::trace;
@@ -96,7 +96,7 @@ use rand::distr::{Alphanumeric, SampleString};
                     tokio::fs::create_dir_all(path).await.unwrap();
                 }
             }
-            
+
             let f = move || {
                 let time = time.clone();
                 async move {
@@ -891,7 +891,6 @@ pub enum ServerAddPostFileErr {
     //
     // #[error(transparent)]
     // StreamErr(#[from] anyhow::Error),
-
     #[error("post id param not found")]
     ParamNotFoundPostId,
 
@@ -904,11 +903,17 @@ pub enum ServerAddPostFileErr {
     #[error("stream error {0}")]
     StreamErr(String),
 
-    #[error("file {0} is too big")]
-    FileTooBig(String),
+    #[error("file {file_name} is too big, max file size {max}, stopped upload at: {got}")]
+    FileTooBig {
+        file_name: String,
+        max: usize,
+        got: usize,
+    },
+
+    #[error("max user storage reached {max} bytes, used: {used} bytes")]
+    MaxUserStorageReched { max: usize, used: usize },
     // #[error(transparent)]
     // StreamErr(#[from] anyhow::Error),
-
     #[error("post not found")]
     NotFound,
 
@@ -1158,6 +1163,9 @@ pub enum EmailChangeErr {
 pub struct User {
     pub key: String,
     pub username: String,
+    pub used_storage_bytes: usize,
+    pub max_storage_bytes: usize,
+    pub max_storage_per_file_bytes: usize,
     pub created_at: u128,
 }
 
@@ -1169,6 +1177,9 @@ impl From<crate::db::DBUser> for User {
         Self {
             key: value.id.key.to_sql(),
             username: value.username,
+            used_storage_bytes: value.used_storage_bytes,
+            max_storage_bytes: value.max_storage_bytes,
+            max_storage_per_file_bytes: value.max_storage_per_file_bytes,
             created_at: value.created_at,
         }
     }
@@ -1439,7 +1450,7 @@ impl From<crate::db::DBUserPostFile> for UserPostFile {
             extension: value.extension,
             hash: value.hash,
             proccesed: value.proccesed,
-            size_bytes: value.size_bytes, 
+            size_bytes: value.size_bytes,
             width: value.width,
             height: value.height,
         }

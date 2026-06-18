@@ -688,6 +688,7 @@ pub mod migration {
                     DEFINE INDEX idx_migration_version ON TABLE migration COLUMNS version UNIQUE;
                     -- user
                     DEFINE TABLE user SCHEMAFULL;
+                    -- DEFINE FIELD id ON TABLE user TYPE record;
                     DEFINE FIELD username ON TABLE user TYPE string;
                     DEFINE FIELD used_storage_bytes ON TABLE user TYPE number;
                     DEFINE FIELD max_storage_per_file_bytes ON TABLE user TYPE number;
@@ -1530,22 +1531,29 @@ pub mod post {
                 height: file_height,
             };
             let post_id = create_post_id(post_key);
-            self.db
-                .query(
-                    r#"
+            let query = r#"
                     BEGIN TRANSACTION;
-                     UPDATE $user_id SET 
-                        used_storage_bytes += $size_bytes, 
-                        modified_at = $time;
-                     UPDATE post SET 
-                        file += $post_file, 
-                        size_bytes += $size_bytes, 
-                        modified_at = $time 
-                     WHERE id = $post_id AND user = $user_id
-                     RETURN *, user.*;
+
+                    UPDATE $user_id SET 
+                       used_storage_bytes += $size_bytes, 
+                       modified_at = $time
+                    RETURN id;
+
+                    UPDATE ONLY post SET 
+                       file += $post_file, 
+                       size_bytes += $size_bytes, 
+                       modified_at = $time 
+                    WHERE id = $post_id AND user = $user_id
+                    RETURN id;
+
                     COMMIT TRANSACTION;
-                    "#,
-                )
+                    
+                    SELECT *, user.* FROM $post_id;
+                    "#;
+            trace!("about to run {query}");
+
+            self.db
+                .query(query)
                 .bind(("size_bytes", file_size))
                 .bind(("post_file", post_file))
                 .bind(("user_id", user_id))
@@ -1553,7 +1561,7 @@ pub mod post {
                 .bind(("time", time))
                 .await
                 .check_good(DB404Err::from)
-                .and_then_take_or(1, DB404Err::NotFound)
+                .and_then_take_or(4, DB404Err::NotFound)
             // .check_good(|err| match err {
             //     err if err.field_value_null("user_id") => AddPostErr::UserNotFound(username),
             //     err => err.into(),
@@ -2645,7 +2653,7 @@ impl<C: Connection> Db<C> {
              CREATE user SET
                 username = $username,
                 email = $email,
-                used_storage_bytes = 10,
+                used_storage_bytes = 0,
                 max_storage_per_file_bytes = $max_storage_per_file,
                 max_storage_bytes = $max_storage,
                 password = $password,
