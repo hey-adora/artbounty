@@ -910,8 +910,8 @@ pub enum ServerAddPostFileErr {
         got: usize,
     },
 
-    #[error("max user storage reached {max} bytes, used: {used} bytes")]
-    MaxUserStorageReched { max: usize, used: usize },
+    // #[error("max user storage reached {max} bytes, used: {used} bytes")]
+    // OutOfStorage { max: usize, used: usize },
     // #[error(transparent)]
     // StreamErr(#[from] anyhow::Error),
     #[error("post not found")]

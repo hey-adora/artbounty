@@ -71,15 +71,21 @@ impl<C: Connection> Db<C> {
         post_comment_reply: Option<String>,
         text: impl Into<String>,
     ) -> Result<DBPostComment, DBPostCommentErr> {
-        let post_id = post_id.into();
+        let post_id = create_post_id(post_id.into());
         let parent_id = post_comment_reply.map(|v| create_post_comment_id(v));
         let q = r#"
-                 LET $parent = SELECT id, parent, replies_count FROM ONLY $parent_id;
-                 LET $post = SELECT id FROM ONLY $post_id;
                  BEGIN TRANSACTION;
-                 if $parent {
-                     UPDATE $parent.id SET replies_count = $parent.replies_count + 1;
+                 LET $post = SELECT id FROM ONLY $post_id;
+                 LET $parent = IF $parent_id {
+                         SELECT id, parent, replies_count FROM ONLY $parent_id                 
+                     } ELSE {
+                         NULL
+                     };
+
+                 IF $parent {
+                    UPDATE $parent.id SET replies_count = $parent.replies_count + 1;
                  };
+
                  CREATE post_comment SET
                     user = (SELECT id FROM ONLY $user_id).id,
                     post = $post.id,
@@ -100,7 +106,7 @@ impl<C: Connection> Db<C> {
             .query(q)
             .bind(("time", time))
             .bind(("user_id", user_id))
-            .bind(("post_id", create_post_id(post_id.clone())))
+            .bind(("post_id", post_id.clone()))
             .bind(("comment_text", text.into()))
             .bind(("parent_id", parent_id))
             .await
@@ -221,11 +227,15 @@ impl<C: Connection> Db<C> {
     ) -> Result<(), surrealdb::Error> {
         let comment_id = create_post_comment_id(comment_id.into());
         let q = "
+            BEGIN TRANSACTION;
             LET $comment = SELECT id, parent, replies_count FROM ONLY $comment_id;
             LET $last = $comment.parent.last();
-            LET $parent = SELECT id, replies_count FROM ONLY $last;
+            LET $parent = IF $last {
+                SELECT id, replies_count FROM ONLY $last
+            } ELSE {
+                NULL
+            };
             LET $comment_user = SELECT id FROM ONLY $user_id;
-            BEGIN TRANSACTION;
             if !$comment_user.id {
                 THROW \"user not found\";
             };

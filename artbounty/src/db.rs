@@ -2,6 +2,7 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
 
+use leptos::reactive::owner::StorageAccess;
 pub use surrealdb::Connection;
 use surrealdb::IndexedResults;
 use surrealdb::engine::local::SurrealKv;
@@ -38,6 +39,11 @@ pub trait SurrealCheckUtils {
         self,
         f: impl FnOnce(surrealdb::Error) -> ERR,
     ) -> Result<IndexedResults, ERR>;
+
+    fn check_better<ERR: std::error::Error + From<surrealdb::Error>>(
+        self,
+        f: impl FnOnce(surrealdb::Error) -> ERR,
+    ) -> Result<IndexedResults, ERR>;
 }
 
 pub trait SurrealSerializeUtils<ERR: std::error::Error + From<surrealdb::Error>> {
@@ -67,6 +73,60 @@ impl SurrealCheckUtils for Result<IndexedResults, surrealdb::Error> {
             .inspect_err(|err| error!("db check error: {err}"))
             .map_err(f)
     }
+
+    fn check_better<ERR: std::error::Error + From<surrealdb::Error>>(
+        self,
+        f: impl FnOnce(surrealdb::Error) -> ERR,
+    ) -> Result<IndexedResults, ERR> {
+        let mut results = self?;
+        trace!("results {results:#?}");
+        let errors = results.take_errors();
+
+        let mut error_first = None;
+        let mut error_thrown = None;
+        for (i, error) in errors {
+            if error.details().is_thrown() {
+                error_thrown = Some(error);
+                break;
+            } else if error_first.is_none() {
+                error_first = Some(error);
+            }
+        }
+
+        let error = if error_thrown.is_some() {
+            error_thrown
+        } else {
+            error_first
+        };
+
+        trace!("error picked {error:?}");
+
+        let results: Result<IndexedResults, surrealdb::Error> = match error {
+            Some(err) => Err(err),
+            None => Ok(results),
+        };
+
+        results
+            .inspect_err(|err| error!("db error: {err}"))
+            .inspect(|e| trace!("result {e:#?}"))
+            .map_err(f)
+    }
+
+    // pub fn check(mut self) -> Result<Self> {
+    // 	let mut first_error = None;
+    // 	for (key, result) in &self.results {
+    // 		if result.1.is_err() {
+    // 			first_error = Some(*key);
+    // 			break;
+    // 		}
+    // 	}
+    // 	if let Some(key) = first_error
+    // 		&& let Some((_, Err(error))) = self.results.swap_remove(&key)
+    // 	{
+    // 		return Err(error);
+    // 	}
+    // 	Ok(self)
+    // }
 }
 
 impl<ERR: std::error::Error + From<surrealdb::Error>> SurrealSerializeUtils<ERR>
@@ -246,6 +306,49 @@ pub enum DB404Err {
 
     #[error("user not found")]
     NotFound,
+}
+
+#[derive(Debug, Error)]
+pub enum DBPostOrderFileErr {
+    #[error("DB error {0}")]
+    DB(#[from] surrealdb::Error),
+
+    #[error("un-authorized")]
+    UnAuthoized,
+
+    #[error("post not found")]
+    PostNotFound,
+
+    #[error("out of range, selected_pos {selected_pos}, new_pos {new_pos}")]
+    OutOfRange {
+        // file: usize,
+        selected_pos: usize,
+        new_pos: usize,
+    },
+}
+
+#[derive(Debug, Error)]
+pub enum DBPostAddFileErr {
+    #[error("DB error {0}")]
+    DB(#[from] surrealdb::Error),
+
+    #[error("post not found")]
+    PostNotFound,
+
+    #[error("file {0} already exists")]
+    Duplicate(String),
+}
+
+#[derive(Debug, Error)]
+pub enum DBPostRemoveFileErr {
+    #[error("DB error {0}")]
+    DB(#[from] surrealdb::Error),
+
+    #[error("post not found")]
+    PostNotFound,
+
+    #[error("hash not found")]
+    HashNotFound,
 }
 
 #[derive(Debug, Error)]
@@ -1420,7 +1523,7 @@ pub mod post {
         types::{RecordId, RecordIdKey},
     };
 
-    use crate::db::DBUserPostFile;
+    use crate::db::{DBPostAddFileErr, DBPostOrderFileErr, DBPostRemoveFileErr, DBUserPostFile};
     use crate::{
         api::{Order, TimeRange},
         db::{DB404Err, DBUserPost, Db, SurrealCheckUtils, SurrealSerializeUtils},
@@ -1511,7 +1614,76 @@ pub mod post {
                 .check_good(DB404Err::from)
                 .and_then_take_or(0, DB404Err::NotFound)
         }
-        pub async fn update_post_file(
+
+        pub async fn update_post_file_order(
+            &self,
+            time: u128,
+            user_id: RecordId,
+            post_key: impl Into<RecordIdKey>,
+            selected_pos: usize,
+            new_pos: usize,
+        ) -> Result<DBUserPost, DBPostOrderFileErr> {
+            let post_id = create_post_id(post_key);
+            let query = r#"
+                    BEGIN TRANSACTION;
+
+                    LET $post = SELECT file, user FROM ONLY $post_id;
+
+                    IF $post.user AND $post.user != $user_id {
+                        THROW "un-authorized";
+                    };
+
+                    IF !$post.file {
+                        THROW "post not found";
+                    };
+                    
+                    LET $post_files_len = $post.file.len();
+                    IF $post_files_len <= $selected_pos OR $post_files_len <= $new_pos {
+                        THROW "out of range";
+                    };
+
+                    LET $file_selected = $post.file.at($selected_pos);
+                    LET $files_removed = $post.file.remove($selected_pos);
+                    LET $files_inserted = $files_removed.insert($file_selected, $new_pos);
+
+                    UPDATE ONLY $post_id SET 
+                       file = $files_inserted, 
+                       modified_at = $time 
+                    RETURN None;
+
+                    COMMIT TRANSACTION;
+                    
+                    SELECT *, user.* FROM $post_id;
+                    "#;
+            trace!("about to run {query}");
+
+            self.db
+                .query(query)
+                .bind(("selected_pos", selected_pos))
+                .bind(("new_pos", new_pos))
+                .bind(("user_id", user_id))
+                .bind(("post_id", post_id))
+                .bind(("time", time))
+                .await
+                .check_better(|err| {
+                    let msg = err.message();
+                    match msg {
+                        "An error occurred: un-authorized" => DBPostOrderFileErr::UnAuthoized,
+                        "An error occurred: post not found" => DBPostOrderFileErr::PostNotFound,
+                        "An error occurred: out of range" => DBPostOrderFileErr::OutOfRange {
+                            selected_pos,
+                            new_pos,
+                        },
+                        _ => {
+                            tracing::error!("db err: {:?}", err.cause());
+                            DBPostOrderFileErr::DB(err)
+                        }
+                    }
+                })
+                .and_then_take_or(11, DBPostOrderFileErr::PostNotFound)
+        }
+
+        pub async fn update_post_file_add(
             &self,
             time: u128,
             user_id: RecordId,
@@ -1521,11 +1693,12 @@ pub mod post {
             file_extension: impl Into<String>,
             file_width: u32,
             file_height: u32,
-        ) -> Result<DBUserPost, DB404Err> {
+        ) -> Result<DBUserPost, DBPostAddFileErr> {
+            let file_hash = file_hash.into();
             let post_file = DBUserPostFile {
                 proccesed: false,
                 extension: file_extension.into(),
-                hash: file_hash.into(),
+                hash: file_hash.clone(),
                 size_bytes: file_size,
                 width: file_width,
                 height: file_height,
@@ -1534,6 +1707,13 @@ pub mod post {
             let query = r#"
                     BEGIN TRANSACTION;
 
+
+                    LET $post = SELECT file FROM ONLY $post_id;
+                    LET $exists = $post.file.find(|$v| $v.hash = $file_hash);
+                    IF $exists {
+                        THROW "hash already exists";
+                    };
+                    
                     UPDATE $user_id SET 
                        used_storage_bytes += $size_bytes, 
                        modified_at = $time
@@ -1546,28 +1726,114 @@ pub mod post {
                     WHERE id = $post_id AND user = $user_id
                     RETURN id;
 
+
                     COMMIT TRANSACTION;
                     
                     SELECT *, user.* FROM $post_id;
+
                     "#;
             trace!("about to run {query}");
 
             self.db
                 .query(query)
+                .bind(("file_hash", file_hash.clone()))
                 .bind(("size_bytes", file_size))
                 .bind(("post_file", post_file))
                 .bind(("user_id", user_id))
                 .bind(("post_id", post_id))
                 .bind(("time", time))
                 .await
-                .check_good(DB404Err::from)
-                .and_then_take_or(4, DB404Err::NotFound)
+                .check_better(|err| {
+                    let msg = err.message();
+                    match msg {
+                        err if err == "An error occurred: hash already exists" => {
+                            DBPostAddFileErr::Duplicate(file_hash)
+                        }
+                        _ => {
+                            tracing::error!("db err: {:?}", err.cause());
+                            DBPostAddFileErr::DB(err)
+                        }
+                    }
+                })
+                .and_then_take_or(7, DBPostAddFileErr::PostNotFound)
             // .check_good(|err| match err {
             //     err if err.field_value_null("user_id") => AddPostErr::UserNotFound(username),
             //     err => err.into(),
             // })
             // .and_then_take_expect(2)
         }
+
+        pub async fn update_post_file_remove(
+            &self,
+            time: u128,
+            user_id: RecordId,
+            post_key: impl Into<RecordIdKey>,
+            file_hash: impl Into<String>,
+        ) -> Result<DBUserPost, DBPostRemoveFileErr> {
+            let post_id = create_post_id(post_key);
+            // IF $post.file == null {
+            //     THROW "no files none";
+            // };
+            let query = r#"
+                    BEGIN TRANSACTION;
+
+                    LET $post = SELECT file, size_bytes FROM ONLY $post_id;
+
+                    IF !$post.file {
+                        THROW "post not found";
+                    };
+
+                    LET $filtered = $post.file.filter(|$v| $v.hash != $file_hash);
+                    
+                    LET $new_size = $filtered.fold(0, |$a, $b| $a + $b.size_bytes);
+                    LET $diff_size = $post.size_bytes - $new_size;
+
+                    IF $diff_size == 0 {
+                        THROW "hash not found";
+                    };
+
+                    IF $diff_size < 0 {
+                        THROW "database exploded, aborting...";
+                    };
+
+                    UPDATE $user_id SET 
+                       used_storage_bytes -= $diff_size, 
+                       modified_at = $time
+                    RETURN id;
+
+                    UPDATE ONLY post SET 
+                       file = $filtered, 
+                       size_bytes = $new_size, 
+                       modified_at = $time 
+                    WHERE id = $post_id AND user = $user_id
+                    RETURN id;
+
+                    COMMIT TRANSACTION;
+
+                    SELECT *, user.* FROM $post_id;
+                    
+                    "#;
+            trace!("about to run {query}");
+
+            self.db
+                .query(query)
+                .bind(("file_hash", file_hash.into()))
+                .bind(("user_id", user_id))
+                .bind(("post_id", post_id))
+                .bind(("time", time))
+                .await
+                .check_better(|err| match err {
+                    err if err.message() == "An error occurred: hash not found" => {
+                        DBPostRemoveFileErr::HashNotFound
+                    }
+                    err if err.message() == "An error occurred: post not found" => {
+                        DBPostRemoveFileErr::PostNotFound
+                    }
+                    err => DBPostRemoveFileErr::DB(err),
+                })
+                .and_then_take_or(11, DBPostRemoveFileErr::PostNotFound)
+        }
+
         pub async fn post_search(
             &self,
             limit: usize,
@@ -2727,8 +2993,9 @@ mod tests {
     use crate::{
         api::ChangeUsernameErr,
         db::{
-            AddUserErr, DB404Err, DBChangeUsernameErr, DBEmailIsTakenErr, DBSentEmailReason,
-            DBUserPostFile, Db,
+            AddUserErr, DB404Err, DBChangeUsernameErr, DBEmailIsTakenErr, DBPostAddFileErr,
+            DBPostOrderFileErr, DBPostRemoveFileErr, DBSentEmailReason, DBUserPost, DBUserPostFile,
+            Db,
         },
         valid::{MAX_STORAGE, MAX_STORAGE_PER_FILE},
     };
@@ -2909,6 +3176,84 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn db_post_remove_file() {
+        crate::init_test_log();
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate(0).await.unwrap();
+        let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
+
+        let post0 = db
+            .add_post(0, "hey", "title0", "description", "", 0)
+            .await
+            .unwrap();
+
+        let post1 = db
+            .add_post(0, "hey", "title1", "description", "", 0)
+            .await
+            .unwrap();
+
+        let add_file_fn = async |post: &DBUserPost, hash: &str, size: usize| {
+            db.update_post_file_add(
+                0,
+                user.id.clone(),
+                post.id.key.clone(),
+                size,
+                hash,
+                "png",
+                50,
+                50,
+            )
+            .await
+            .unwrap()
+        };
+
+        let remove_file_fn = async |post: &DBUserPost, hash: &str| {
+            db.update_post_file_remove(0, user.id.clone(), post.id.key.clone(), hash)
+                .await
+        };
+
+        let post = add_file_fn(&post1, "1", 10).await;
+
+        let post = add_file_fn(&post0, "1", 1).await;
+        assert_eq!(post.size_bytes, 1);
+        assert_eq!(post.user.used_storage_bytes, 11);
+        let post = remove_file_fn(&post0, "1").await.unwrap();
+        assert_eq!(post.size_bytes, 0);
+        assert_eq!(post.user.used_storage_bytes, 10);
+
+        let post = add_file_fn(&post, "1", 1).await;
+        assert_eq!(post.size_bytes, 1);
+        assert_eq!(post.user.used_storage_bytes, 11);
+        let post = add_file_fn(&post, "2", 2).await;
+        assert_eq!(post.size_bytes, 3);
+        assert_eq!(post.user.used_storage_bytes, 13);
+        let post = add_file_fn(&post, "3", 3).await;
+        assert_eq!(post.size_bytes, 6);
+        assert_eq!(post.user.used_storage_bytes, 16);
+        let post = remove_file_fn(&post0, "2").await.unwrap();
+        assert_eq!(post.size_bytes, 4);
+        assert_eq!(post.user.used_storage_bytes, 14);
+
+        let post = db.get_post(post.id.key.clone()).await.unwrap();
+        assert_eq!(post.size_bytes, 4);
+        assert_eq!(post.user.used_storage_bytes, 14);
+
+        let post_err = remove_file_fn(&post0, "2").await.err().unwrap();
+        assert!(matches!(post_err, DBPostRemoveFileErr::HashNotFound));
+
+        let post = db.get_post(post.id.key.clone()).await.unwrap();
+        assert_eq!(post.size_bytes, 4);
+        assert_eq!(post.user.used_storage_bytes, 14);
+
+        let result = db
+            .update_post_file_remove(0, user.id.clone(), "invalid", "3")
+            .await
+            .err()
+            .unwrap();
+        assert!(matches!(result, DBPostRemoveFileErr::PostNotFound));
+    }
+
+    #[tokio::test]
     async fn db_post_add_file() {
         crate::init_test_log();
         let db = Db::new::<Mem>(()).await.unwrap();
@@ -2921,35 +3266,27 @@ mod tests {
             .unwrap();
         assert!(post.file.len() == 0);
 
-        let post = db
-            .update_post_file(
+        let add_post_file_fn = async |post: &DBUserPost, hash: &str, size: usize| {
+            db.update_post_file_add(
                 0,
                 user.id.clone(),
                 post.id.key.clone(),
-                10,
-                "hello",
+                size,
+                hash,
                 "png",
                 50,
                 50,
             )
             .await
-            .unwrap();
-        assert!(post.file.len() == 1);
+        };
 
-        let post = db
-            .update_post_file(
-                0,
-                user.id.clone(),
-                post.id.key.clone(),
-                10,
-                "hello2",
-                "png",
-                50,
-                50,
-            )
-            .await
-            .unwrap();
+        let post = add_post_file_fn(&post, "hello", 10).await.unwrap();
+        let post_err = add_post_file_fn(&post, "hello", 10).await.err().unwrap();
+        trace!("post_err {post_err:#?}");
+        assert_eq!(post.file.len(), 1);
+        assert!(matches!(post_err, DBPostAddFileErr::Duplicate(_)));
 
+        let post = add_post_file_fn(&post, "hello2", 10).await.unwrap();
         let post = db.get_post(post.id.key).await.unwrap();
 
         assert_eq!(post.file.len(), 2);
@@ -2965,8 +3302,137 @@ mod tests {
         //
     }
 
+    use test::Bencher;
+
+    #[bench]
+    fn bench_add_user(b: &mut Bencher) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let db = rt.block_on(async {
+            let db = Db::new::<Mem>(()).await.unwrap();
+            db.migrate(0).await.unwrap();
+            db
+        });
+
+        let mut index = 0_usize;
+        b.iter(|| {
+            let username = format!("hey{index}");
+            let email = format!("hey{index}@heyadora.com");
+            rt.block_on(async {
+                let _user = db.add_user(0, username, email, "123").await.unwrap();
+            });
+            index += 1;
+        });
+    }
+
+    #[tokio::test]
+    async fn security_db_update_post_file_order() {
+        crate::init_test_log();
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate(0).await.unwrap();
+        let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
+        let user2 = db.add_user(0, "hey2", "hey2@hey.com", "123").await.unwrap();
+        let post = db
+            .add_post(0, "hey", "title", "description", "", 0)
+            .await
+            .unwrap();
+        let post_err = db
+            .update_post_file_order(0, user2.id.clone(), post.id.key.clone(), 2, 0)
+            .await
+            .err()
+            .unwrap();
+        assert!(matches!(post_err, DBPostOrderFileErr::UnAuthoized));
+    }
+
+    #[tokio::test]
+    async fn db_update_post_file_order() {
+        crate::init_test_log();
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate(0).await.unwrap();
+        let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
+        let post = db
+            .add_post(0, "hey", "title", "description", "", 0)
+            .await
+            .unwrap();
+
+        let add_post_file_fn = async |post: &DBUserPost, hash: &str, size: usize| {
+            db.update_post_file_add(
+                0,
+                user.id.clone(),
+                post.id.key.clone(),
+                size,
+                hash,
+                "png",
+                50,
+                50,
+            )
+            .await
+        };
+        add_post_file_fn(&post, "0", 1).await.unwrap();
+        add_post_file_fn(&post, "1", 1).await.unwrap();
+        add_post_file_fn(&post, "2", 1).await.unwrap();
+        let post = add_post_file_fn(&post, "3", 1).await.unwrap();
+        assert_eq!(post.file.len(), 4);
+        assert_eq!(post.file[0].hash, "0");
+        assert_eq!(post.file[1].hash, "1");
+        assert_eq!(post.file[2].hash, "2");
+        assert_eq!(post.file[3].hash, "3");
+
+        let post = db
+            .update_post_file_order(0, user.id.clone(), post.id.key.clone(), 2, 0)
+            .await
+            .unwrap();
+        assert_eq!(post.file.len(), 4);
+        assert_eq!(post.file[0].hash, "2");
+        assert_eq!(post.file[1].hash, "0");
+        assert_eq!(post.file[2].hash, "1");
+        assert_eq!(post.file[3].hash, "3");
+
+        let post = db
+            .update_post_file_order(0, user.id.clone(), post.id.key.clone(), 0, 2)
+            .await
+            .unwrap();
+        assert_eq!(post.file.len(), 4);
+        assert_eq!(post.file[0].hash, "0");
+        assert_eq!(post.file[1].hash, "1");
+        assert_eq!(post.file[2].hash, "2");
+        assert_eq!(post.file[3].hash, "3");
+
+        let post = db
+            .update_post_file_order(0, user.id.clone(), post.id.key.clone(), 0, 3)
+            .await
+            .unwrap();
+        assert_eq!(post.file.len(), 4);
+        assert_eq!(post.file[0].hash, "1");
+        assert_eq!(post.file[1].hash, "2");
+        assert_eq!(post.file[2].hash, "3");
+        assert_eq!(post.file[3].hash, "0");
+
+        let post_err = db
+            .update_post_file_order(0, user.id.clone(), post.id.key.clone(), 0, 4)
+            .await
+            .err()
+            .unwrap();
+        assert!(matches!(post_err, DBPostOrderFileErr::OutOfRange { .. }));
+
+        let post_err = db
+            .update_post_file_order(0, user.id.clone(), post.id.key.clone(), 4, 0)
+            .await
+            .err()
+            .unwrap();
+        assert!(matches!(post_err, DBPostOrderFileErr::OutOfRange { .. }));
+
+        let post_err = db
+            .update_post_file_order(0, user.id.clone(), "invalid", 4, 0)
+            .await
+            .err()
+            .unwrap();
+        assert!(matches!(post_err, DBPostOrderFileErr::PostNotFound));
+    }
+
     #[tokio::test]
     async fn db_post_add() {
+        crate::init_test_log();
+
         let db = Db::new::<Mem>(()).await.unwrap();
         db.migrate(0).await.unwrap();
         let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
@@ -3058,7 +3524,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn db_user_add() {
+    async fn db_add_user_test() {
         crate::init_test_log();
         let db = Db::new::<Mem>(()).await.unwrap();
         let time = 0;

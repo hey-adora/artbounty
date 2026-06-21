@@ -1,5 +1,8 @@
 #![recursion_limit = "512"]
 #![feature(try_trait_v2)]
+#![feature(test)]
+
+extern crate test;
 
 pub mod api;
 #[cfg(feature = "ssr")]
@@ -20,9 +23,9 @@ pub fn init_test_log() {
 }
 
 pub mod valid {
-                // used_storage_bytes = 10;
-                // max_size_per_file_bytes ;
-                // max_total_storage_bytes;
+    // used_storage_bytes = 10;
+    // max_size_per_file_bytes ;
+    // max_total_storage_bytes;
     pub const MAX_STORAGE_PER_FILE: usize = 1024 * 30; // 30MB
     pub const MAX_STORAGE: usize = 1024 * 1000 * 2; // 2GB
     pub const SUPPORTED_FILE_EXTENSIONS: &[&str] = &["ico", "svg"];
@@ -34,7 +37,9 @@ pub mod valid {
 
     pub mod auth {
 
-        use crate::valid::{MAX_POST_DESCRIPTION_LENGTH, MAX_POST_TAGS_LENGTH, MAX_POST_TITLE_LENGTH};
+        use crate::valid::{
+            MAX_POST_DESCRIPTION_LENGTH, MAX_POST_TAGS_LENGTH, MAX_POST_TITLE_LENGTH,
+        };
 
         use super::Validator;
         use tracing::trace;
@@ -84,7 +89,6 @@ pub mod valid {
                 Err(errors)
             }
         }
-
 
         pub fn proccess_post_title<S: AsRef<str>>(title: S) -> Result<(), String> {
             let mut errors = String::new();

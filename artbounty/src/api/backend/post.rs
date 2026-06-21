@@ -639,12 +639,12 @@ pub async fn post_file_add(
                 max_storage_per_file
             };
 
-            if max_storage_per_file == 0 {
-                return Err(ServerErr::from(Err::MaxUserStorageReched {
-                    max: max_storage,
-                    used: used_storage,
-                }));
-            }
+            // if storage_per_file == 0 {
+            //     return Err(ServerErr::from(Err::OutOfStorage {
+            //         max: max_storage,
+            //         used: used_storage,
+            //     }));
+            // }
 
             let file_path = app.get_file_path().await;
             let stream = field.map_err(io::Error::other);
@@ -669,7 +669,7 @@ pub async fn post_file_add(
 
             let post = app
                 .db
-                .update_post_file(
+                .update_post_file_add(
                     time,
                     db_user.id.clone(),
                     post_key,
@@ -1201,6 +1201,11 @@ mod tests {
 
     #[tokio::test]
     async fn api_post_file_add_fail() {
+        const FILE1_SIZE: usize = 3606;
+        const FILE1_PATH: &str = "../assets/favicon.ico";
+        const FILE2_SIZE: usize = 513;
+        const FILE2_PATH: &str = "../assets/upload.svg";
+
         crate::init_test_log();
 
         let app = ApiTestApp::new(1).await;
@@ -1233,8 +1238,12 @@ mod tests {
             result
         };
 
-        for (max_storage, max_file_size) in [(3605, 3605), (3605, 3606), (3606, 3605)] {
-            let result = upload_fn(max_storage, max_file_size, "../assets/favicon.ico")
+        for (max_storage, max_file_size) in [
+            (FILE1_SIZE - 1, FILE1_SIZE - 1),
+            (FILE1_SIZE - 1, FILE1_SIZE),
+            (FILE1_SIZE, FILE1_SIZE - 1),
+        ] {
+            let result = upload_fn(max_storage, max_file_size, FILE1_PATH)
                 .await
                 .err()
                 .unwrap();
@@ -1249,15 +1258,41 @@ mod tests {
             ));
         }
 
-        let result = upload_fn(3606, 3606, "../assets/favicon.ico")
+        let result = upload_fn(FILE1_SIZE, FILE1_SIZE, FILE1_PATH).await.unwrap();
+
+        assert_eq!(result.user.used_storage_bytes, FILE1_SIZE);
+
+        // 513
+        let result = upload_fn(FILE1_SIZE, FILE1_SIZE, FILE1_PATH)
+            .await
+            .err()
+            .unwrap();
+
+        assert!(matches!(
+            result,
+            ServerErr::AddPostFileErr(ServerAddPostFileErr::FileTooBig {
+                file_name,
+                max,
+                got
+            })
+        ));
+
+        let result = upload_fn(FILE1_SIZE + FILE2_SIZE, FILE1_SIZE, FILE2_PATH)
             .await
             .unwrap();
 
-        assert_eq!(result.user.used_storage_bytes, 3606);
+        assert_eq!(result.user.used_storage_bytes, FILE1_SIZE + FILE2_SIZE);
+        // assert!(matches!(
+        //     result,
+        //     ServerErr::AddPostFileErr(ServerAddPostFileErr::OutOfStorage { max, used })
+        // ));
     }
 
     #[tokio::test]
     async fn api_post_file_add() {
+        const FILE1_PATH: &str = "../assets/favicon.ico";
+        const FILE2_PATH: &str = "../assets/upload.svg";
+
         crate::init_test_log();
 
         let app = ApiTestApp::new(1).await;
@@ -1274,10 +1309,7 @@ mod tests {
 
         assert_eq!(post.file.len(), 0);
 
-        let files = [
-            (45, 45, "../assets/favicon.ico"),
-            (15, 15, "../assets/upload.svg"),
-        ];
+        let files = [(45, 45, FILE1_PATH), (15, 15, FILE2_PATH)];
         for (i, (width, height, file_path)) in files.into_iter().enumerate() {
             let post = app
                 .add_post_file(0, &auth_token, post.key.clone(), file_path)
