@@ -86,10 +86,9 @@ pub mod app_state {
             }
         }
 
-        pub async fn new_testng(time: Arc<Mutex<u128>>, invite_exp_ns: u128) -> Self {
+        pub async fn new_testng_with_settings(time: Arc<Mutex<u128>>, settings: Settings) -> Self {
             let db = db::new_mem(*time.lock().await).await;
 
-            let settings = Settings::new_testing(invite_exp_ns);
             {
                 let path = std::path::Path::new(&settings.site.files_path);
                 if !path.exists() {
@@ -113,6 +112,11 @@ pub mod app_state {
             }
         }
 
+        pub async fn new_testng(time: Arc<Mutex<u128>>, invite_exp_ns: u128) -> Self {
+            let settings = Settings::new_testing(invite_exp_ns);
+            Self::new_testng_with_settings(time, settings).await
+        }
+
         pub async fn get_address(&self) -> String {
             self.settings.site.address.clone()
         }
@@ -125,6 +129,7 @@ pub mod app_state {
             self.settings.auth.secret.clone()
         }
 
+        // TODO wtf is this async bs
         pub async fn get_file_path(&self) -> String {
             self.settings.site.files_path.clone()
         }
@@ -896,6 +901,9 @@ pub enum ServerAddPostFileErr {
 
     #[error("ffmpeg err {0}")]
     ReadingResolutionErr(String),
+
+    #[error("invalid resolution {width}x{height}")]
+    InvalidResolution { width: u32, height: u32 },
 
     #[error("io error {0}")]
     IoErr(String),
@@ -2603,6 +2611,7 @@ pub mod tests {
     use tracing::{debug, error, trace};
 
     use crate::api::app_state::AppState;
+    use crate::api::settings::Settings;
     use crate::api::shared::post_comment::UserPostComment;
     use crate::api::{
         Api, ApiTest, EmailChangeErr, EmailChangeNewErr, EmailChangeStage, EmailChangeTokenErr,
@@ -2628,7 +2637,8 @@ pub mod tests {
     }
 
     impl ApiTestApp {
-        pub async fn new(invite_exp_ns: u128) -> Self {
+        // let settings = Settings::new_testing(invite_exp_ns);
+        pub async fn new_with_settings(settings: Settings) -> Self {
             let _ = tracing_subscriber::fmt()
                 .event_format(
                     tracing_subscriber::fmt::format()
@@ -2639,7 +2649,7 @@ pub mod tests {
                 .try_init();
 
             let time_mut = Arc::new(Mutex::new(0));
-            let app_state = AppState::new_testng(time_mut.clone(), invite_exp_ns).await;
+            let app_state = AppState::new_testng_with_settings(time_mut.clone(), settings).await;
             let my_app = create_api_router(app_state.clone()).with_state(app_state.clone());
             let server = TestServer::builder().http_transport().build(my_app);
             let api = ApiTest::new(server);
@@ -2648,6 +2658,17 @@ pub mod tests {
                 time: time_mut,
                 api,
             }
+        }
+        pub async fn new_with_exp_and_files(
+            invite_exp_ns: u128,
+            files_path: impl Into<String>,
+        ) -> Self {
+            let mut settings = Settings::new_testing(invite_exp_ns);
+            settings.site.files_path = files_path.into();
+            Self::new_with_settings(settings).await
+        }
+        pub async fn new(invite_exp_ns: u128) -> Self {
+            Self::new_with_settings(Settings::new_testing(invite_exp_ns)).await
         }
 
         pub async fn set_time(&self, time: u128) {
@@ -2753,89 +2774,38 @@ pub mod tests {
             auth_token: impl AsRef<str>,
             post_key: impl AsRef<str>,
             file_path: impl AsRef<str>,
-            // post_key: impl Into<String>,
-            // file_bytes: Vec<u8>,
-            // file_hash: impl Into<String>,
-            // file_png: impl Into<String>,
-            // file_width: u32,
-            // file_height: u32,
-            // description: impl Into<String>,
-            // tags: impl Into<String>,
         ) -> anyhow::Result<UserPost> {
-            // ) -> Option<UserPost> {
             let current_dir = std::env::current_dir().unwrap();
             let file_path = current_dir.join(file_path.as_ref());
             trace!("full file path {:?}", file_path);
 
-            // let file = tokio::fs::File::open(file_path).await.unwrap();
-            // let stream =
-            //     tokio_util::codec::FramedRead::new(file, tokio_util::codec::BytesCodec::new());
-            // let body = reqwest::Body::wrap_stream(stream);
-
-            // let part = reqwest::multipart::Part::file(file_path).await.unwrap();
-            // let form = reqwest::multipart::Form::new().part("data", part);
-            //
-            let form2 = reqwest::multipart::Form::new()
+            let form = reqwest::multipart::Form::new()
                 .file("key", file_path)
                 .await
                 .unwrap();
 
-            // let body = reqwest::Body::wrap_stream(form2);
-            // let send_bytes: Vec<u8> = vec![0; 100];
-
             let cookie = crate::api::create_auth_header(auth_token);
 
-            // let url = "http://localhost:3000/api/post/5idoghr47bvsajsi5izx/add_file";
-            let url2 = crate::path::link_api_post_add_file(post_key);
-            // let url2 = crate::path::link_api_post_add_file("http://localhost:3000", post_key);
-            // assert_eq!(url, url2);
-
-            let url = self.api.server.server_url(&url2).unwrap();
+            let url = crate::path::link_api_post_add_file(post_key);
+            let url = self.api.server.server_url(&url).unwrap();
             trace!("server url: {url}");
-            // let client = self.api.server.reqwest_post(&url2);
-            // let result = client
 
             let client = reqwest::Client::new();
-            // let client = reqwest::blocking::Client::new();
 
             let result = client
                 .post(url)
-                .multipart(form2)
-                // .body(body)
-                // req.set_request_header("Content-Type", "application/octet-stream")
+                .multipart(form)
                 .header(http::header::COOKIE, cookie)
                 .header("Content-Type", "application/octet-stream")
-                // .body(send_bytes)
                 .send()
                 .await
                 .unwrap()
                 .text()
                 .await
                 .unwrap();
-            // .await
-            // .unwrap();
-            // .unwrap();
 
             trace!("{result}");
             let result: Result<ServerRes, ServerErr> = serde_json::from_str(&result).unwrap();
-            // let result = rkyv::access::<
-            //     rkyv::result::ArchivedResult<
-            //         crate::api::ArchivedServerRes,
-            //         crate::api::ArchivedServerErr,
-            //     >,
-            //     rkyv::rancor::Error,
-            // >(result.as_ref())
-            // .unwrap();
-            //
-            // let result =
-            //     rkyv::deserialize::<Result<ServerRes, ServerErr>, rkyv::rancor::Error>(result)
-            //         .unwrap();
-
-            // match res {
-            //
-            // }
-            // .inspect_err(|err| error!("client failed to send {err}"))
-            // .map_err(|err| ServerErr::from(ClientErr::ClientSendErr(err.to_string())));
 
             match result {
                 Ok(crate::api::ServerRes::Post(post)) => Ok(post),

@@ -505,7 +505,8 @@ where
     SaveFileErr: From<StreamErr>, // S::Item: Error + Try,
 {
     use rand::distr::SampleString;
-    let tmp_name = rand::distr::Alphanumeric.sample_string(&mut rand::rng(), 16);
+    let mut tmp_name = rand::distr::Alphanumeric.sample_string(&mut rand::rng(), 16);
+    tmp_name.push_str("_upload");
     let file_path_tmp = Path::new("/tmp/").join(&tmp_name).with_extension(".part");
     // extension.as_ref()
     let file = File::create(&file_path_tmp).await?;
@@ -542,6 +543,7 @@ where
             tokio::fs::remove_file(file_path_tmp).await?;
         } else {
             trace!("file moved");
+            // TODO remove file on any error
             tokio::fs::rename(&file_path_tmp, &file_path)
                 .await
                 .inspect_err(|err| {
@@ -576,7 +578,11 @@ pub async fn get_img_resolution(img_path: impl AsRef<str>) -> anyhow::Result<(u3
         img_path.as_ref(),
     ]);
     let result = command.output().await?;
-
+    // TODO does NOTHING
+    let code = result.status.code().unwrap_or(-1);
+    if code != 0 {
+        return Err(anyhow!("getting resolution failed"));
+    }
     let result = String::from_utf8(result.stdout)?;
     let result = result.trim();
     trace!("command output {result}");
@@ -584,14 +590,10 @@ pub async fn get_img_resolution(img_path: impl AsRef<str>) -> anyhow::Result<(u3
     resolution_from_str(result)
 }
 
-//params: RawPathParams,
-// pub async fn post_file_add(body: Body) -> impl IntoResponse {
-// ) -> Result<ServerRes, ServerErr> {
-pub async fn post_file_add(
+pub async fn add_post_file(
     State(app): State<AppState>,
     params: axum::extract::RawPathParams,
     db_user: Extension<DBUser>,
-    // body: Body,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
     type Err = ServerAddPostFileErr;
@@ -663,13 +665,27 @@ pub async fn post_file_add(
                     SaveFileErr::StreamErr(err) => ServerErr::from(Err::StreamErr(err.to_string())),
                 })?;
 
-            let (width, height) = get_img_resolution(file.saved_path.to_str().unwrap())
-                .await
-                .map_err(|err| ServerErr::from(Err::ReadingResolutionErr(err.to_string())))?;
+            let result = get_img_resolution(file.saved_path.to_str().unwrap()).await;
+            let (width, height) = match result {
+                Ok(v) => v,
+                Err(err) => {
+                    tokio::fs::remove_file(&file.saved_path)
+                        .await
+                        .map_err(|err| ServerErr::from(Err::IoErr(err.to_string())))?;
+                    return Err(ServerErr::from(Err::ReadingResolutionErr(err.to_string())));
+                }
+            };
 
-            let post = app
+            if width == 0 || height == 0 {
+                tokio::fs::remove_file(&file.saved_path)
+                    .await
+                    .map_err(|err| ServerErr::from(Err::IoErr(err.to_string())))?;
+                return Err(ServerErr::from(Err::InvalidResolution { width, height }));
+            }
+
+            let result = app
                 .db
-                .update_post_file_add(
+                .add_post_file(
                     time,
                     db_user.id.clone(),
                     post_key,
@@ -679,8 +695,17 @@ pub async fn post_file_add(
                     width,
                     height,
                 )
-                .await
-                .map_err(|v| ServerErr::DbErr)?;
+                .await;
+            let post = match result {
+                Ok(v) => v,
+                Err(_err) => {
+                    tokio::fs::remove_file(&file.saved_path)
+                        .await
+                        .map_err(|err| ServerErr::from(Err::IoErr(err.to_string())))?;
+                    return Err(ServerErr::DbErr);
+                }
+            };
+            // .map_err(|v| ServerErr::DbErr)?;
 
             used_storage = post.user.used_storage_bytes;
 
@@ -697,6 +722,7 @@ pub async fn post_file_add(
         Ok(ServerRes::Post(post.into()))
     };
     let result = inner().await;
+
     Json(result)
     // Ok(ServerRes::Ok)
     // "done"
@@ -1042,6 +1068,7 @@ mod tests {
     use axum::Router;
     use bytes::Bytes;
     use futures::StreamExt;
+    use std::ffi::OsStr;
     use std::hash::{DefaultHasher, Hasher};
     use std::path::Path;
     use std::pin::pin;
@@ -1065,9 +1092,9 @@ mod tests {
         ServerLoginErr, ServerRegistrationErr, ServerReqImg, ServerRes, ServerSendInviteErr,
         TimeRange, UserPost,
     };
-    use crate::db::DB404Err;
     use crate::db::email_change::create_email_change_id;
     use crate::db::post_comment::DBPostComment;
+    use crate::db::{DB404Err, to_post_file_path, to_post_thumbnail_path};
     use crate::db::{DBEmailIsTakenErr, DBUser, email_change::DBEmailChange};
     use crate::server::create_api_router;
 
@@ -1200,15 +1227,68 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn api_post_file_add_fail() {
+    async fn api_add_post_file_invalid() {
+        const FILE_PATH: &str = "../flake.nix";
+        const TMP_PATH: &str = "/tmp/flake.svg";
+        const FILES_PATH: &str = "/tmp/api_add_post_file_invalid";
+
+        crate::init_test_log();
+        tokio::fs::copy(FILE_PATH, TMP_PATH).await.unwrap();
+
+        let app = ApiTestApp::new_with_exp_and_files(1, FILES_PATH).await;
+
+        let file1_hash = get_file_hash_for_testing(TMP_PATH).await;
+        let output_path = app.state.get_file_path().await;
+
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+
+        let user = app.state.db.get_user_by_username("hey").await.unwrap();
+
+        let post = app
+            .add_post(0, &auth_token, "title1", "cat", "one")
+            .await
+            .unwrap();
+
+        let result = app
+            .add_post_file(0, &auth_token, post.key.clone(), TMP_PATH)
+            .await
+            .map_err(|err| err.downcast::<ServerErr>().unwrap())
+            .err()
+            .unwrap();
+        assert!(matches!(
+            result,
+            ServerErr::AddPostFileErr(_) // ServerErr::AddPostFileErr(ServerAddPostFileErr::ReadingResolutionErr(_))
+        ));
+
+        let file_path = to_post_file_path(&file1_hash, "svg", &output_path);
+        let thumbnail_path = to_post_thumbnail_path(&file1_hash, &output_path);
+
+        assert!(!thumbnail_path.exists());
+        assert!(!file_path.exists());
+        // assert_eq!("a", path.to_str().unwrap());
+    }
+
+    #[tokio::test]
+    async fn api_add_post_file_fail() {
         const FILE1_SIZE: usize = 3606;
         const FILE1_PATH: &str = "../assets/favicon.ico";
         const FILE2_SIZE: usize = 513;
         const FILE2_PATH: &str = "../assets/upload.svg";
+        const FILES_PATH: &str = "/tmp/api_add_post_file_fail";
 
         crate::init_test_log();
 
-        let app = ApiTestApp::new(1).await;
+        let app = ApiTestApp::new_with_exp_and_files(1, FILES_PATH).await;
+
+        let output_path = app.state.get_file_path().await;
+        let file1_hash = get_file_hash_for_testing(FILE1_PATH).await;
+        let file1_path = to_post_file_path(&file1_hash, "ico", &output_path);
+        let file1_thumbnail_path = to_post_thumbnail_path(&file1_hash, &output_path);
+        let file2_hash = get_file_hash_for_testing(FILE2_PATH).await;
+        let file2_path = to_post_file_path(&file2_hash, "svg", &output_path);
 
         let auth_token = app
             .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
@@ -1248,6 +1328,10 @@ mod tests {
                 .err()
                 .unwrap();
 
+            assert!(!file1_thumbnail_path.exists());
+            assert!(!file1_path.exists());
+            // assert_eq!("a", path.to_str().unwrap());
+
             assert!(matches!(
                 result,
                 ServerErr::AddPostFileErr(ServerAddPostFileErr::FileTooBig {
@@ -1260,9 +1344,11 @@ mod tests {
 
         let result = upload_fn(FILE1_SIZE, FILE1_SIZE, FILE1_PATH).await.unwrap();
 
+        assert!(!file1_thumbnail_path.exists());
+        assert!(file1_path.exists());
+
         assert_eq!(result.user.used_storage_bytes, FILE1_SIZE);
 
-        // 513
         let result = upload_fn(FILE1_SIZE, FILE1_SIZE, FILE1_PATH)
             .await
             .err()
@@ -1282,20 +1368,37 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.user.used_storage_bytes, FILE1_SIZE + FILE2_SIZE);
+
+        tokio::fs::remove_file(file1_path).await.unwrap();
+        tokio::fs::remove_file(file2_path).await.unwrap();
+
         // assert!(matches!(
         //     result,
         //     ServerErr::AddPostFileErr(ServerAddPostFileErr::OutOfStorage { max, used })
         // ));
     }
 
+    pub async fn get_file_hash_for_testing(file_path: impl AsRef<OsStr>) -> String {
+        let file = tokio::fs::read(file_path.as_ref()).await.unwrap();
+        let mut hasher = DefaultHasher::new();
+        hasher.write(&file);
+        hasher.finish().to_string()
+    }
+
     #[tokio::test]
-    async fn api_post_file_add() {
+    async fn test_add_post_file() {
         const FILE1_PATH: &str = "../assets/favicon.ico";
         const FILE2_PATH: &str = "../assets/upload.svg";
+        const FILES_PATH: &str = "/tmp/test_add_post_file";
 
         crate::init_test_log();
 
-        let app = ApiTestApp::new(1).await;
+        let app = ApiTestApp::new_with_exp_and_files(1, FILES_PATH).await;
+        // let output_path = app.state.get_file_path().await;
+        // let file1_hash = get_file_hash_for_testing(FILE1_PATH).await;
+        // let file1_path = to_post_file_path(&file1_hash, "ico", &output_path);
+        // let file2_hash = get_file_hash_for_testing(FILE2_PATH).await;
+        // let file2_path = to_post_file_path(&file2_hash, "svg", &output_path);
 
         let auth_token = app
             .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
@@ -1334,7 +1437,7 @@ mod tests {
                 let file_path = Path::new(&app.state.settings.site.files_path)
                     .join(hash)
                     .with_extension(extension);
-                let file = tokio::fs::read(file_path).await.unwrap();
+                let file = tokio::fs::read(&file_path).await.unwrap();
 
                 let mut hasher = DefaultHasher::new();
                 hasher.write(&file);
@@ -1342,6 +1445,7 @@ mod tests {
 
                 assert_eq!(post.file[i].size_bytes, file.len());
                 assert_eq!(post.file[i].hash, hash);
+                tokio::fs::remove_file(file_path).await.unwrap();
             }
         }
     }

@@ -243,6 +243,55 @@ pub struct DBUserPostFile {
     pub height: u32,
 }
 
+impl DBUserPostFile {
+    pub fn to_file_path(&self, directory_path: impl AsRef<str>) -> std::path::PathBuf {
+        to_post_file_path(&self.hash, &self.extension, directory_path.as_ref())
+    }
+
+    pub fn to_thumbnail_path(&self, directory_path: impl AsRef<str>) -> std::path::PathBuf {
+        to_post_thumbnail_path(&self.hash, directory_path.as_ref())
+    }
+}
+
+pub fn to_post_file_path(hash: &str, extension: &str, directory_path: &str) -> std::path::PathBuf {
+    let org_path = std::path::Path::new(directory_path);
+    org_path.join(hash).with_extension(extension)
+}
+
+pub fn to_post_thumbnail_path(hash: &str, directory_path: &str) -> std::path::PathBuf {
+    let thumnail_name = crate::api::backend::to_thumbnail_file_name(hash);
+    let org_path = std::path::Path::new(directory_path);
+    org_path.join(&thumnail_name)
+}
+
+#[test]
+fn test_to_file_path() {
+    let file = DBUserPostFile {
+        proccesed: false,
+        extension: String::from("webp"),
+        hash: String::from("one"),
+        size_bytes: 1,
+        width: 10,
+        height: 10,
+    };
+    let path = file.to_file_path("/tmp/");
+    assert_eq!("/tmp/one.webp", path.to_str().unwrap());
+}
+
+#[test]
+fn test_to_thumbnail_path() {
+    let file = DBUserPostFile {
+        proccesed: false,
+        extension: String::from("webp"),
+        hash: String::from("one"),
+        size_bytes: 1,
+        width: 10,
+        height: 10,
+    };
+    let path = file.to_thumbnail_path("/tmp/");
+    assert_eq!("/tmp/one_thumbnail_default.webp", path.to_str().unwrap());
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, SurrealValue)]
 pub struct DBSentEmail {
     pub id: RecordId,
@@ -1683,7 +1732,7 @@ pub mod post {
                 .and_then_take_or(11, DBPostOrderFileErr::PostNotFound)
         }
 
-        pub async fn update_post_file_add(
+        pub async fn add_post_file(
             &self,
             time: u128,
             user_id: RecordId,
@@ -1763,7 +1812,50 @@ pub mod post {
             // .and_then_take_expect(2)
         }
 
-        pub async fn update_post_file_remove(
+        pub async fn update_post_file_proccesed(
+            &self,
+            post_id: RecordId,
+            file_hash: impl Into<String>,
+        ) -> Result<DBUserPost, DB404Err> {
+            let query = r#"
+                        UPDATE $post_id SET file = file.map(|$v| {
+                          IF $v.hash = $file_hash {
+                              {
+                                proccesed: true,
+                                extension: $v.extension,
+                                hash: $v.hash,
+                                size_bytes: $v.size_bytes,
+                                width: $v.width,
+                                height: $v.height,
+                              }
+                           } ELSE { $v }
+                        }) RETURN *, user.*;
+                    "#;
+            trace!("about to run {query}");
+
+            self.db
+                .query(query)
+                .bind(("post_id", post_id))
+                .bind(("file_hash", file_hash.into()))
+                .await
+                .check_good(DB404Err::from)
+                .and_then_take_or(0, DB404Err::NotFound)
+        }
+
+        pub async fn get_post_unproccesed(&self) -> Result<Vec<DBUserPost>, surrealdb::Error> {
+            let query = r#"
+                        SELECT *, user.* FROM post WHERE file.proccesed CONTAINS false ORDER BY created_at ASC;
+                    "#;
+            trace!("about to run {query}");
+
+            self.db
+                .query(query)
+                .await
+                .check_good(surrealdb::Error::from)
+                .and_then_take_all(0)
+        }
+
+        pub async fn remove_post_file(
             &self,
             time: u128,
             user_id: RecordId,
@@ -3193,7 +3285,7 @@ mod tests {
             .unwrap();
 
         let add_file_fn = async |post: &DBUserPost, hash: &str, size: usize| {
-            db.update_post_file_add(
+            db.add_post_file(
                 0,
                 user.id.clone(),
                 post.id.key.clone(),
@@ -3208,7 +3300,7 @@ mod tests {
         };
 
         let remove_file_fn = async |post: &DBUserPost, hash: &str| {
-            db.update_post_file_remove(0, user.id.clone(), post.id.key.clone(), hash)
+            db.remove_post_file(0, user.id.clone(), post.id.key.clone(), hash)
                 .await
         };
 
@@ -3246,11 +3338,103 @@ mod tests {
         assert_eq!(post.user.used_storage_bytes, 14);
 
         let result = db
-            .update_post_file_remove(0, user.id.clone(), "invalid", "3")
+            .remove_post_file(0, user.id.clone(), "invalid", "3")
             .await
             .err()
             .unwrap();
         assert!(matches!(result, DBPostRemoveFileErr::PostNotFound));
+    }
+
+    #[tokio::test]
+    async fn db_update_post_file_proccesed() {
+        crate::init_test_log();
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate(0).await.unwrap();
+        let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
+
+        let post = db
+            .add_post(0, "hey", "title", "description", "", 0)
+            .await
+            .unwrap();
+        let post2 = db
+            .add_post(1, "hey", "title2", "description", "", 0)
+            .await
+            .unwrap();
+
+        assert!(post.file.len() == 0);
+
+        let add_post_file_fn = async |post: &DBUserPost, hash: &str, size: usize| {
+            db.add_post_file(
+                2,
+                user.id.clone(),
+                post.id.key.clone(),
+                size,
+                hash,
+                "png",
+                50,
+                50,
+            )
+            .await
+        };
+        let post = add_post_file_fn(&post, "1", 1).await.unwrap();
+        let post = add_post_file_fn(&post, "2", 1).await.unwrap();
+        let post2 = add_post_file_fn(&post2, "1", 1).await.unwrap();
+        let post = db
+            .update_post_file_proccesed(post.id.clone(), "1")
+            .await
+            .unwrap();
+
+        let posts = db.get_post_unproccesed().await.unwrap();
+        assert_eq!(posts.len(), 2);
+        assert_eq!(posts[0].file.len(), 2);
+        assert_eq!(posts[0].file[0].hash, "1");
+        assert_eq!(posts[0].file[0].proccesed, true);
+        assert_eq!(posts[0].file[1].hash, "2");
+        assert_eq!(posts[0].file[1].proccesed, false);
+        assert_eq!(posts[1].file.len(), 1);
+        assert_eq!(posts[1].file[0].hash, "1");
+        assert_eq!(posts[1].file[0].proccesed, false);
+    }
+
+    #[tokio::test]
+    async fn db_get_post_unproccesed() {
+        crate::init_test_log();
+        let db = Db::new::<Mem>(()).await.unwrap();
+        db.migrate(0).await.unwrap();
+        let user = db.add_user(0, "hey", "hey@hey.com", "123").await.unwrap();
+
+        let post = db
+            .add_post(0, "hey", "title", "description", "", 0)
+            .await
+            .unwrap();
+        let post2 = db
+            .add_post(0, "hey", "title2", "description", "", 0)
+            .await
+            .unwrap();
+        let post3 = db
+            .add_post(0, "hey", "title3", "description", "", 0)
+            .await
+            .unwrap();
+        assert!(post.file.len() == 0);
+        let add_post_file_fn = async |post: &DBUserPost, hash: &str, size: usize| {
+            db.add_post_file(
+                0,
+                user.id.clone(),
+                post.id.key.clone(),
+                size,
+                hash,
+                "png",
+                50,
+                50,
+            )
+            .await
+        };
+        let post = add_post_file_fn(&post, "1", 1).await.unwrap();
+        let post = add_post_file_fn(&post, "2", 1).await.unwrap();
+        let post = add_post_file_fn(&post2, "1", 1).await.unwrap();
+
+        let posts = db.get_post_unproccesed().await.unwrap();
+        assert_eq!(posts.len(), 2);
     }
 
     #[tokio::test]
@@ -3267,7 +3451,7 @@ mod tests {
         assert!(post.file.len() == 0);
 
         let add_post_file_fn = async |post: &DBUserPost, hash: &str, size: usize| {
-            db.update_post_file_add(
+            db.add_post_file(
                 0,
                 user.id.clone(),
                 post.id.key.clone(),
@@ -3355,7 +3539,7 @@ mod tests {
             .unwrap();
 
         let add_post_file_fn = async |post: &DBUserPost, hash: &str, size: usize| {
-            db.update_post_file_add(
+            db.add_post_file(
                 0,
                 user.id.clone(),
                 post.id.key.clone(),

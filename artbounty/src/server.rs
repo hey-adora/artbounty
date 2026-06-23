@@ -209,7 +209,7 @@ pub fn create_api_router(
         .route(
             path::PATH_API_POST_FILE_ADD,
             // "/test_upload_big_file",
-            post(api::backend::post::post_file_add),
+            post(api::backend::post::add_post_file),
         )
         .layer(DefaultBodyLimit::max(1024 * 1000_000_000))
         .route_layer(middleware::from_fn_with_state(

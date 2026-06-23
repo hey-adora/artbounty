@@ -1,4 +1,5 @@
 #![recursion_limit = "512"]
+#![feature(exit_status_error)]
 #![feature(try_trait_v2)]
 #![feature(test)]
 
