@@ -3080,6 +3080,7 @@ mod tests {
     use std::time::Duration;
 
     use surrealdb::{engine::local::Mem, types::ToSql};
+    use tokio::io::AsyncWriteExt;
     use tracing::trace;
 
     use crate::{
@@ -3487,6 +3488,26 @@ mod tests {
     }
 
     use test::Bencher;
+
+    #[bench]
+    fn bench_file_add_user(b: &mut Bencher) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut file = rt.block_on(async {
+            let file = tokio::fs::File::create("/tmp/bench_file_add_user.txt")
+                .await
+                .unwrap();
+            file
+        });
+
+        let mut index = 0_usize;
+        b.iter(|| {
+            rt.block_on(async {
+                let user = format!("user hey{index} hey{index}@heyadora.com");
+                file.write(&user.into_bytes()).await.unwrap();
+            });
+            index += 1;
+        });
+    }
 
     #[bench]
     fn bench_add_user(b: &mut Bencher) {

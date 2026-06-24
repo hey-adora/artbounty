@@ -3,6 +3,7 @@
 // but client is on old version
 // wrong input
 
+use crate::valid::MAX_POST_COMMENT_LENGTH;
 use crate::valid::MAX_POST_DESCRIPTION_LENGTH;
 use crate::valid::MAX_POST_TAGS_LENGTH;
 use crate::valid::MAX_POST_TITLE_LENGTH;
@@ -668,6 +669,12 @@ pub enum ServerErr {
     #[error("update post err {0}")]
     UpdatePostDescriptionErr(#[from] ServerUpdatePostDescriptionErr),
 
+    #[error("add psot comment err {0}")]
+    AddPostCommentErr(#[from] AddPostCommentErr),
+
+    #[error("update psot comment err {0}")]
+    UpdatePostCommentErr(#[from] UpdatePostCommentErr),
+
     #[error("registration err {0}")]
     RegistrationErr(#[from] ServerRegistrationErr),
 
@@ -823,6 +830,44 @@ pub enum ServerUpdatePostDescriptionErr {
 
     #[error("description cant be longer than {MAX_POST_DESCRIPTION_LENGTH}")]
     TooLong,
+}
+
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub enum UpdatePostCommentErr {
+    #[error("post not found")]
+    NotFound,
+
+    #[error("invalid text {0}")]
+    InvalidText(String),
+}
+
+#[derive(
+    Error,
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub enum AddPostCommentErr {
+    #[error("post not found")]
+    NotFound,
+
+    #[error("invalid text {0}")]
+    InvalidText(String),
 }
 
 #[derive(

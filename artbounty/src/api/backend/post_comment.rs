@@ -1,15 +1,17 @@
 use crate::api::app_state::AppState;
 use crate::api::shared::post_comment::{PostCommentErrResolver, UserPostComment};
 use crate::api::{
-    AuthToken, ChangeUsernameErr, EmailChangeErr, EmailChangeNewErr, EmailChangeStage,
-    EmailChangeTokenErr, Server404Err, ServerAddPostErr, ServerAuthErr, ServerDecodeInviteErr,
-    ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerLoginErr, ServerRegistrationErr,
-    ServerReq, ServerRes, ServerTokenErr, User, UserPost, UserPostFile, auth_token_get,
-    hash_password, verify_password,
+    AddPostCommentErr, AuthToken, ChangeUsernameErr, EmailChangeErr, EmailChangeNewErr,
+    EmailChangeStage, EmailChangeTokenErr, Server404Err, ServerAddPostErr, ServerAuthErr,
+    ServerDecodeInviteErr, ServerDesErr, ServerErr, ServerErrImg, ServerErrImgMeta, ServerLoginErr,
+    ServerRegistrationErr, ServerReq, ServerRes, ServerTokenErr, UpdatePostCommentErr, User,
+    UserPost, UserPostFile, auth_token_get, hash_password, verify_password,
 };
 use crate::db::DB404Err;
 use crate::db::{AddUserErr, DBPostCommentErr, DBUser};
-use crate::valid::auth::{proccess_password, proccess_username};
+use crate::valid::auth::{
+    proccess_password, proccess_post_comment, proccess_post_description, proccess_username,
+};
 use axum::Extension;
 use axum::extract::State;
 // use axum_extra::extract::CookieJar;
@@ -22,13 +24,16 @@ pub async fn update_post_comment(
     db_user: Extension<DBUser>,
     req: ServerReq,
 ) -> Result<ServerRes, ServerErr> {
-    type ResErr = Server404Err;
+    type ResErr = UpdatePostCommentErr;
     //
     let ServerReq::UpdatePostComment { comment_key, text } = req else {
         return Err(ServerErr::from(ServerDesErr::ServerWrongInput(format!(
             "update_post_comment expected UpdatePostComment, received: {req:?}"
         ))));
     };
+    let text = text.trim();
+
+    proccess_post_comment(text).map_err(|v| ResErr::InvalidText(v))?;
     let time = app.time().await;
 
     let comment = app
@@ -52,7 +57,7 @@ pub async fn add_post_comment(
     db_user: Extension<DBUser>,
     req: ServerReq,
 ) -> Result<ServerRes, ServerErr> {
-    type ResErr = Server404Err;
+    type ResErr = AddPostCommentErr;
     //
     let ServerReq::AddPostComment {
         post_key,
@@ -64,6 +69,8 @@ pub async fn add_post_comment(
             "add_post_comment expected AddPostComment, received: {req:?}"
         ))));
     };
+    let text = text.trim();
+    proccess_post_comment(text).map_err(|v| ResErr::InvalidText(v))?;
     let time = app.time().await;
 
     let comment = app
@@ -158,7 +165,8 @@ pub async fn delete_post_comment(
 #[cfg(test)]
 mod tests {
     use crate::api::{
-        Api, Order, ServerRes, TimeRange, shared::post_comment::UserPostComment, tests::ApiTestApp,
+        AddPostCommentErr, Api, Order, ServerErr, ServerRes, TimeRange, UpdatePostCommentErr,
+        shared::post_comment::UserPostComment, tests::ApiTestApp,
     };
     use surrealdb::types::ToSql;
     use tracing::{debug, error, trace};
@@ -171,7 +179,7 @@ mod tests {
             auth_token: impl AsRef<str>,
             comment_key: impl Into<String>,
             text: impl Into<String>,
-        ) -> Option<UserPostComment> {
+        ) -> Result<UserPostComment, UpdatePostCommentErr> {
             self.set_time(server_time).await;
             let result = self
                 .api
@@ -179,11 +187,18 @@ mod tests {
                 .send_native_with_token(auth_token)
                 .await;
 
-            let Ok(ServerRes::Comment(comment)) = result else {
-                return None;
-            };
-
-            Some(comment)
+            match result {
+                Ok(ServerRes::Comment(v)) => Ok(v),
+                Ok(v) => {
+                    panic!("fix code, invalid response, expected UserPostComment, got {v:?}");
+                }
+                Err(ServerErr::UpdatePostCommentErr(err)) => {
+                    return Err(err);
+                }
+                Err(err) => {
+                    panic!("fix code, invalid error, expected UpdatePostCommentErr, got {err:?}");
+                }
+            }
         }
 
         pub async fn add_post_comment(
@@ -193,7 +208,7 @@ mod tests {
             post_key: impl Into<String>,
             comment_key: Option<String>,
             text: impl Into<String>,
-        ) -> Option<UserPostComment> {
+        ) -> Result<UserPostComment, AddPostCommentErr> {
             self.set_time(server_time).await;
             let result = self
                 .api
@@ -201,11 +216,18 @@ mod tests {
                 .send_native_with_token(auth_token)
                 .await;
 
-            let Ok(ServerRes::Comment(comment)) = result else {
-                return None;
-            };
-
-            Some(comment)
+            match result {
+                Ok(ServerRes::Comment(v)) => Ok(v),
+                Ok(v) => {
+                    panic!("fix code, invalid response, expected UserPostComment, got {v:?}");
+                }
+                Err(ServerErr::AddPostCommentErr(err)) => {
+                    return Err(err);
+                }
+                Err(err) => {
+                    panic!("fix code, invalid error, expected AddPostCommentErr, got {err:?}");
+                }
+            }
         }
 
         pub async fn get_post_comments(
@@ -262,6 +284,13 @@ mod tests {
 
         assert_eq!(comment.text, "wowza1");
 
+        let result = app
+            .add_post_comment(0, &auth_token, post.key.clone(), None, "".to_string())
+            .await
+            .err()
+            .unwrap();
+        assert!(matches!(result, AddPostCommentErr::InvalidText(_)));
+
         let comment = app
             .update_post_comment(0, &auth_token, comment.key.clone(), "wowza2")
             .await
@@ -282,7 +311,7 @@ mod tests {
             .update_post_comment(0, &auth_token2, comment.id.key.to_sql(), "wowza3")
             .await;
 
-        assert!(comment.is_none());
+        assert!(comment.is_err());
     }
 
     #[tokio::test]
@@ -306,6 +335,13 @@ mod tests {
             .add_post_comment(0, &auth_token, post.key.clone(), None, "wowza".to_string())
             .await
             .unwrap();
+
+        let result = app
+            .add_post_comment(0, &auth_token, post.key.clone(), None, "".to_string())
+            .await
+            .err()
+            .unwrap();
+        assert!(matches!(result, AddPostCommentErr::InvalidText(_)));
 
         let comment = app
             .add_post_comment(1, &auth_token, post.key.clone(), None, "wowza2".to_string())

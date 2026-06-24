@@ -5,6 +5,7 @@ use crate::api::{Api, ApiWeb, Server404Err, ServerErr};
 use crate::path::{PATH_LOGIN, link_home, link_img, link_user};
 use crate::valid::MAX_POST_DESCRIPTION_LENGTH;
 use crate::view::app::GlobalState;
+use crate::view::app::components::btn_primary::BtnPrimary;
 use crate::view::app::components::nav::Nav;
 use crate::view::app::hook::api_post::PostApi;
 use crate::view::app::hook::api_post_comments::{
@@ -106,8 +107,7 @@ pub fn Page() -> impl IntoView {
     let comment_container_ref = NodeRef::<html::Div>::new();
     let comment_input_ref = NodeRef::<html::Textarea>::new();
     let comment_basic = CommentsBaisc::new(api_comments, spawner_post);
-    let post_comment = move |e: SubmitEvent| {
-        e.prevent_default();
+    let post_comment = move || {
         let Some(input_elm) = comment_input_ref.get() else {
             return;
         };
@@ -350,8 +350,8 @@ pub fn Page() -> impl IntoView {
                 let state = post_api.post_state.get();
                 state.is_normal() || state.is_loading()
             } >
-                <div class=move || format!("flex flex-col lg:grid grid-cols-[2fr_1fr] grid-cols-[2fr_1fr] lg:max-h-[calc(100vh-3rem)] gap-2 px-4 md:gap-6 md:px-6 flex")>
-                    <div class="col-span-2 flex justify-between">
+                <div class=move || format!("flex flex-col lg:grid grid-cols-[2fr_1fr] grid-cols-[2fr_1fr] lg:max-h-[calc(100vh-3rem)] gap-2  md:gap-6 flex")>
+                    <div class="col-span-2 flex justify-between px-4 md:px-6 ">
                         <div></div>
                         <div>
                             <button on:click=delete_post>
@@ -365,7 +365,7 @@ pub fn Page() -> impl IntoView {
                     <div class="hidden lg:flex flex-col gap-2 lg:overflow-y-scroll" >
                         { imgs }
                     </div>
-                    <div class="flex flex-col gap-2 md:gap-6 lg:overflow-y-scroll">
+                    <div class="flex flex-col gap-2 md:gap-6 px-4 md:px-6  lg:overflow-y-scroll">
                         <div class="flex justify-start gap-2 flex flex-wrap">
                             { previews }
                         </div>
@@ -536,16 +536,18 @@ pub fn Page() -> impl IntoView {
                                 </div>
                             </div>
                             // <form class=move || format!("flex bg-base01 rounded-xl flex-col gap-2 py-2 px-4 {}", if global_state.is_logged_in().unwrap_or_default()  { "" } else { "hidden" }) on:submit=post_comments.on_comment.to_fn() >
-                            <form class=move || format!("flex bg-base01 rounded-xl flex-col gap-1 py-2 px-4 {}", if global_state.is_logged_in().unwrap_or_default()  { "" } else { "hidden" })  on:submit=post_comment>
+                            <div class=move || format!("flex bg-base01 rounded-xl flex-col gap-1 py-2 px-4 {}", if global_state.is_logged_in().unwrap_or_default()  { "" } else { "hidden" }) >
                                 <textarea placeholder="Comment" node_ref=comment_input_ref class="focus:outline-none! appearance-none border-none resize text-[1.1rem]" id="story" name="story" rows="3" cols="5" ></textarea>
                                 <ul class="text-base08 list-disc ml-[1rem]">
                                     {move || comment_basic.err_post.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                 </ul>
                                 <div class="flex justify-between place-items-center">
                                     <p class="text-[1rem]">"0/2000"</p>
-                                    <input type="submit" value="Post" class="ml-auto rounded-full font-medium text-[1rem] font-bold px-[0.8rem] py-[0.2rem] hover:bg-base05 bg-base0D text-base01"/>
+                                    <BtnPrimary on_click=move |_| post_comment()>
+                                        "Post"
+                                    </BtnPrimary>
                                 </div>
-                            </form>
+                            </div>
 
                             <div class="flex flex-col gap-2">
                                 <div node_ref=comment_container_ref class=" flex flex-col gap-2 relative 0h-[20rem] 0overflow-y-scroll">

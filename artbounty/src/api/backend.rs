@@ -208,21 +208,18 @@ async fn test_proccess_post_file() {
 
 pub async fn proccess_post_files(
     db: DbEngine,
-    input_path: impl AsRef<str>,
-    output_path: impl AsRef<str>,
+    files_path: impl AsRef<str>,
     resolution_limit: u32,
 ) -> Result<(), anyhow::Error> {
     let posts = db.get_post_unproccesed().await.unwrap();
     for post in posts {
         for file in &post.file {
-            let file_path = file.to_file_path(&input_path);
+            let file_path = file.to_file_path(&files_path);
             let result =
                 proccess_post_file(&file_path, file.width, file.height, resolution_limit).await?;
+            info!("proccesed {:?}", result.path);
             db.update_post_file_proccesed(post.id.clone(), &file.hash)
                 .await?;
-            // trace!("file path: {file_path:?}");
-            // assert!(file_path.exists());
-            // assert_eq!(file.proccesed, false);
         }
     }
     Ok(())
@@ -234,14 +231,8 @@ async fn test_proccess_post_files() {
     crate::init_test_log();
     const FILES_PATH: &str = "/tmp/test_proccess_post_files";
     let app = crate::api::tests::ApiTestApp::new_with_exp_and_files(1, FILES_PATH).await;
-    // let app = crate::api::tests::ApiTestApp::new(1).await;
     let img_path = "../assets/upload.svg";
-    let tmp_path = "/tmp/test_proccess_post_files.svg";
-    let tmp_input = "/tmp";
-    let tmp_output = "/tmp/";
-    tokio::fs::copy(img_path, tmp_path).await.unwrap();
 
-    // file upload by user
     {
         let auth_token = app
             .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
@@ -262,7 +253,7 @@ async fn test_proccess_post_files() {
     }
 
     {
-        proccess_post_files(app.state.db.clone(), tmp_input, tmp_output, 1280)
+        proccess_post_files(app.state.db.clone(), FILES_PATH, 1280)
             .await
             .unwrap();
     }
@@ -272,8 +263,8 @@ async fn test_proccess_post_files() {
 
         for post in posts {
             for file in post.file {
-                let file_path = file.to_file_path(tmp_output);
-                let thumbnail_path = file.to_thumbnail_path(tmp_output);
+                let file_path = file.to_file_path(FILES_PATH);
+                let thumbnail_path = file.to_thumbnail_path(FILES_PATH);
 
                 assert_eq!(file.proccesed, true);
                 assert!(file_path.exists());
@@ -283,20 +274,7 @@ async fn test_proccess_post_files() {
             }
         }
     }
-
-    // tokio::fs::remove_file(output.path).await.unwrap();
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use crate::api::backend::proccess_post_file;
-
-//     #[tokio::test]
-//     pub async fn test_proccess_post_file() {
-//         crate::init_test_log();
-//         // proccess_post_file("../assets/upload.svg").await.unwrap();
-//     }
-// }
 
 pub async fn get_user(
     State(app_state): State<AppState>,

@@ -4,7 +4,7 @@ members = ["artbounty", "artbounty-seed"]
 
 [workspace.dependencies]
 # chromiumoxide = "0.9.1"
-leptos = { version = "0.8.17", features = [] }
+leptos = { version = "0.8.17", features = ["nightly"] }
 leptos_router = { version = "0.8.12" }
 leptos_axum = { version = "0.8.8" }
 leptos_meta = { version = "0.8.6" }

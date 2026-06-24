@@ -1,8 +1,8 @@
 #![recursion_limit = "512"]
-#![feature(exit_status_error)]
 #![feature(try_trait_v2)]
 #![feature(test)]
 
+#[cfg(feature = "ssr")]
 extern crate test;
 
 pub mod api;
@@ -31,6 +31,7 @@ pub mod valid {
     pub const MAX_STORAGE: usize = 1024 * 1000 * 2; // 2GB
     pub const SUPPORTED_FILE_EXTENSIONS: &[&str] = &["ico", "svg"];
     pub const MAX_POST_DESCRIPTION_LENGTH: usize = 2000;
+    pub const MAX_POST_COMMENT_LENGTH: usize = 2000;
     pub const MAX_POST_TAGS_LENGTH: usize = 2000;
     pub const MAX_POST_TITLE_LENGTH: usize = 120;
 
@@ -39,7 +40,8 @@ pub mod valid {
     pub mod auth {
 
         use crate::valid::{
-            MAX_POST_DESCRIPTION_LENGTH, MAX_POST_TAGS_LENGTH, MAX_POST_TITLE_LENGTH,
+            MAX_POST_COMMENT_LENGTH, MAX_POST_DESCRIPTION_LENGTH, MAX_POST_TAGS_LENGTH,
+            MAX_POST_TITLE_LENGTH,
         };
 
         use super::Validator;
@@ -97,6 +99,27 @@ pub mod valid {
 
             if input.is_bigger_than(MAX_POST_TITLE_LENGTH) {
                 errors += "title must be shorter than 121 characters length\n";
+            }
+
+            if errors.is_empty() {
+                Ok(())
+            } else {
+                let _ = errors.pop();
+                trace!("errors {errors}");
+                Err(errors)
+            }
+        }
+
+        pub fn proccess_post_comment<S: AsRef<str>>(comment: S) -> Result<(), String> {
+            let mut errors = String::new();
+            let input = comment.as_ref();
+
+            if input.is_empty() {
+                errors += "comment cant be empty\n";
+            }
+
+            if input.len() > MAX_POST_COMMENT_LENGTH {
+                errors += "max comment length is 2000 chars\n";
             }
 
             if errors.is_empty() {

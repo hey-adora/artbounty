@@ -1,3 +1,32 @@
+pub mod btn_primary {
+    use leptos::{html, prelude::*};
+    use web_sys::MouseEvent;
+    // #[prop(default = 250)] row_height: u32,
+    // #[prop(optional)] username: Option<RwSignal<Option<String>>>,
+    // #[prop(into)] text:String,
+
+    #[component]
+    pub fn BtnPrimary(
+        #[prop(optional, into)] class: String,
+        #[prop(into)] on_click: Callback<MouseEvent>,
+        children: Children,
+    ) -> impl IntoView {
+        let on_click_handler = move |e| {
+            on_click.run(e);
+            // if let Some(on_click) = &on_click {
+            //     on_click(e);
+            // }
+        };
+        // let text = text.into();
+
+        view! {
+            <button on:click=on_click_handler class=format!("ml-auto rounded-full font-medium text-[1rem] font-bold px-[0.8rem] py-[0.2rem] hover:bg-base05 bg-base0D text-base01 {}", class)>
+                {children()}
+            </button>
+        }
+    }
+}
+
 pub mod nav {
 
     use crate::path::{link_home, link_home_search, link_post};

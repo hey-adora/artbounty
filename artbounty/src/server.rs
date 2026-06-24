@@ -1,4 +1,7 @@
 #[cfg(feature = "ssr")]
+use std::time::Duration;
+
+#[cfg(feature = "ssr")]
 use axum_server::tls_rustls::RustlsConfig;
 use leptos::{logging, prelude::*};
 #[cfg(feature = "ssr")]
@@ -6,7 +9,7 @@ use tokio::fs;
 use tracing::trace;
 
 #[cfg(feature = "ssr")]
-use crate::api::{ServerReq, app_state::AppState};
+use crate::api::{ServerReq, app_state::AppState, backend::proccess_post_files};
 use crate::path::{
     PATH_API, PATH_API_ACC, PATH_API_INVITE_DECODE, PATH_API_LOGIN, PATH_API_LOGOUT,
     PATH_API_POST_ADD, PATH_API_POST_GET_OLDER, PATH_API_REGISTER, PATH_API_SEND_EMAIL_INVITE,
@@ -100,7 +103,39 @@ pub async fn server() {
     logging::log!("listening on http://{}", &addr);
     // axum_server::bind_rustls(addr, config)
     //     .serve(app.into_make_service())
+
+    let proccess_files = tokio::spawn({
+        let app_state = app_state.clone();
+
+        async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(1));
+            let db = app_state.db.clone();
+            let files_path = app_state.get_file_path().await;
+            loop {
+                trace!("proccess thread waiting...");
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {
+                        break;
+                    },
+                    _ = interval.tick() => {},
+                };
+
+                let result = proccess_post_files(db.clone(), files_path.clone(), 1280).await;
+                if let Err(err) = result {
+                    tracing::error!("{err}");
+                    break;
+                }
+            }
+        }
+    });
+
+    let shutdown = async {
+        proccess_files.await.unwrap();
+        // tokio::signal::ctrl_c().await.unwrap();
+        tracing::info!("Shutting down...");
+    };
     axum::serve(listener, app.into_make_service())
+        .with_graceful_shutdown(shutdown)
         .await
         .unwrap();
 }
