@@ -14,6 +14,7 @@ pub struct PostApi<API: Api> {
     pub err_tags: RwSignal<String, LocalStorage>,
     pub err_description: RwSignal<String, LocalStorage>,
     pub live_description_length: RwSignal<usize, LocalStorage>,
+    pub live_tags_length: RwSignal<usize, LocalStorage>,
     pub imgs_links: RwSignal<Vec<(String, f64)>, LocalStorage>,
     pub title: RwSignal<String, LocalStorage>,
     pub author: RwSignal<String, LocalStorage>,
@@ -61,6 +62,7 @@ impl<API: Api> PostApi<API> {
             author_link: RwSignal::new_local(link_home()),
             tags: RwSignal::new_local(String::new()),
             live_description_length: RwSignal::new_local(0),
+            live_tags_length: RwSignal::new_local(0),
             err_general: RwSignal::new_local(String::new()),
             err_tags: RwSignal::new_local(String::new()),
             err_description: RwSignal::new_local(String::new()),
@@ -132,6 +134,7 @@ impl<API: Api> PostApi<API> {
 
         match result {
             Ok(crate::api::ServerRes::Post(v)) => {
+                self.live_tags_length.set(v.tags.len());
                 self.tags.set(v.tags);
                 self.update_tags_mode.set(false);
                 return Some(());
@@ -190,6 +193,7 @@ impl<API: Api> PostApi<API> {
                 self.title.set(post.title);
                 self.author.set(post.user.username.clone());
                 self.author_link.set(link_user(post.user.username));
+                self.live_tags_length.set(post.tags.len());
                 self.tags.set(post.tags);
                 self.live_description_length.set(post.description.len());
                 self.description.set(post.description);
@@ -356,6 +360,7 @@ pub mod tests {
         post_api.get("invalid").await;
         assert!(!post_api.err_general.get().is_empty());
         assert_eq!(post_api.tags.get(), "");
+        assert_eq!(post_api.live_tags_length.get(), 0);
 
         // testing normal
         let post_api = PostApi::new(&app.api);
@@ -363,14 +368,17 @@ pub mod tests {
         assert_eq!(post_api.tags.get(), "");
         post_api.update_tags_mode.set(true);
         assert!(post_api.err_tags.get().is_empty());
+        assert_eq!(post_api.live_tags_length.get(), 0);
 
         post_api.update_tags(&post_key, "one").await;
         assert_eq!(post_api.tags.get(), "one");
         assert_eq!(post_api.update_tags_mode.get(), false);
+        assert_eq!(post_api.live_tags_length.get(), 3);
 
         let post_api = PostApi::new(&app.api);
         post_api.get(&post_key).await;
         assert_eq!(post_api.tags.get(), "one");
+        assert_eq!(post_api.live_tags_length.get(), 3);
 
         // let items = gallery_api.items.get();
         // assert_eq!(items.len(), 1);

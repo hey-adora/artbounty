@@ -4,9 +4,13 @@ use crate::api::shared::post_comment::UserPostComment;
 use crate::api::{Api, ApiWeb, Server404Err, ServerErr};
 use crate::path::{PATH_LOGIN, link_home, link_img, link_user};
 use crate::valid::MAX_POST_DESCRIPTION_LENGTH;
+use crate::valid::MAX_POST_TAGS_LENGTH;
 use crate::view::app::GlobalState;
+use crate::view::app::components::auto_textarea::AutoTextArea;
 use crate::view::app::components::btn_primary::BtnPrimary;
+use crate::view::app::components::btn_secondary::BtnSecondary;
 use crate::view::app::components::nav::Nav;
+use crate::view::app::components::svg_star::Star;
 use crate::view::app::hook::api_post::PostApi;
 use crate::view::app::hook::api_post_comments::{
     CommentKind, CommentKind2, CommentsApi, CommentsApi2,
@@ -22,6 +26,7 @@ use crate::view::app::hook::use_post_comment::use_post_comment;
 use crate::view::app::hook::use_post_comments_baisc::CommentsBaisc;
 use crate::view::app::hook::use_post_like::{self, PostLikeStage, use_post_like};
 use crate::view::app::hook::use_spawner::Spawner;
+use crate::view::app::hook::use_text_length_counter::use_text_counter;
 use crate::view::toolbox::prelude::{set_timeout, *};
 use leptos::{Params, task::spawn_local};
 use leptos::{ev, html, prelude::*};
@@ -29,8 +34,9 @@ use leptos_router::hooks::{use_location, use_params};
 use leptos_router::params::Params;
 use tracing::{debug, error, trace, warn};
 use wasm_bindgen::JsValue;
+use web_sys::HtmlTextAreaElement;
 use web_sys::{
-    Event, EventTarget, HtmlDivElement, HtmlElement, HtmlPreElement, ScrollBehavior,
+    Event, EventTarget, HtmlDivElement, HtmlElement, HtmlPreElement, MouseEvent, ScrollBehavior,
     ScrollIntoViewOptions, ScrollLogicalPosition, SubmitEvent,
 };
 
@@ -57,51 +63,10 @@ pub fn Page() -> impl IntoView {
     let spawner_post = Spawner::new();
     let post_api = PostApi::new(api_post);
     let edit_tags_input = NodeRef::<html::Div>::new();
-    let description_input = NodeRef::<html::Pre>::new();
-    let description_input_editor = NodeRef::<html::Pre>::new();
+    let description_input_editor = NodeRef::<html::Textarea>::new();
 
-    let get_length = move || {
-        let description_len2 = document()
-            .get_element_by_id("post_description")
-            .and_then(|v| v.text_content())
-            .map(|v| v.len())
-            .unwrap_or_default();
-
-        let description_len = document()
-            .get_element_by_id("post_description_editable")
-            .and_then(|v| v.text_content())
-            .map(|v| v.len())
-            .unwrap_or(description_len2);
-
-        trace!(
-            "post_description_mutation normal: {} edit: {}",
-            description_len2, description_len
-        );
-
-        description_len
-    };
-
-    let description_mutation = Mutation::new(move |a, b| {
-        let description_len = get_length();
-
-        debug_data_push("post_description_mutation", description_len.to_string());
-        post_api.live_description_length.set(description_len);
-        trace!("description mutated {description_len}");
-
-        // .map(|v| v.len() as i32)
-        // .map(|v| v.text_content().map(|v|v.len() as i32).unwrap_or(-2))
-        // // .map(|v| v.len() as i32)
-        // .unwrap_or(-1);
-
-        // let description_len = a
-        //     .first()
-        //     .and_then(|v| v.target())
-        //     .map(|v| JsValue::from(v))
-        //     .and_then(|v| TryInto::<HtmlElement>::try_into(v).ok())
-        //     .and_then(|v| v.text_content())
-        //     .map(|v| v.len())
-        //     .unwrap_or_default();
-    });
+    // use_text_counter(description_input_editor, post_api.live_description_length);
+    use_text_counter(edit_tags_input, post_api.live_tags_length);
 
     let spawner_comments = Spawner::new();
     let comment_container_ref = NodeRef::<html::Div>::new();
@@ -140,36 +105,36 @@ pub fn Page() -> impl IntoView {
         trace!("comments basic observe");
         spawner_comments.spawn(comment_basic.observe_only(comment_container_ref.into(), post_id));
     });
-    Effect::new(move || {
-        // let (Some(description_ref), Some(edit_description_ref)) = (
-        //     ) else {
-        //     return;
-        // };
-        description_mutation.disconnect();
+    // Effect::new(move || {
+    //     // let (Some(description_ref), Some(edit_description_ref)) = (
+    //     //     ) else {
+    //     //     return;
+    //     // };
+    //     description_mutation.disconnect();
 
-        if let Some(elm) = description_input.get() {
-            description_mutation.observe(
-                elm,
-                MutationObserverOptions::new()
-                    .character_data()
-                    .set_child_list()
-                    .subtree(),
-            );
-        }
+    //     // if let Some(elm) = description_input.get() {
+    //     //     description_mutation.observe(
+    //     //         elm,
+    //     //         MutationObserverOptions::new()
+    //     //             .character_data()
+    //     //             .set_child_list()
+    //     //             .subtree(),
+    //     //     );
+    //     // }
 
-        if let Some(elm) = description_input_editor.get() {
-            description_mutation.observe(
-                elm,
-                MutationObserverOptions::new()
-                    .character_data()
-                    .set_child_list()
-                    .subtree(),
-            );
-        }
+    //     if let Some(elm) = description_input_editor.get() {
+    //         description_mutation.observe(
+    //             elm,
+    //             MutationObserverOptions::new()
+    //                 .character_data()
+    //                 .set_child_list()
+    //                 .subtree(),
+    //         );
+    //     }
 
-        // trace!("comments basic observe");
-        // spawner_comments.spawn(comment_basic.observe_only(comment_container_ref.into(), post_id));
-    });
+    //     // trace!("comments basic observe");
+    //     // spawner_comments.spawn(comment_basic.observe_only(comment_container_ref.into(), post_id));
+    // });
 
     let post_like = use_post_like(param_post);
     let post_like_btn_style = move || {
@@ -233,7 +198,7 @@ pub fn Page() -> impl IntoView {
             param_post.get(),
             description_input_editor
                 .get_untracked()
-                .and_then(|v: HtmlPreElement| v.text_content()),
+                .map(|v: HtmlTextAreaElement| v.value()),
         ) else {
             return;
         };
@@ -261,12 +226,29 @@ pub fn Page() -> impl IntoView {
     //     trace!("wtf description changed {v:?}");
     // };
 
+    // let description = move || {
+    //     let mut description = post_api.description.get();
+    //     if description.is_empty() {
+    //         description.push_str("No description.");
+    //     }
+    //     description
+    // };
     let description = move || {
-        let mut description = post_api.description.get();
-        if description.is_empty() {
-            description.push_str("No description.");
-        }
-        description
+        post_api.description.get()
+        // let mut a = view! {};
+        // post_api
+        //     .description
+        //     .get()
+        //     .split('\n')
+        //     .into_iter()
+        //     .map(|v| {
+        //         view! {
+        //             <div class="">
+        //                 {v}
+        //             </div>
+        //         }
+        //     })
+        //     .collect_view()
     };
 
     let tags = move || {
@@ -390,32 +372,29 @@ pub fn Page() -> impl IntoView {
                                 <div>{move || post_api.favorites.get() }" favorites"</div>
                             </div>
                         </div>
+                        // <div>
+                        //     <AutoTextArea/>
+                        // </div>
                         <div class="flex flex-col gap-2 md:gap-4 justify-between mt-4">
                             <div class="flex justify-between">
                                 <h1 class="text-[1.3rem] text-base0F">"Description"</h1>
                                 <div class="flex gap-2 items-center">
 
                                     <Show when=move || global_state.is_logged_in().unwrap_or_default() >
-                                        <div class=move || format!("{}",
-                                            if post_api.live_description_length.get() >= MAX_POST_DESCRIPTION_LENGTH {"text-base08"}
-                                            else {""}
-                                            ) ><span id="description_length">{move || post_api.live_description_length.get()}</span>"/"{MAX_POST_DESCRIPTION_LENGTH}</div>
-                                        <Show when=move || post_api.update_description_mode.get() >
-                                            <button id="description_save_btn" on:click=move |_| edit_description_save() class=move || format!("text-center  rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem]  {}",
-                                                if post_api.update_description_mode.get() {
-                                                    " hover:bg-base05 bg-base0D text-base01" } else {
-                                                    " text-base05 bg-base01 hover:bg-base05 hover:text-base01" }
-                                                )>
-                                                "Save"
-                                            </button>
+                                        <Show when=move|| post_api.update_description_mode.get()>
+                                            <LengthCounter
+                                                counter_current=move||post_api.live_description_length.get()
+                                                counter_max=move||MAX_POST_DESCRIPTION_LENGTH
+                                            />
                                         </Show>
-                                        <button id=move || if post_api.update_description_mode.get() {"description_cancel_btn"} else {"description_edit_btn"}
-                                                on:click=move |_| edit_description_mode_toggle()
-                                                class=move || format!("text-center   rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem] text-base05 bg-base01 hover:bg-base05 hover:text-base01")>
-                                                { move || if post_api.update_description_mode.get() {"Cancel"} else {"Edit"} }
-                                        </button>
+                                        <EditSaveCancel
+                                            id=move || "description"
+                                            when=move || post_api.update_description_mode.get()
+                                            on_save=move || edit_description_save()
+                                            on_cancel=move || edit_description_mode_toggle()
+                                            on_edit=move || edit_description_mode_toggle()
+                                        />
                                     </Show>
-
                                 </div>
                             </div>
 
@@ -424,6 +403,7 @@ pub fn Page() -> impl IntoView {
                                     {move || post_api.err_description.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
                                 </ul>
                             </Show>
+
                             <Show when=move || post_api.update_description_mode.get() fallback=move || view!{
                                 <pre
                                     id="post_description"
@@ -434,71 +414,48 @@ pub fn Page() -> impl IntoView {
                                     { description }
                                 </pre>
                             }>
-                                <pre
-                                    id="post_description_editable"
-                                    // on:change=edit_description_keydown
-                                    node_ref=description_input_editor
-                                    contenteditable=true
-                                    class="whitespace-break-spaces break-all text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] bg-base01 text-base05 px-4 py-2 rounded">
-                                    { move || post_api.description.get() }
-                                </pre>
-                            </Show>
-                            // <Show when=move || post_api.update_description_mode.get() >
-                            // </Show>
-                            // <Show when=move || post_api.err_description.with(|v| !v.is_empty()) >
-                            //     <div
-                            //         node_ref=edit_description_input
-                            //         contenteditable=move || post_api.update_description_mode.get()
-                            //         class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}",
-                            //          if post_api.update_description_mode.get() { "bg-base01 text-base05 px-4 py-2 rounded" }
-                            //          else if post_api.description_is_empty.get() {"text-base03"}
-                            //          else {"text-base05"}
-                            //     )>
-                            //         { move || post_api.description.get() }
-                            //     </div>
-                            // </Show>
 
-                            // <div
-                            //     node_ref=edit_description_input
-                            //     contenteditable=move || post_api.update_description_mode.get()
-                            //     class=move || format!("text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] {}",
-                            //      if post_api.update_description_mode.get() { "bg-base01 text-base05 px-4 py-2 rounded" }
-                            //      else if post_api.description_is_empty.get() {"text-base03"}
-                            //      else {"text-base05"}
-                            // )>
-                            //     { move || post_api.description.get() }
-                            // </div>
+                            <AutoTextArea
+                                id=move||"post_description_editable"
+                                node_ref=description_input_editor
+                                on_input=move|v:HtmlTextAreaElement| post_api.live_description_length.set(v.value().len())
+                                class=move||"bg-base01 text-base05 px-4 py-2 rounded"
+                            >
+                                { description }
+                            </AutoTextArea>
+                                // <pre
+                                //     id="post_description_editable"
+                                //     // on:change=edit_description_keydown
+                                //     node_ref=description_input_editor
+                                //     contenteditable=true
+                                //     class="whitespace-break-spaces break-all text-ellipsis overflow-hidden padding max-w-[calc(100vw-1rem)] bg-base01 text-base05 px-4 py-2 rounded">
+                                //     { move || post_api.description.get() }
+                                // </pre>
+                            </Show>
                         </div>
                         <div class="flex flex-col gap-2 md:gap-4 justify-between mt-4">
                             <div class="flex justify-between">
-                                <h1 class="text-[1.3rem] text-base0F">"tags"</h1>
+                                <h1 class="text-[1.3rem] text-base0F">"Tags"</h1>
                                 <div class="flex gap-2 items-center">
 
                                     <Show when=move || global_state.is_logged_in().unwrap_or_default() >
-                                        <Show when=move || post_api.update_tags_mode.get() >
-                                            <button on:click=move |_| edit_tags_save() class=move || format!("text-center  rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem]  {}",
-                                                if post_api.update_tags_mode.get() {
-                                                    " hover:bg-base05 bg-base0D text-base01" } else {
-                                                    " text-base05 bg-base01 hover:bg-base05 hover:text-base01" }
-                                                )>
-                                                "Save"
-                                            </button>
+                                        <Show when=move|| post_api.update_tags_mode.get()>
+                                            <LengthCounter
+                                                counter_current=move||post_api.live_tags_length.get()
+                                                counter_max=move||MAX_POST_TAGS_LENGTH
+                                            />
                                         </Show>
-                                        <button on:click=move |_| edit_tags() class=move || format!("text-center   rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem] text-base05 bg-base01 hover:bg-base05 hover:text-base01",
-                                                )>
-                                            <Show when={move || post_api.update_tags_mode.get() } fallback={move || "Edit" }>
-                                                "Cancel"
-                                            </Show>
-                                        </button>
+                                        <EditSaveCancel
+                                            id=move || "tags"
+                                            when=move || post_api.update_tags_mode.get()
+                                            on_save=move || edit_tags_save()
+                                            on_cancel=move || edit_tags()
+                                            on_edit=move || edit_tags()
+                                        />
                                     </Show>
 
                                 </div>
 
-                                // <button on:click=move |_| edit_tags() class=move || format!("text-center   rounded-full font-semibold text-[0.8rem] font-medium px-[0.8rem] w-[4rem]  {}", if false { " hover:bg-base05 bg-base0D text-base01" } else { " text-base05 bg-base01 hover:bg-base05 hover:text-base01" })>
-                                //     <Show when={move || post_api.edit_tags_mode.get() } fallback={move || "Edit" }>
-                                //         "Save"
-                                //     </Show>
-                                // </button>
                             </div>
                             <Show when=move || post_api.err_tags.with(|v| !v.is_empty()) >
                                 <ul class="ml-[1rem] text-base08 list-disc">
@@ -543,9 +500,12 @@ pub fn Page() -> impl IntoView {
                                 </ul>
                                 <div class="flex justify-between place-items-center">
                                     <p class="text-[1rem]">"0/2000"</p>
-                                    <BtnPrimary on_click=move |_| post_comment()>
+                                    <BtnPrimary id=move|_:()|String::new() on_click=move |_| post_comment() class=move || "ml-auto">
                                         "Post"
                                     </BtnPrimary>
+                                    // <BtnPrimary on_click=move |_| post_comment()>
+                                    //     "Post" <Star class="size-5 mb-[0.1rem]"/>
+                                    // </BtnPrimary>
                                 </div>
                             </div>
 
@@ -584,6 +544,72 @@ pub fn Page() -> impl IntoView {
 
             // TODO probably change 1fr to fixed size or auto or minmax bs
         </main>
+    }
+}
+
+#[component]
+pub fn LengthCounter(
+    #[prop(optional, into)] counter_current: Option<Callback<(), usize>>,
+    #[prop(optional, into)] counter_max: Option<Callback<(), usize>>,
+) -> impl IntoView {
+    let counter_current_fn = move || counter_current.map(|v| v.run(())).unwrap_or_default();
+    let counter_max_fn = move || counter_max.map(|v| v.run(())).unwrap_or_default();
+
+    view! {
+        <div class=move || format!("{}", if counter_current_fn() >= counter_max_fn() {"text-base08"} else {""})>
+            <span id="description_length">{counter_current_fn}</span>"/"{counter_max_fn}
+        </div>
+    }
+}
+
+#[component]
+pub fn EditSaveCancel(
+    #[prop(optional, into)] when: Option<Callback<(), bool>>,
+    #[prop(optional, into)] disable_save_when: Option<Callback<(), bool>>,
+    #[prop(optional, into)] id: Option<Callback<(), String>>,
+    #[prop(optional, into)] on_save: Option<Callback<()>>,
+    #[prop(optional, into)] on_cancel: Option<Callback<()>>,
+    #[prop(optional, into)] on_edit: Option<Callback<()>>,
+    // #[prop(optional, into)] class: Option<Callback<(), String>>,
+    // #[prop(optional, into)] on_click: Option<Callback<MouseEvent>>,
+    // children: Children,
+) -> impl IntoView {
+    // let global_state = expect_context::<GlobalState>();
+    let when_fn = move || when.map(|v| v.run(())).unwrap_or_default();
+    let disable_save_when_fn = move || disable_save_when.map(|v| v.run(())).unwrap_or_default();
+    let id_fn = move || id.map(|v| v.run(())).unwrap_or_default();
+    let on_save_fn = move |e| {
+        if let Some(f) = on_save {
+            f.run(());
+        }
+    };
+    let on_cancel_fn = move |_| {
+        if let Some(f) = on_cancel {
+            f.run(());
+        }
+    };
+    let on_edit_fn = move |_| {
+        if let Some(f) = on_edit {
+            f.run(());
+        }
+    };
+    // let id_fn = move || id.map(|v| v.run(())).unwrap_or_default();
+    // let class_fn = move || class.map(|v| v.run(())).unwrap_or_default();
+
+    view! {
+        <Show when=when_fn >
+            <BtnPrimary class=move || "w-[5rem]" id=move || format!("btn_save_{}", id_fn()) on_click=on_save_fn>
+                "Save"
+            </BtnPrimary>
+            <BtnSecondary class=move || "w-[5rem]" id=move || format!("btn_cancel_{}", id_fn()) on_click=on_cancel_fn>
+                "Cancel"
+            </BtnSecondary>
+        </Show>
+        <Show when=move || !when_fn() >
+            <BtnSecondary class=move || "w-[5rem]" id=move || format!("btn_edit_{}", id_fn()) on_click=on_edit_fn>
+                "Edit"
+            </BtnSecondary>
+        </Show>
     }
 }
 
@@ -874,7 +900,13 @@ pub fn PostCommentElm(
                         </div>
 
 
-                        <div contenteditable={move || comments_manual.edit_mode.get()} node_ref=comment_edit_ref class={move || format!(" text-[1.1rem] break-all focus:outline-none! appearance-none border-none resize w-full rounded {}", if comments_manual.edit_mode.get() { "bg-base01 px-4 py-2" } else { "" })} >{move || comments_manual.text.get()}</div>
+                        <div contenteditable={move || comments_manual.edit_mode.get()}
+                             node_ref=comment_edit_ref
+                             class={move || format!(" text-[1.1rem] break-all focus:outline-none! appearance-none border-none resize w-full rounded {}", if comments_manual.edit_mode.get() { "bg-base01 px-4 py-2" } else { "" })} >
+                            {
+                                move || comments_manual.text.get()
+                            }
+                        </div>
                         <Show when=move || comments_manual.err_update.with(|v| !v.is_empty()) >
                             <ul class="ml-[1rem] text-base08 list-disc">
                                 {move || comments_manual.err_update.get().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }

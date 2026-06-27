@@ -20,4 +20,5 @@ pub mod use_post_like;
 pub mod use_register;
 pub mod use_scroll_correction;
 pub mod use_spawner;
+pub mod use_text_length_counter;
 pub mod use_username_change;

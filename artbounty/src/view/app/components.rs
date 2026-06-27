@@ -1,26 +1,271 @@
+// TODO allow only FOSS licenses
+
+pub mod auto_textarea {
+    use crate::view::toolbox::prelude::*;
+    use leptos::{html, prelude::*};
+    use tracing::trace;
+    use wasm_bindgen::prelude::*;
+    use web_sys::HtmlTextAreaElement;
+
+    #[component]
+    pub fn AutoTextArea(
+        #[prop(optional, into)] node_ref: Option<NodeRef<html::Textarea>>,
+        #[prop(optional, into)] id: Option<Callback<(), String>>,
+        #[prop(optional, into)] class: Option<Callback<(), String>>,
+        #[prop(optional, into)] on_input: Option<Callback<(HtmlTextAreaElement)>>,
+        #[prop(default = 500.0)] min_height: f64,
+        // #[prop(optional, into)] children: Option<Children>,
+        children: Children,
+    ) -> impl IntoView {
+        let id_fn = move || {
+            id.map(|v| v.run(()))
+                .unwrap_or_else(|| "auto-text-area".to_string())
+        };
+        let class_fn = move || class.map(|v| v.run(())).unwrap_or_default();
+
+        // let children = move || {
+        //     if let Some(children) = children {
+        //         children()
+        //     }
+        // };
+        let height = RwSignal::new(min_height);
+        let input = node_ref.unwrap_or_else(|| NodeRef::new());
+        let on_change = move || {
+            let Some(input): Option<HtmlTextAreaElement> = input.get_untracked() else {
+                return;
+            };
+            if let Some(on_input) = on_input {
+                on_input.run(input.clone());
+            }
+            let scroll_height = input.scroll_height() as f64;
+            // let text = input.value();
+            // let mut new_line_count: usize = 1;
+            // for c in text.chars() {
+            //     if c == '\n' {
+            //         new_line_count += 1;
+            //     }
+            // }
+
+            if min_height >= scroll_height {
+                return;
+            }
+
+            height.set(scroll_height);
+
+            // trace!("input: {text}");
+            // let new_line_count: usize = text
+            //     .chars()
+            //     .fold(0, |a, c| if c == '\n' { a + 1 } else { 0 });
+            // trace!("typing stuff.. {new_line_count}");
+            //
+        };
+
+        view! {
+            <textarea
+                placeholder="Comment"
+                node_ref=input
+                id=id_fn
+                on:input=move |_| on_change()
+                style:height=move|| format!("{}px", height.get())
+                class=class_fn
+                // on:keyup=move |_| on_change()
+                // on:change=move |_| on_change()
+                // class="bg-base01 focus:outline-none! appearance-none border-none resize text-[1.1rem]"
+                // id="story"
+                // name="story"
+                // rows=move || height.get()
+                // cols="5"
+                >{children()}</textarea>
+        }
+    }
+}
+
+pub mod ritch_text {
+    use crate::view::toolbox::prelude::*;
+    use leptos::prelude::*;
+    use wasm_bindgen::prelude::*;
+
+    #[component]
+    pub fn RitchText(#[prop(optional, into)] text: Option<Callback<(), String>>) -> impl IntoView {
+        let description = move || {
+            let Some(text_fn) = text else {
+                return view! {<div>""</div>}.into_any();
+            };
+            let mut output = Vec::<AnyView>::new();
+            let text = text_fn.run(());
+            // let a = text.get(i);
+            // let mut reg = String::new();
+            // let mut cursor_left = 0_usize;
+            // for (cursor_right, c) in text.chars().enumerate() {
+            //     match c {
+            //         '\n' => {
+            //             let view = view! {<br/>}.into_any();
+            //             output.push(view);
+            //             continue;
+            //         }
+            //         _ => {
+            //         }
+            //     }
+            // }
+            //
+            text_fn
+                .run(())
+                .split('\n')
+                .into_iter()
+                .map(|v| {
+                    view! {
+                        <div class="">
+                            {v}
+                        </div>
+                    }
+                })
+                .collect_view()
+                .into_any()
+        };
+
+        view! {
+            <div>
+                {description}
+            </div>
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum TokenKind {
+        WhiteSpace,
+        NewLine,
+        Text,
+    }
+
+    impl From<char> for TokenKind {
+        fn from(c: char) -> Self {
+            match c {
+                '\n' => TokenKind::NewLine,
+                ' ' => TokenKind::WhiteSpace,
+                _ => TokenKind::Text,
+            }
+        }
+    }
+
+    pub fn parse_text(text: impl AsRef<str>) -> Vec<(TokenKind, usize)> {
+        let mut output = Vec::new();
+        let mut prev_token = None::<TokenKind>;
+        for (i, c) in text
+            .as_ref()
+            .chars()
+            .map(|v| TokenKind::from(v))
+            .enumerate()
+        {
+            if prev_token.is_some() && Some(c) == prev_token {
+                continue;
+            }
+            output.push((c, i));
+            prev_token = Some(c);
+        }
+        output
+    }
+
+    #[test]
+    fn test_parse_text() {
+        assert_eq!(parse_text(" "), vec![(TokenKind::WhiteSpace, 0)]);
+        assert_eq!(
+            parse_text(" a"),
+            vec![(TokenKind::WhiteSpace, 0), (TokenKind::Text, 1)]
+        );
+        assert_eq!(
+            parse_text(" aa"),
+            vec![(TokenKind::WhiteSpace, 0), (TokenKind::Text, 1)]
+        );
+        assert_eq!(
+            parse_text(" aa "),
+            vec![
+                (TokenKind::WhiteSpace, 0),
+                (TokenKind::Text, 1),
+                (TokenKind::WhiteSpace, 3)
+            ]
+        );
+
+        // assert_eq!(result.len(), 1);
+        // assert_eq!(result[0], TokenKind::WhiteSpace);
+
+        // let text = " a";
+        // let result = parse_text(text);
+
+        // assert_eq!(result.len(), 2);
+        // assert_eq!(result[0], TokenKind::Text((1, 2)));
+    }
+}
+
+pub mod svg_star {
+    use leptos::prelude::*;
+
+    #[component]
+    pub fn Star(#[prop(optional, into)] class: String) -> impl IntoView {
+        view! {
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class=class>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" />
+            </svg>
+        }
+    }
+}
+pub mod btn_secondary {
+    use leptos::{html, prelude::*};
+    use web_sys::MouseEvent;
+
+    #[component]
+    pub fn BtnSecondary(
+        #[prop(optional, into)] id: Option<Callback<(), String>>,
+        #[prop(optional, into)] class: Option<Callback<(), String>>,
+        #[prop(optional, into)] on_click: Option<Callback<MouseEvent>>,
+        children: Children,
+    ) -> impl IntoView {
+        let on_click_handler = move |e| {
+            if let Some(on_click) = on_click {
+                on_click.run(e);
+            }
+        };
+        let id_fn = move || id.map(|v| v.run(())).unwrap_or_default();
+        let class_fn = move || class.map(|v| v.run(())).unwrap_or_default();
+
+        view! {
+            <button id=id_fn  on:click=on_click_handler class=format!("text-center rounded-xl font-medium text-[1rem] font-bold px-[1rem] pt-[0.1rem] hover:bg-base0D bg-base03 text-base05 {}", class_fn())>
+                {children()}
+            </button>
+        }
+    }
+}
+
 pub mod btn_primary {
     use leptos::{html, prelude::*};
     use web_sys::MouseEvent;
     // #[prop(default = 250)] row_height: u32,
     // #[prop(optional)] username: Option<RwSignal<Option<String>>>,
     // #[prop(into)] text:String,
+    // #[prop(optional, into)] id: Option<Callback<(), String>>,
 
     #[component]
     pub fn BtnPrimary(
-        #[prop(optional, into)] class: String,
-        #[prop(into)] on_click: Callback<MouseEvent>,
+        // #[prop(attrs)] attributes: Vec<(&'static str, Attribute)>,
+        // #[prop(default = Callback<(), String>::new(|_| String::new()),into)] id: Callback<
+        //     (),
+        //     String,
+        // >,
+        // #[prop(into)] id: Callback<(), String>,
+        #[prop(optional, into)] id: Option<Callback<(), String>>,
+        #[prop(optional, into)] class: Option<Callback<(), String>>,
+        #[prop(optional, into)] on_click: Option<Callback<MouseEvent>>,
         children: Children,
     ) -> impl IntoView {
         let on_click_handler = move |e| {
-            on_click.run(e);
-            // if let Some(on_click) = &on_click {
-            //     on_click(e);
-            // }
+            if let Some(on_click) = on_click {
+                on_click.run(e);
+            }
         };
-        // let text = text.into();
+        let id_fn = move || id.map(|v| v.run(())).unwrap_or_default();
+        let class_fn = move || class.map(|v| v.run(())).unwrap_or_default();
 
         view! {
-            <button on:click=on_click_handler class=format!("ml-auto rounded-full font-medium text-[1rem] font-bold px-[0.8rem] py-[0.2rem] hover:bg-base05 bg-base0D text-base01 {}", class)>
+            <button id=id_fn  on:click=on_click_handler class=format!("rounded-xl font-medium text-[1rem] font-bold px-[1rem] pt-[0.1rem] hover:bg-base05 bg-base0D text-base01 {}", class_fn())>
                 {children()}
             </button>
         }
