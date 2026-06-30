@@ -1,8 +1,6 @@
 use std::error::Error;
 use std::ffi::OsStr;
-use std::hash::{DefaultHasher, Hasher};
 use std::io::Cursor;
-use std::ops::{FromResidual, Try};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::str::FromStr;
@@ -32,11 +30,10 @@ use axum::{Extension, Json};
 use bytes::Bytes;
 use futures::{Stream, TryStreamExt};
 use futures_util::StreamExt;
-use gxhash::gxhash128;
+use gxhash::GxHasher;
+use std::hash::Hasher;
 // use axum_extra::extract::CookieJar;
 use http::header::COOKIE;
-use image::ImageReader;
-use little_exif::filetype::FileExtension;
 use std::{io, pin::pin};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
@@ -505,6 +502,7 @@ where
     SaveFileErr: From<StreamErr>, // S::Item: Error + Try,
 {
     use rand::distr::SampleString;
+    use std::hash::Hasher;
     let mut tmp_name = rand::distr::Alphanumeric.sample_string(&mut rand::rng(), 16);
     tmp_name.push_str("_upload");
     let file_path_tmp = Path::new("/tmp/").join(&tmp_name).with_extension(".part");
@@ -512,7 +510,7 @@ where
     let file = File::create(&file_path_tmp).await?;
     let mut file = BufWriter::new(file);
 
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = GxHasher::default();
     let mut size = 0_usize;
 
     while let Some(value) = stream.next().await {
@@ -549,8 +547,8 @@ where
                 .inspect_err(|err| {
                     error!(
                         "move err from {file_path_tmp:?} to {}/{} {err}",
-                        std::env::current_dir().unwrap().into_string().unwrap(),
-                        file_path.clone().into_string().unwrap(),
+                        std::env::current_dir().unwrap().to_str().unwrap(),
+                        file_path.clone().to_str().unwrap(),
                     )
                 })?;
         }
@@ -1064,21 +1062,22 @@ pub async fn add_post(
 }
 #[cfg(test)]
 mod tests {
-    use async_stream::stream;
+    // use async_stream::stream;
     use axum::Router;
     use bytes::Bytes;
     use futures::StreamExt;
+    use rand::distr::SampleString;
     use std::ffi::OsStr;
-    use std::hash::{DefaultHasher, Hasher};
     use std::path::Path;
     use std::pin::pin;
     use std::sync::Arc;
     use std::time::Duration;
     use surrealdb::types::{RecordId, ToSql};
     use tokio::fs::{self, create_dir_all};
+    use tokio_util::io::ReaderStream;
 
     use axum_test::TestServer;
-    use gxhash::gxhash128;
+    use gxhash::{GxBuildHasher, GxHasher, gxhash128};
     use tokio::sync::Mutex;
     use tracing::{debug, error, trace};
 
@@ -1097,6 +1096,7 @@ mod tests {
     use crate::db::{DB404Err, to_post_file_path, to_post_thumbnail_path};
     use crate::db::{DBEmailIsTakenErr, DBUser, email_change::DBEmailChange};
     use crate::server::create_api_router;
+    use crate::valid::MAX_POST_TITLE_LENGTH;
 
     #[tokio::test]
     async fn api_post_get_test() {
@@ -1179,44 +1179,32 @@ mod tests {
     #[tokio::test]
     async fn handle_file_saving_test() {
         crate::init_test_log();
+        const FILE_PATH: &str = "../flake.nix";
+        const TMP_PATH: &str = "/tmp/handle_file_saving_test";
 
-        let app = ApiTestApp::new(1).await;
+        tokio::fs::create_dir_all(TMP_PATH).await.unwrap();
 
-        let stream = stream! {
-            for i in 0..3 {
-                yield Ok::<bytes::Bytes, anyhow::Error>(bytes::Bytes::from(vec![i]));
-            }
-        };
-        let stream = pin!(stream);
+        let file_len = tokio::fs::metadata(FILE_PATH).await.unwrap().len();
+        let mut file = tokio::fs::File::open(FILE_PATH).await.unwrap();
+        let stream = ReaderStream::new(file);
 
-        let save_path = &app.state.settings.site.files_path;
-        let result = handle_file_saving(stream, "jpg", save_path, 10)
+        let result = handle_file_saving(stream, "jpg", TMP_PATH, file_len as usize)
             .await
             .unwrap();
 
-        assert_eq!(result.size_bytes, 3);
-
         let file_path = Path::new(&result.saved_path);
         let file = tokio::fs::read(file_path).await.unwrap();
-
-        let mut hasher = DefaultHasher::new();
-        hasher.write(&file);
-        let hash = hasher.finish().to_string();
+        let hash = get_file_hash_for_testing(&file);
 
         assert_eq!(result.size_bytes, file.len());
         assert_eq!(result.hash, hash);
 
         tokio::fs::remove_file(&result.saved_path).await.unwrap();
 
-        let stream = stream! {
-            for i in 0..3 {
-                yield Ok::<bytes::Bytes, anyhow::Error>(bytes::Bytes::from(vec![i]));
-            }
-        };
-        let stream = pin!(stream);
+        let mut file = tokio::fs::File::open(FILE_PATH).await.unwrap();
+        let stream = ReaderStream::new(file);
 
-        let save_path = &app.state.settings.site.files_path;
-        let result = handle_file_saving(stream, "jpg", save_path, 2).await;
+        let result = handle_file_saving(stream, "jpg", TMP_PATH, file_len as usize - 1).await;
         assert!(matches!(
             result,
             Err(SaveFileErr::FileTooBig {
@@ -1236,8 +1224,8 @@ mod tests {
         tokio::fs::copy(FILE_PATH, TMP_PATH).await.unwrap();
 
         let app = ApiTestApp::new_with_exp_and_files(1, FILES_PATH).await;
-
-        let file1_hash = get_file_hash_for_testing(TMP_PATH).await;
+        let file = tokio::fs::read(TMP_PATH).await.unwrap();
+        let file1_hash = get_file_hash_for_testing(&file);
         let output_path = app.state.get_file_path().await;
 
         let auth_token = app
@@ -1284,10 +1272,12 @@ mod tests {
         let app = ApiTestApp::new_with_exp_and_files(1, FILES_PATH).await;
 
         let output_path = app.state.get_file_path().await;
-        let file1_hash = get_file_hash_for_testing(FILE1_PATH).await;
+        let file1 = tokio::fs::read(FILE1_PATH).await.unwrap();
+        let file1_hash = get_file_hash_for_testing(&file1);
         let file1_path = to_post_file_path(&file1_hash, "ico", &output_path);
         let file1_thumbnail_path = to_post_thumbnail_path(&file1_hash, &output_path);
-        let file2_hash = get_file_hash_for_testing(FILE2_PATH).await;
+        let file2 = tokio::fs::read(FILE2_PATH).await.unwrap();
+        let file2_hash = get_file_hash_for_testing(&file2);
         let file2_path = to_post_file_path(&file2_hash, "svg", &output_path);
 
         let auth_token = app
@@ -1378,9 +1368,11 @@ mod tests {
         // ));
     }
 
-    pub async fn get_file_hash_for_testing(file_path: impl AsRef<OsStr>) -> String {
-        let file = tokio::fs::read(file_path.as_ref()).await.unwrap();
-        let mut hasher = DefaultHasher::new();
+    pub fn get_file_hash_for_testing(file: &[u8]) -> String {
+        use std::hash::Hasher;
+        // let file = tokio::fs::read(file_path.as_ref()).await.unwrap();
+        // let mut hasher = GxBuildHasher::default();
+        let mut hasher = GxHasher::default();
         hasher.write(&file);
         hasher.finish().to_string()
     }
@@ -1419,9 +1411,7 @@ mod tests {
                 .await
                 .unwrap();
             let file = tokio::fs::read(file_path).await.unwrap();
-            let mut hasher = DefaultHasher::new();
-            hasher.write(&file);
-            let hash = hasher.finish().to_string();
+            let hash = get_file_hash_for_testing(&file);
 
             let total_size = post.file.iter().fold(0_usize, |a, b| a + b.size_bytes);
             assert_eq!(post.file.len(), i + 1); // +1 because its length
@@ -1438,10 +1428,7 @@ mod tests {
                     .join(hash)
                     .with_extension(extension);
                 let file = tokio::fs::read(&file_path).await.unwrap();
-
-                let mut hasher = DefaultHasher::new();
-                hasher.write(&file);
-                let hash = hasher.finish().to_string();
+                let hash = get_file_hash_for_testing(&file);
 
                 assert_eq!(post.file[i].size_bytes, file.len());
                 assert_eq!(post.file[i].hash, hash);
@@ -1534,6 +1521,20 @@ mod tests {
             .unwrap();
         assert_eq!(posts.len(), 1);
         assert_eq!(posts[0].title, "title2");
+
+        let mut big_title =
+            rand::distr::Alphanumeric.sample_string(&mut rand::rng(), MAX_POST_TITLE_LENGTH + 1);
+
+        let result = app
+            .update_post_title(0, &auth_token, post.key.clone(), big_title)
+            .await
+            .err()
+            .unwrap();
+
+        assert!(matches!(
+            result,
+            crate::api::ServerUpdatePostTitleErr::TooLong
+        ));
     }
 
     #[tokio::test]

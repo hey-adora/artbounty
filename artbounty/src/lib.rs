@@ -1,9 +1,9 @@
 #![recursion_limit = "512"]
-#![feature(try_trait_v2)]
-#![feature(test)]
+// #![feature(try_trait_v2)]
+// #![feature(test)]
 
-#[cfg(feature = "ssr")]
-extern crate test;
+// #[cfg(feature = "ssr")]
+// extern crate test;
 
 pub mod api;
 #[cfg(feature = "ssr")]

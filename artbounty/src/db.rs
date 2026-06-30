@@ -3487,47 +3487,47 @@ mod tests {
         //
     }
 
-    use test::Bencher;
+    // use test::Bencher;
 
-    #[bench]
-    fn bench_file_add_user(b: &mut Bencher) {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let mut file = rt.block_on(async {
-            let file = tokio::fs::File::create("/tmp/bench_file_add_user.txt")
-                .await
-                .unwrap();
-            file
-        });
+    // #[bench]
+    // fn bench_file_add_user(b: &mut Bencher) {
+    //     let rt = tokio::runtime::Runtime::new().unwrap();
+    //     let mut file = rt.block_on(async {
+    //         let file = tokio::fs::File::create("/tmp/bench_file_add_user.txt")
+    //             .await
+    //             .unwrap();
+    //         file
+    //     });
 
-        let mut index = 0_usize;
-        b.iter(|| {
-            rt.block_on(async {
-                let user = format!("user hey{index} hey{index}@heyadora.com");
-                file.write(&user.into_bytes()).await.unwrap();
-            });
-            index += 1;
-        });
-    }
+    //     let mut index = 0_usize;
+    //     b.iter(|| {
+    //         rt.block_on(async {
+    //             let user = format!("user hey{index} hey{index}@heyadora.com");
+    //             file.write(&user.into_bytes()).await.unwrap();
+    //         });
+    //         index += 1;
+    //     });
+    // }
 
-    #[bench]
-    fn bench_add_user(b: &mut Bencher) {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let db = rt.block_on(async {
-            let db = Db::new::<Mem>(()).await.unwrap();
-            db.migrate(0).await.unwrap();
-            db
-        });
+    // #[bench]
+    // fn bench_add_user(b: &mut Bencher) {
+    //     let rt = tokio::runtime::Runtime::new().unwrap();
+    //     let db = rt.block_on(async {
+    //         let db = Db::new::<Mem>(()).await.unwrap();
+    //         db.migrate(0).await.unwrap();
+    //         db
+    //     });
 
-        let mut index = 0_usize;
-        b.iter(|| {
-            let username = format!("hey{index}");
-            let email = format!("hey{index}@heyadora.com");
-            rt.block_on(async {
-                let _user = db.add_user(0, username, email, "123").await.unwrap();
-            });
-            index += 1;
-        });
-    }
+    //     let mut index = 0_usize;
+    //     b.iter(|| {
+    //         let username = format!("hey{index}");
+    //         let email = format!("hey{index}@heyadora.com");
+    //         rt.block_on(async {
+    //             let _user = db.add_user(0, username, email, "123").await.unwrap();
+    //         });
+    //         index += 1;
+    //     });
+    // }
 
     #[tokio::test]
     async fn security_db_update_post_file_order() {

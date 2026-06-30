@@ -3,7 +3,9 @@
 set -e
 
 # cargo build --package=artbounty --features=ssr
-cargo build --package=artbounty --lib --target=wasm32-unknown-unknown --features=csr,testing -Z build-std=panic_abort,std --profile wasm-debug
+cargo build --package=artbounty --lib --target=wasm32-unknown-unknown --features=csr,testing --profile wasm-debug
+# cargo build --package=artbounty --lib --target=wasm32-unknown-unknown --features=csr,testing -Z build-std=panic_abort,std --profile wasm-debug
+
 # cargo build --package=artbounty --lib --target=wasm32-unknown-unknown --features=csr -Z build-std=panic_abort,std --profile wasm-debug
 # cargo build --package=artbounty --lib --target=wasm32-unknown-unknown --features=csr --profile wasm-debug
 rm -rf ./target/site/*

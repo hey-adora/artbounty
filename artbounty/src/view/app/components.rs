@@ -1,20 +1,49 @@
 // TODO allow only FOSS licenses
 
-pub mod auto_textarea {
+pub mod errors {
     use crate::view::toolbox::prelude::*;
     use leptos::{html, prelude::*};
     use tracing::trace;
     use wasm_bindgen::prelude::*;
-    use web_sys::HtmlTextAreaElement;
+
+    #[component]
+    pub fn Errors(
+        #[prop(optional, into)] id: Option<Callback<(), String>>,
+        #[prop(optional, into)] error: Option<Callback<(), String>>,
+        #[prop(optional, into)] class: Option<Callback<(), String>>,
+    ) -> impl IntoView {
+        let error_fn = move || error.map(|v| v.run(())).unwrap_or_default();
+        let id_fn = move || id.map(|v| v.run(())).unwrap_or_default();
+        let class_fn = move || class.map(|v| v.run(())).unwrap_or_default();
+
+        view! {
+            <Show when=move || !error_fn().is_empty()  >
+                <ul id=id_fn class=move|| format!("ml-[1rem] text-base08 list-disc {}", class_fn())>
+                    {move || error_fn().trim().split("\n").filter(|v| v.len() > 1).map(|v| v.to_string()).map(move |v: String| view! { <li>{v}</li> }).collect_view() }
+                </ul>
+            </Show>
+        }
+    }
+}
+
+pub mod auto_textarea {
+    use crate::view::{
+        app::hook::{use_mutation::Mutation, use_text_length_counter::use_text_counter},
+        toolbox::prelude::*,
+    };
+    use leptos::{html, prelude::*};
+    use tracing::trace;
+    use wasm_bindgen::prelude::*;
+    use web_sys::{HtmlElement, HtmlTextAreaElement};
 
     #[component]
     pub fn AutoTextArea(
         #[prop(optional, into)] node_ref: Option<NodeRef<html::Textarea>>,
+        #[prop(optional, into)] placeholder: Option<Callback<(), String>>,
         #[prop(optional, into)] id: Option<Callback<(), String>>,
         #[prop(optional, into)] class: Option<Callback<(), String>>,
         #[prop(optional, into)] on_input: Option<Callback<(HtmlTextAreaElement)>>,
         #[prop(default = 500.0)] min_height: f64,
-        // #[prop(optional, into)] children: Option<Children>,
         children: Children,
     ) -> impl IntoView {
         let id_fn = move || {
@@ -22,12 +51,8 @@ pub mod auto_textarea {
                 .unwrap_or_else(|| "auto-text-area".to_string())
         };
         let class_fn = move || class.map(|v| v.run(())).unwrap_or_default();
+        let placeholder_fn = move || placeholder.map(|v| v.run(())).unwrap_or_default();
 
-        // let children = move || {
-        //     if let Some(children) = children {
-        //         children()
-        //     }
-        // };
         let height = RwSignal::new(min_height);
         let input = node_ref.unwrap_or_else(|| NodeRef::new());
         let on_change = move || {
@@ -38,43 +63,46 @@ pub mod auto_textarea {
                 on_input.run(input.clone());
             }
             let scroll_height = input.scroll_height() as f64;
-            // let text = input.value();
-            // let mut new_line_count: usize = 1;
-            // for c in text.chars() {
-            //     if c == '\n' {
-            //         new_line_count += 1;
-            //     }
-            // }
 
             if min_height >= scroll_height {
                 return;
             }
 
             height.set(scroll_height);
-
-            // trace!("input: {text}");
-            // let new_line_count: usize = text
-            //     .chars()
-            //     .fold(0, |a, c| if c == '\n' { a + 1 } else { 0 });
-            // trace!("typing stuff.. {new_line_count}");
-            //
         };
+
+        // let mutation = Mutation::new(move |a, b| {
+        //     let Some(target) = input.get_untracked().map(|v| Into::<HtmlElement>::into(v)) else {
+        //         return;
+        //     };
+
+        //     trace!("AutoTextArea mutation triggered");
+
+        //     on_change()
+        // });
+        Effect::new(move || {
+            let Some(target) = input.get().map(|v| Into::<HtmlElement>::into(v)) else {
+                return;
+            };
+            trace!("AutoTextArea effect triggered");
+            on_change();
+            // mutation.observe_only(
+            //     target,
+            //     MutationObserverOptions::new()
+            //         .character_data()
+            //         .set_child_list()
+            //         .subtree(),
+            // );
+        });
 
         view! {
             <textarea
-                placeholder="Comment"
+                placeholder=placeholder_fn
                 node_ref=input
                 id=id_fn
                 on:input=move |_| on_change()
                 style:height=move|| format!("{}px", height.get())
                 class=class_fn
-                // on:keyup=move |_| on_change()
-                // on:change=move |_| on_change()
-                // class="bg-base01 focus:outline-none! appearance-none border-none resize text-[1.1rem]"
-                // id="story"
-                // name="story"
-                // rows=move || height.get()
-                // cols="5"
                 >{children()}</textarea>
         }
     }
@@ -195,14 +223,35 @@ pub mod ritch_text {
         // assert_eq!(result[0], TokenKind::Text((1, 2)));
     }
 }
+// pub mod svg_star_full {
+//     use leptos::prelude::*;
+
+//     #[component]
+//     pub fn StarFull(#[prop(optional, into)] class: String) -> impl IntoView {
+//         view! {
+//             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"  class=class>
+//               <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" />
+//             </svg>
+//         }
+//     }
+// }
 
 pub mod svg_star {
     use leptos::prelude::*;
 
     #[component]
-    pub fn Star(#[prop(optional, into)] class: String) -> impl IntoView {
+    pub fn Star(
+        #[prop(optional, into)] class: Option<Callback<(), String>>,
+        #[prop(optional, into)] fill: Option<Callback<(), bool>>,
+    ) -> impl IntoView {
+        let class_fn = move || class.map(|v| v.run(())).unwrap_or_default();
+        let fill_fn = move || {
+            let v = fill.map(|v| v.run(())).unwrap_or_default();
+            if v { "currentColor" } else { "none" }
+        };
+
         view! {
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class=class>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class=class_fn fill=fill_fn>
               <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" />
             </svg>
         }
@@ -1696,11 +1745,7 @@ pub mod gallery {
         use std::fmt::Display;
         use tracing::trace;
 
-        use wasm_bindgen_test::*;
-
         use super::ResizableImage;
-
-        wasm_bindgen_test_configure!(run_in_browser);
 
         #[derive(Debug, Clone)]
         struct Img {

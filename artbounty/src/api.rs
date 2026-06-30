@@ -2661,7 +2661,8 @@ pub mod tests {
     use crate::api::{
         Api, ApiTest, EmailChangeErr, EmailChangeNewErr, EmailChangeStage, EmailChangeTokenErr,
         Order, PostLikeErr, Server404Err, ServerAuthErr, ServerErr, ServerLoginErr,
-        ServerRegistrationErr, ServerReqImg, ServerRes, ServerSendInviteErr, TimeRange, UserPost,
+        ServerRegistrationErr, ServerReqImg, ServerRes, ServerSendInviteErr,
+        ServerUpdatePostTitleErr, TimeRange, UserPost,
     };
     use crate::db::DB404Err;
     use crate::db::email_change::create_email_change_id;
@@ -2750,7 +2751,7 @@ pub mod tests {
             auth_token: impl Into<String>,
             post_key: impl Into<String>,
             new_title: impl Into<String>,
-        ) -> anyhow::Result<UserPost> {
+        ) -> Result<UserPost, ServerUpdatePostTitleErr> {
             self.set_time(time).await;
             let auth_token = auth_token.into();
 
@@ -2758,12 +2759,13 @@ pub mod tests {
                 .api
                 .update_post_title(post_key, new_title)
                 .send_native_with_token(auth_token.clone())
-                .await?;
+                .await;
             trace!("{result:#?}");
 
             match result {
-                crate::api::ServerRes::Post(v) => Ok(v),
-                err => Err(anyhow!("invalid response, expected Post, got {err:?}")),
+                Ok(crate::api::ServerRes::Post(v)) => Ok(v),
+                Err(ServerErr::UpdatePostTitleErr(err)) => Err(err),
+                _ => panic!("can we fix it? no, its f*cked."), // err => Err(anyhow!("invalid response, expected Post, got {err:?}")),
             }
         }
 
@@ -2874,20 +2876,20 @@ pub mod tests {
             let tags = tags.into();
             let description = description.into();
 
-            let mut imgbuf = image::ImageBuffer::new(250, 250);
-            // Iterate over the coordinates and pixels of the image
-            for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
-                let r = (0.3 * x as f32) as u8;
-                let b = (0.3 * y as f32) as u8;
-                *pixel = image::Rgb([r, 0, b]);
-            }
+            // let mut imgbuf = image::ImageBuffer::new(250, 250);
+            // // Iterate over the coordinates and pixels of the image
+            // for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
+            //     let r = (0.3 * x as f32) as u8;
+            //     let b = (0.3 * y as f32) as u8;
+            //     *pixel = image::Rgb([r, 0, b]);
+            // }
 
             // create_dir_all("../target/tmp/").await.unwrap();
             // let path = "../target/tmp/img.png";
-            let path = "/tmp/img.png";
-            imgbuf.save(path).unwrap();
+            // let path = "/tmp/img.png";
+            // imgbuf.save(path).unwrap();
 
-            let img = tokio::fs::read(path).await.unwrap();
+            // let img = tokio::fs::read(path).await.unwrap();
             let result = self
                 .api
                 .add_post(title, description, tags)

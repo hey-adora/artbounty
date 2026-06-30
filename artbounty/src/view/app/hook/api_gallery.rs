@@ -271,32 +271,6 @@ pub mod tests {
 
     use crate::init_test_log;
 
-    pub async fn create_img(name: impl Into<String>, width: u32, height: u32) -> Vec<u8> {
-        let mut imgbuf = image::ImageBuffer::new(width, height);
-        // Iterate over the coordinates and pixels of the image
-        for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
-            let r = (0.3 * x as f32) as u8;
-            let b = (0.3 * y as f32) as u8;
-            *pixel = image::Rgb([r, 0, b]);
-        }
-
-        // create_dir_all("../target/tmp/").await.unwrap();
-        // let path = "../target/tmp/img.png";
-        let path = format!("/tmp/{}.png", name.into());
-        imgbuf.save(&path).unwrap();
-
-        tokio::fs::read(path).await.unwrap()
-    }
-
-    pub async fn create_img_req(name: impl Into<String>, width: u32, height: u32) -> ServerReqImg {
-        let name = name.into();
-        let v = create_img(name.clone(), width, height).await;
-        ServerReqImg {
-            path: name,
-            data: v,
-        }
-    }
-
     #[tokio::test]
     pub async fn hook_gallery_api_post() {
         println!("hello");

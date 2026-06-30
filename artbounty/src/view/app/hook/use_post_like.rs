@@ -7,7 +7,7 @@ use crate::api::{Api, ApiWeb, ServerRes};
 #[derive(Clone, Copy)]
 pub struct PostLike {
     pub stage: StoredValue<Box<dyn Fn() -> PostLikeStage + Sync + Send + 'static>>,
-    pub on_like: StoredValue<Box<dyn Fn(MouseEvent) + Sync + Send + 'static>>,
+    pub on_like: StoredValue<Box<dyn Fn() + Sync + Send + 'static>>,
 }
 
 #[derive(
@@ -67,7 +67,7 @@ pub fn use_post_like(post_id: Memo<Option<String>>) -> PostLike {
         }
     });
 
-    let on_like = move |_: MouseEvent| {
+    let on_like = move || {
         let Some(post_id) = post_id.get() else {
             return;
         };

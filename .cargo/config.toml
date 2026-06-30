@@ -7,8 +7,8 @@ rustflags = [
     # "link-arg=-Wl,--no-rosegment",
     "-C",
     "target-feature=+aes,+sse2",
-    "-Z",
-    "share-generics=y",
+    # "-Z",
+    # "share-generics=y",
     # "-Z",
     # "threads=4",
     "-C",
@@ -24,8 +24,8 @@ runner = 'wasm-bindgen-test-runner'
 rustflags = [
     # "-Z",
     # "build-std",
-    "-Z",
-    "share-generics=y",
+    # "-Z",
+    # "share-generics=y",
     # "-C",
     # "target-feature=+atomics,+bulk-memory,+mutable-globals",
     # "-C",
@@ -48,15 +48,15 @@ rustflags = [
 ]
 # rustflags = ["-C", "link-arg=-fuse-ld=mold", "-Z", "share-generics=y", "--cfg", "erase_components"]
 
-[unstable]
-codegen-backend = true
+# [unstable]
+# codegen-backend = true
 
 [profile.wasm-debug]
 inherits = "dev"
 incremental = true
 opt-level = 0
 lto = "off"
-codegen-backend = "llvm"
+# codegen-backend = "llvm"
 codegen-units = 256
 panic = "abort"
 debug = "none"
@@ -64,7 +64,7 @@ strip = "none"
 
 [profile.wasm-debug.package."*"]
 opt-level = 0
-codegen-backend = "llvm"
+# codegen-backend = "llvm"
 
 [profile.wasm-release]
 inherits = "release"
@@ -74,7 +74,7 @@ codegen-units = 256
 panic = "abort"
 
 [profile.dev]
-codegen-backend = "cranelift"
+# codegen-backend = "cranelift"
 opt-level = 0
 incremental = true
 codegen-units = 256
@@ -84,8 +84,8 @@ strip = "none"
 
 [profile.dev.package."*"]
 opt-level = "z"
-codegen-backend = "llvm"
+# codegen-backend = "llvm"
 
 [profile.dev.package.gxhash]
 opt-level = "z"
-codegen-backend = "llvm"
+# codegen-backend = "llvm"

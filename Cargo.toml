@@ -12,9 +12,9 @@ hydration_context = { version = "0.3.0" }
 # any_spawner = { version = "0.3.0" }
 strum = { version = "0.27.1", features = ["strum_macros", "derive"] }
 artbounty = { path = "artbounty" }
-little_exif = "0.6.14"
+# little_exif = "0.6.14"
 image = "0.25.6"
-webp = "0.3.0"
+# webp = "0.3.0"
 config = "0.15.14"
 cfg-if = "1"
 gxhash = { version = "3.5.0", features = ["deterministic"] }

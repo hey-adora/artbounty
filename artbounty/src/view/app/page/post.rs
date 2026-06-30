@@ -5,10 +5,12 @@ use crate::api::{Api, ApiWeb, Server404Err, ServerErr};
 use crate::path::{PATH_LOGIN, link_home, link_img, link_user};
 use crate::valid::MAX_POST_DESCRIPTION_LENGTH;
 use crate::valid::MAX_POST_TAGS_LENGTH;
+use crate::valid::MAX_POST_TITLE_LENGTH;
 use crate::view::app::GlobalState;
 use crate::view::app::components::auto_textarea::AutoTextArea;
 use crate::view::app::components::btn_primary::BtnPrimary;
 use crate::view::app::components::btn_secondary::BtnSecondary;
+use crate::view::app::components::errors::Errors;
 use crate::view::app::components::nav::Nav;
 use crate::view::app::components::svg_star::Star;
 use crate::view::app::hook::api_post::PostApi;
@@ -62,11 +64,12 @@ pub fn Page() -> impl IntoView {
 
     let spawner_post = Spawner::new();
     let post_api = PostApi::new(api_post);
-    let edit_tags_input = NodeRef::<html::Div>::new();
+    let edit_tags_input = NodeRef::<html::Textarea>::new();
     let description_input_editor = NodeRef::<html::Textarea>::new();
+    let title_input_editor = NodeRef::<html::Textarea>::new();
 
     // use_text_counter(description_input_editor, post_api.live_description_length);
-    use_text_counter(edit_tags_input, post_api.live_tags_length);
+    // use_text_counter(edit_tags_input, post_api.live_tags_length);
 
     let spawner_comments = Spawner::new();
     let comment_container_ref = NodeRef::<html::Div>::new();
@@ -137,6 +140,16 @@ pub fn Page() -> impl IntoView {
     // });
 
     let post_like = use_post_like(param_post);
+    let post_like_fn = move || {
+        post_like.on_like.with_value(|f| {
+            (f)();
+        });
+    };
+    let is_post_liked_fn = move || {
+        post_like
+            .stage
+            .with_value(|f| (f)() == PostLikeStage::Liked)
+    };
     let post_like_btn_style = move || {
         format!(
             "border-2 text-[1.3rem] font-bold px-4 py-1 {}",
@@ -154,7 +167,7 @@ pub fn Page() -> impl IntoView {
         PostLikeStage::Loading => "Loading",
     };
 
-    let selected_img = move || {
+    let selected_img = move || -> AnyView {
         let hash = location.hash.get();
         let imgs_links = post_api.imgs_links.get();
         let selected_n = if hash.len() > 3 {
@@ -162,29 +175,43 @@ pub fn Page() -> impl IntoView {
         } else {
             0
         };
-        let (selected_url, selected_ratio) =
-            imgs_links.get(selected_n).cloned().unwrap_or_else(|| {
-                imgs_links
-                    .first()
-                    .cloned()
-                    .unwrap_or(("/404.webp".to_string(), 1920.0 / 1080.0))
-            });
+        let Some((selected_url, selected_ratio)) = imgs_links.get(selected_n).cloned() else {
+            return view! {
+                <p>
+                    "No Image"
+                </p>
+                // <img id=move || format!("id0") class="max-h-full" src=selected_url />
+            }
+            .into_any();
+        };
 
         view! {
             <img id=move || format!("id{selected_n}") class="max-h-full" src=selected_url />
         }
+        .into_any()
     };
 
-    let imgs = move || {
-        post_api.imgs_links
-                .get()
+    let imgs = move || -> Vec<AnyView> {
+        let imgs = post_api.imgs_links.get();
+        if imgs.is_empty() {
+            let view = view! {
+                    <div style:aspect-ratio="1.0" class=" w-full h-[50%] grid place-items-center bg-base02">
+                        <p id="id0" >"No Images"</p>
+                        // <img id=move || format!("id{i}") class="" src=url />
+                    </div>
+
+            }
+            .into_any();
+            return vec![view];
+        }
+        imgs
                 .into_iter()
                 .enumerate()
                 .map(|(i, (url, ratio))| view! {
                     <div style:aspect-ratio=ratio.to_string() class="w-full grid place-items-center bg-base02">
                         <img id=move || format!("id{i}") class="" src=url />
                     </div>
-                })
+                }.into_any())
                 .collect_view()
     };
 
@@ -233,6 +260,34 @@ pub fn Page() -> impl IntoView {
     //     }
     //     description
     // };
+    let title = move || {
+        let mut title = post_api.title.get();
+
+        if title.is_empty() {
+            title.push_str("No Title.");
+        }
+
+        title
+    };
+    let title_is_empty = move || post_api.title.with(|v| v.is_empty());
+    let edit_title_mode_toggle = move || {
+        trace!("toggling title edit mode");
+        post_api.update_title_mode.update(|v| *v = !*v);
+    };
+
+    let edit_title_save = move || {
+        let (Some(post_key), Some(title)) = (
+            param_post.get(),
+            title_input_editor
+                .get_untracked()
+                .map(|v: HtmlTextAreaElement| v.value()),
+        ) else {
+            return;
+        };
+        trace!("{title}");
+        spawner_post.spawn(post_api.update_title(post_key, title));
+    };
+
     let description = move || {
         post_api.description.get()
         // let mut a = view! {};
@@ -277,7 +332,7 @@ pub fn Page() -> impl IntoView {
             param_post.get(),
             edit_tags_input
                 .get_untracked()
-                .and_then(|v: HtmlDivElement| v.text_content()),
+                .map(|v: HtmlTextAreaElement| v.value()),
         ) else {
             return;
         };
@@ -285,8 +340,11 @@ pub fn Page() -> impl IntoView {
     };
 
     let previews = move || {
-        post_api.imgs_links
-                .get()
+        let mut imgs = post_api.imgs_links.get();
+
+        // imgs.push((String::new(), 0.0);
+
+        let mut views = imgs
                 .into_iter()
                 .enumerate()
                 .map(|(i, (url, ratio))| {
@@ -301,8 +359,31 @@ pub fn Page() -> impl IntoView {
                             format!("h-[5rem] w-[5rem] bg-base05 bg-cover bg-center {}", if id == hash || (hash.is_empty() && i == 0) {"border-2 border-base08"} else {""})
                         }
                         style:background-image=move || format!("url(\"{url}\")") ></a> }
-                })
-                .collect_view()
+                }.into_any()
+                )
+                .collect_view();
+
+        let preview_add = {
+            // let i = views.len();
+            // let id = format!("#id{i}");
+            // let id2 = id.clone();
+
+            view! { <button
+                    id="previw_add"
+                    // href=id2
+                    class=move ||  {
+                        let hash = location.hash.get();
+                        trace!("hash: {hash}");
+                        format!("text-[2rem] grid place-items-center h-[5rem] w-[5rem] rounded-xl bg-base05/10 bg-cover bg-center border-2 border-base05")
+                    }
+                    // style:background-image=move || format!("url(\"{url}\")")
+                    >"+"</button>
+            }
+        };
+
+        views.push(preview_add.into_any());
+
+        views
     };
 
     let delete_post = move |_| {
@@ -354,11 +435,58 @@ pub fn Page() -> impl IntoView {
 
 
                         <div class="flex flex-col gap-2">
+                            <Show when=move || global_state.is_logged_in().unwrap_or_default() >
+                                <div class="flex gap-2 place-items-center">
+                                    <Errors
+                                        error=move||post_api.err_title.get()
+                                    />
+                                    <Show when=move|| post_api.update_title_mode.get()>
+                                        <LengthCounter
+                                            class=move || "ml-auto"
+                                            counter_current=move||post_api.live_title_length.get()
+                                            counter_max=move||MAX_POST_TITLE_LENGTH
+                                        />
+                                    </Show>
+                                    <EditSaveCancel
+                                        id=move || "title"
+                                        class_edit=move || "ml-auto"
+                                        when=move || post_api.update_title_mode.get()
+                                        on_save=move || edit_title_save()
+                                        on_cancel=move || edit_title_mode_toggle()
+                                        on_edit=move || edit_title_mode_toggle()
+                                    />
+                                </div>
+                            </Show>
                             <div class="flex justify-between">
-                                <h1 class="text-[1.5rem] text-ellipsis text-base0F">{ move || post_api.title.get() }</h1>
-                                <button on:click=post_like.on_like.to_fn() disabled=move || post_like.stage.run() == PostLikeStage::Loading class=post_like_btn_style >{ post_like_btn_text }</button>
+                                <Show when=move || !post_api.update_title_mode.get()>
+                                    <h1 class=move || format!("text-[1.5rem] text-ellipsis {}", if title_is_empty() { "text-base03" } else { "text-base0F" })>{ title }</h1>
+                                </Show>
+                                <Show when=move || post_api.update_title_mode.get()>
+                                    <AutoTextArea
+                                        id=move||"post_description_editable"
+                                        placeholder=move||"title"
+                                        node_ref=title_input_editor
+                                        on_input=move|v:HtmlTextAreaElement| post_api.live_title_length.set(v.value().len())
+                                        min_height=50.0
+                                        class=move||"w-full bg-base01 text-[1.5rem] text-base05 px-4 py-2 rounded-xl"
+                                    >
+                                        {
+                                            move || if title_is_empty() {
+                                                "".to_string()
+                                            } else {
+                                                title()
+                                            }
+                                        }
+                                    </AutoTextArea>
+                                </Show>
+
+                                // <BtnSecondary id=move|| "btn_edit_title" on_click=move|_|edit_title_mode_toggle() >
+                                //     "Edit"
+                                // </BtnSecondary>
+
+                                // <button on:click=post_like.on_like.to_fn() disabled=move || post_like.stage.run() == PostLikeStage::Loading class=post_like_btn_style >{ post_like_btn_text }</button>
                             </div>
-                            <div class="flex justify-between">
+                            <div class="flex justify-between place-items-start">
                                 <div class="flex gap-2">
                                     <p class="text-[1rem] rounded-full h-[3rem] w-[3rem] bg-base05"></p>
                                     <div class="flex flex-col gap-1">
@@ -369,7 +497,11 @@ pub fn Page() -> impl IntoView {
                                         <p class="text-[1rem]">"9999 followers"</p>
                                     </div>
                                 </div>
-                                <div>{move || post_api.favorites.get() }" favorites"</div>
+                                // <div>{move || post_api.favorites.get() }" favorites"</div>
+                                <BtnSecondary class=move || format!("flex gap-2 place-items-center ") id=move || "btn_favorite" on_click=move|_|post_like_fn()>
+                                    <span class="mt-[0.1rem]">"Favorite"</span>
+                                    <Star class=move||"shrink-0 w-[1.5rem] pb-[0.1rem]" fill=move||is_post_liked_fn() />
+                                </BtnSecondary>
                             </div>
                         </div>
                         // <div>
@@ -471,11 +603,20 @@ pub fn Page() -> impl IntoView {
                                         { tags }
                                     </Show>
                                 } }>
-                                    <div contenteditable=true
-                                         node_ref=edit_tags_input
-                                         class={move || format!(" text-[1.1rem] break-all focus:outline-none! appearance-none border-none resize w-full rounded bg-base01 px-4 py-2 ")}>
+                                    <AutoTextArea
+                                        id=move||"post_tags_editable"
+                                        node_ref=edit_tags_input
+                                        on_input=move|v:HtmlTextAreaElement| post_api.live_tags_length.set(v.value().len())
+                                        class=move||"text-[1.1rem] break-all focus:outline-none! appearance-none border-none resize w-full rounded bg-base01 px-4 py-2"
+                                        min_height=100.0
+                                    >
                                          {move || post_api.tags.get()}
-                                    </div>
+                                    </AutoTextArea>
+                                    // <div contenteditable=true
+                                    //      node_ref=edit_tags_input
+                                    //      class={move || format!("  ")}>
+                                    //      {move || post_api.tags.get()}
+                                    // </div>
                                 </Show>
                              </div>
                         </div>
@@ -549,14 +690,16 @@ pub fn Page() -> impl IntoView {
 
 #[component]
 pub fn LengthCounter(
+    #[prop(optional, into)] class: Option<Callback<(), String>>,
     #[prop(optional, into)] counter_current: Option<Callback<(), usize>>,
     #[prop(optional, into)] counter_max: Option<Callback<(), usize>>,
 ) -> impl IntoView {
     let counter_current_fn = move || counter_current.map(|v| v.run(())).unwrap_or_default();
     let counter_max_fn = move || counter_max.map(|v| v.run(())).unwrap_or_default();
+    let class_fn = move || class.map(|v| v.run(())).unwrap_or_default();
 
     view! {
-        <div class=move || format!("{}", if counter_current_fn() >= counter_max_fn() {"text-base08"} else {""})>
+        <div class=move || format!("{} {}", if counter_current_fn() >= counter_max_fn() {"text-base08"} else {""}, class_fn())>
             <span id="description_length">{counter_current_fn}</span>"/"{counter_max_fn}
         </div>
     }
@@ -566,6 +709,9 @@ pub fn LengthCounter(
 pub fn EditSaveCancel(
     #[prop(optional, into)] when: Option<Callback<(), bool>>,
     #[prop(optional, into)] disable_save_when: Option<Callback<(), bool>>,
+    #[prop(optional, into)] class_save: Option<Callback<(), String>>,
+    #[prop(optional, into)] class_cancel: Option<Callback<(), String>>,
+    #[prop(optional, into)] class_edit: Option<Callback<(), String>>,
     #[prop(optional, into)] id: Option<Callback<(), String>>,
     #[prop(optional, into)] on_save: Option<Callback<()>>,
     #[prop(optional, into)] on_cancel: Option<Callback<()>>,
@@ -578,6 +724,9 @@ pub fn EditSaveCancel(
     let when_fn = move || when.map(|v| v.run(())).unwrap_or_default();
     let disable_save_when_fn = move || disable_save_when.map(|v| v.run(())).unwrap_or_default();
     let id_fn = move || id.map(|v| v.run(())).unwrap_or_default();
+    let class_save = move || class_save.map(|v| v.run(())).unwrap_or_default();
+    let class_cancel = move || class_cancel.map(|v| v.run(())).unwrap_or_default();
+    let class_edit = move || class_edit.map(|v| v.run(())).unwrap_or_default();
     let on_save_fn = move |e| {
         if let Some(f) = on_save {
             f.run(());
@@ -598,15 +747,15 @@ pub fn EditSaveCancel(
 
     view! {
         <Show when=when_fn >
-            <BtnPrimary class=move || "w-[5rem]" id=move || format!("btn_save_{}", id_fn()) on_click=on_save_fn>
+            <BtnPrimary class=move || format!("w-[5rem] {}", class_save()) id=move || format!("btn_save_{}", id_fn()) on_click=on_save_fn>
                 "Save"
             </BtnPrimary>
-            <BtnSecondary class=move || "w-[5rem]" id=move || format!("btn_cancel_{}", id_fn()) on_click=on_cancel_fn>
+            <BtnSecondary class=move || format!("w-[5rem] {}", class_cancel()) id=move || format!("btn_cancel_{}", id_fn()) on_click=on_cancel_fn>
                 "Cancel"
             </BtnSecondary>
         </Show>
         <Show when=move || !when_fn() >
-            <BtnSecondary class=move || "w-[5rem]" id=move || format!("btn_edit_{}", id_fn()) on_click=on_edit_fn>
+            <BtnSecondary class=move || format!("w-[5rem] {}", class_edit()) id=move || format!("btn_edit_{}", id_fn()) on_click=on_edit_fn>
                 "Edit"
             </BtnSecondary>
         </Show>

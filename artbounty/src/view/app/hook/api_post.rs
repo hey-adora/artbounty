@@ -11,16 +11,19 @@ pub struct PostApi<API: Api> {
     // ui
     // pub items: RwSignal<Vec<Img>, LocalStorage>,
     pub err_general: RwSignal<String, LocalStorage>,
+    pub err_title: RwSignal<String, LocalStorage>,
     pub err_tags: RwSignal<String, LocalStorage>,
     pub err_description: RwSignal<String, LocalStorage>,
     pub live_description_length: RwSignal<usize, LocalStorage>,
     pub live_tags_length: RwSignal<usize, LocalStorage>,
+    pub live_title_length: RwSignal<usize, LocalStorage>,
     pub imgs_links: RwSignal<Vec<(String, f64)>, LocalStorage>,
     pub title: RwSignal<String, LocalStorage>,
     pub author: RwSignal<String, LocalStorage>,
     pub author_link: RwSignal<String, LocalStorage>,
     pub tags: RwSignal<String, LocalStorage>,
     // pub tags_is_empty: RwSignal<bool, LocalStorage>,
+    pub update_title_mode: RwSignal<bool, LocalStorage>,
     pub update_tags_mode: RwSignal<bool, LocalStorage>,
     pub update_description_mode: RwSignal<bool, LocalStorage>,
     // pub tags_is_e: RwSignal<String, LocalStorage>,
@@ -57,18 +60,21 @@ impl<API: Api> PostApi<API> {
         Self {
             // items: RwSignal::new_local(Vec::new()),
             imgs_links: RwSignal::new_local(Vec::<(String, f64)>::new()),
-            title: RwSignal::new_local(String::from("loading...")),
-            author: RwSignal::new_local(String::from("loading...")),
+            title: RwSignal::new_local(String::new()),
+            author: RwSignal::new_local(String::new()),
             author_link: RwSignal::new_local(link_home()),
             tags: RwSignal::new_local(String::new()),
             live_description_length: RwSignal::new_local(0),
             live_tags_length: RwSignal::new_local(0),
+            live_title_length: RwSignal::new_local(0),
             err_general: RwSignal::new_local(String::new()),
+            err_title: RwSignal::new_local(String::new()),
             err_tags: RwSignal::new_local(String::new()),
             err_description: RwSignal::new_local(String::new()),
+            update_title_mode: RwSignal::new_local(false),
             update_tags_mode: RwSignal::new_local(false),
             update_description_mode: RwSignal::new_local(false),
-            description: RwSignal::new_local(String::from("loading...")),
+            description: RwSignal::new_local(String::new()),
             // description_is_empty: RwSignal::new_local(true),
             favorites: RwSignal::new_local(0_u64),
             post_state: RwSignal::new_local(PostState::Loading),
@@ -107,12 +113,52 @@ impl<API: Api> PostApi<API> {
             }
             Err(ServerErr::UpdatePostDescriptionErr(ServerUpdatePostDescriptionErr::NotFound)) => {
                 self.post_state.set(PostState::NotFound);
-                self.err_description.set("post not found".to_string());
+                self.err_general.set("post not found".to_string());
             }
             Err(err) => {
                 let err = format!("unexpected err {:#?}", { err });
                 error!(err);
                 self.err_description.set(err);
+            }
+        }
+
+        None
+    }
+
+    pub async fn update_title(
+        self,
+        post_key: impl Into<String>,
+        title: impl Into<String>,
+    ) -> Option<()> {
+        // TODO test this stuff like error cleaning
+        self.err_title.update(|v| v.clear());
+
+        let result = self
+            .api
+            .update_post_title(post_key, title)
+            .send_native()
+            .await;
+
+        match result {
+            Ok(crate::api::ServerRes::Post(v)) => {
+                self.live_title_length.set(v.title.len());
+                self.title.set(v.title);
+                self.update_title_mode.set(false);
+                return Some(());
+            }
+            Ok(res) => {
+                let err = format!("wrong res, expected Post, got {:?}", res);
+                error!(err);
+                self.err_title.set(err);
+            }
+            Err(ServerErr::NotFoundErr(Server404Err::NotFound)) => {
+                self.post_state.set(PostState::NotFound);
+                self.err_general.set("post not found".to_string());
+            }
+            Err(err) => {
+                let err = format!("unexpected err {:#?}", { err });
+                error!(err);
+                self.err_title.set(err);
             }
         }
 
@@ -146,7 +192,7 @@ impl<API: Api> PostApi<API> {
             }
             Err(ServerErr::NotFoundErr(Server404Err::NotFound)) => {
                 self.post_state.set(PostState::NotFound);
-                self.err_tags.set("post not found".to_string());
+                self.err_general.set("post not found".to_string());
             }
             Err(err) => {
                 let err = format!("unexpected err {:#?}", { err });
@@ -190,6 +236,7 @@ impl<API: Api> PostApi<API> {
         let result = self.api.get_post(post_id).send_native().await;
         match result {
             Ok(crate::api::ServerRes::Post(post)) => {
+                self.live_title_length.set(post.title.len());
                 self.title.set(post.title);
                 self.author.set(post.user.username.clone());
                 self.author_link.set(link_user(post.user.username));
@@ -246,7 +293,7 @@ pub mod tests {
         },
         view::{
             app::hook::{
-                api_gallery::{GalleryApi, GalleryContainerSize, tests::create_img_req},
+                api_gallery::{GalleryApi, GalleryContainerSize},
                 api_post::PostApi,
                 api_post_comments::{CommentKind, CommentKind2, CommentsApi, CommentsApi2},
                 use_scroll_correction::ScrollCorrection,
@@ -318,7 +365,74 @@ pub mod tests {
 
         post_api.update_description(&post_key, "2").await;
         assert_eq!(post_api.live_description_length.get(), 2);
-        assert!(!post_api.err_description.get().is_empty());
+        assert!(!post_api.err_general.get().is_empty());
+
+        // let items = gallery_api.items.get();
+        // assert_eq!(items.len(), 1);
+    }
+
+    pub async fn post_setup(
+        title: impl Into<String>,
+        description: impl Into<String>,
+        tags: impl Into<String>,
+    ) -> (ApiTestApp, String) {
+        init_test_log();
+        let mut app = ApiTestApp::new(10).await;
+        let scroll_correction = ScrollCorrection::new();
+        let auth_token = app
+            .register(0, "hey", "hey@heyadora.com", "pas$word123456789")
+            .await
+            .unwrap();
+        app.api.auth_token_overwrite = auth_token.clone();
+        let post_key = {
+            let gallery_api = GalleryApi::new(&app.api, &app.api, scroll_correction.clone());
+            app.set_time(1).await;
+            gallery_api
+                .post(
+                    GalleryContainerSize {
+                        width: 100,
+                        height: 100.0,
+                        row_height: 50,
+                    },
+                    title,
+                    description,
+                    tags,
+                )
+                .await;
+            gallery_api.items.get()[0].clone().key
+        };
+
+        (app, post_key)
+    }
+
+    #[tokio::test]
+    pub async fn hook_post_api_update_title() {
+        let _owner = Owner::new_root(Some(Arc::new(HydrateSharedContext::new())));
+        let (app, post_key) = post_setup("title", "", "").await;
+        // testing err
+        let post_api = PostApi::new(&app.api);
+        post_api.get("invalid").await;
+        assert!(!post_api.err_general.get().is_empty());
+        assert_eq!(post_api.title.get(), "");
+        assert_eq!(post_api.live_title_length.get(), 0);
+
+        // testing normal
+        let post_api = PostApi::new(&app.api);
+        post_api.get(&post_key).await;
+        assert_eq!(post_api.title.get(), "title");
+        post_api.update_title_mode.set(true);
+        assert!(post_api.err_title.get().is_empty());
+        assert_eq!(post_api.live_title_length.get(), 5);
+
+        post_api.update_title(&post_key, "one").await;
+        assert_eq!(post_api.title.get(), "one");
+        assert_eq!(post_api.update_title_mode.get(), false);
+        assert_eq!(post_api.live_title_length.get(), 3);
+
+        let post_api = PostApi::new(&app.api);
+        post_api.get(&post_key).await;
+        assert_eq!(post_api.title.get(), "one");
+        assert_eq!(post_api.live_title_length.get(), 3);
 
         // let items = gallery_api.items.get();
         // assert_eq!(items.len(), 1);
