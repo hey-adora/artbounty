@@ -17,6 +17,7 @@ use crate::view::app::hook::api_post::PostApi;
 use crate::view::app::hook::api_post_comments::{
     CommentKind, CommentKind2, CommentsApi, CommentsApi2,
 };
+use crate::view::app::hook::api_post_file_upload::FileUpload;
 use crate::view::app::hook::use_event_listener::EventListener;
 use crate::view::app::hook::use_future::FutureFn;
 use crate::view::app::hook::use_infinite_scroll_fn::InfiniteScrollFn;
@@ -36,11 +37,11 @@ use leptos_router::hooks::{use_location, use_params};
 use leptos_router::params::Params;
 use tracing::{debug, error, trace, warn};
 use wasm_bindgen::JsValue;
-use web_sys::HtmlTextAreaElement;
 use web_sys::{
     Event, EventTarget, HtmlDivElement, HtmlElement, HtmlPreElement, MouseEvent, ScrollBehavior,
     ScrollIntoViewOptions, ScrollLogicalPosition, SubmitEvent,
 };
+use web_sys::{HtmlInputElement, HtmlTextAreaElement};
 
 #[derive(Params, PartialEq, Clone)]
 pub struct PostParams {
@@ -393,6 +394,25 @@ pub fn Page() -> impl IntoView {
         spawner_post.spawn(post_api.delete(post_id));
     };
 
+    let uploader = FileUpload::new();
+    let upload_image = NodeRef::<html::Input>::new();
+    let on_upload = move |_| {
+        let (Some(files),): (Option<Vec<web_sys::File>>,) = (
+            (upload_image.get_untracked())
+                .and_then(|f: HtmlInputElement| f.files())
+                .map(|f| f.get_files()),
+            // upload_title.get_untracked() as Option<HtmlInputElement>,
+            // upload_description.get_untracked() as Option<HtmlTextAreaElement>,
+            // upload_tags.get_untracked() as Option<HtmlTextAreaElement>,
+        ) else {
+            return;
+        };
+
+        uploader.upload(&files[..]);
+
+        trace!("files selected: {}", files.len());
+    };
+
     view! {
         <main node_ref=main_ref class="relative font-hi grid grid-rows-[auto_1fr] h-screen text-base05">
             <Nav/>
@@ -431,6 +451,11 @@ pub fn Page() -> impl IntoView {
                     <div class="flex flex-col gap-2 md:gap-6 px-4 md:px-6  lg:overflow-y-scroll">
                         <div class="flex justify-start gap-2 flex flex-wrap">
                             { previews }
+                        </div>
+
+                        <div>
+                            <input on:change=on_upload type="file" id="image" name="image" node_ref=upload_image multiple />
+                            // <input on:change=on_file_change type="file" id="image" name="image" node_ref=upload_image multiple />
                         </div>
 
 

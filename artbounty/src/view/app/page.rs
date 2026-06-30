@@ -379,7 +379,7 @@ pub mod upload {
                 return;
             };
             // file_upload.clear();
-            file_upload.select(&files);
+            // file_upload.select(&files);
             trace!("fle selection changed i think");
         };
 

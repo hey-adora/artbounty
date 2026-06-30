@@ -15,7 +15,7 @@ use crate::api::{
     ServerUpdatePostTagsErr, ServerUpdatePostTitleErr, User, UserPost, UserPostFile,
     auth_token_get, hash_password, verify_password,
 };
-use crate::db::{AddUserErr, DBPostCommentErr, DBUser};
+use crate::db::{AddUserErr, DBPostAddFileErr, DBPostCommentErr, DBUser};
 use crate::db::{DB404Err, DBUserPostFile};
 use crate::valid::SUPPORTED_FILE_EXTENSIONS;
 use crate::valid::auth::{
@@ -31,7 +31,7 @@ use bytes::Bytes;
 use futures::{Stream, TryStreamExt};
 use futures_util::StreamExt;
 use gxhash::GxHasher;
-use std::hash::Hasher;
+use std::hash::{DefaultHasher, Hasher};
 // use axum_extra::extract::CookieJar;
 use http::header::COOKIE;
 use std::{io, pin::pin};
@@ -503,14 +503,17 @@ where
 {
     use rand::distr::SampleString;
     use std::hash::Hasher;
+    let extension = extension.as_ref();
     let mut tmp_name = rand::distr::Alphanumeric.sample_string(&mut rand::rng(), 16);
     tmp_name.push_str("_upload");
-    let file_path_tmp = Path::new("/tmp/").join(&tmp_name).with_extension(".part");
+    let file_path_tmp = Path::new("/tmp/").join(&tmp_name).with_extension(extension);
+    // let file_path_tmp = Path::new("/tmp/").join(&tmp_name).with_extension("part");
     // extension.as_ref()
     let file = File::create(&file_path_tmp).await?;
     let mut file = BufWriter::new(file);
 
-    let mut hasher = GxHasher::default();
+    let mut hasher = DefaultHasher::default();
+    // let mut hasher = GxHasher::with_seed(0);
     let mut size = 0_usize;
 
     while let Some(value) = stream.next().await {
@@ -531,11 +534,12 @@ where
 
     file.flush().await?;
     let hash = hasher.finish().to_string();
+    trace!("hashing in prod {file_path_tmp:?} = {hash}");
 
     let file_path = {
         let file_path = Path::new(save_path.as_ref())
             .join(&hash)
-            .with_extension(extension.as_ref());
+            .with_extension(extension);
         if file_path.exists() {
             trace!("file removed");
             tokio::fs::remove_file(file_path_tmp).await?;
@@ -696,10 +700,16 @@ pub async fn add_post_file(
                 .await;
             let post = match result {
                 Ok(v) => v,
+                Err(DBPostAddFileErr::Duplicate(v)) => {
+                    // tokio::fs::remove_file(&file.saved_path)
+                    //     .await
+                    //     .map_err(|err| ServerErr::from(Err::IoErr(err.to_string())))?;
+                    return Err(ServerErr::from(Err::Duplicate));
+                }
+                Err(DBPostAddFileErr::PostNotFound) => {
+                    return Err(ServerErr::from(Err::NotFound));
+                }
                 Err(_err) => {
-                    tokio::fs::remove_file(&file.saved_path)
-                        .await
-                        .map_err(|err| ServerErr::from(Err::IoErr(err.to_string())))?;
                     return Err(ServerErr::DbErr);
                 }
             };
@@ -1068,6 +1078,7 @@ mod tests {
     use futures::StreamExt;
     use rand::distr::SampleString;
     use std::ffi::OsStr;
+    use std::hash::DefaultHasher;
     use std::path::Path;
     use std::pin::pin;
     use std::sync::Arc;
@@ -1184,22 +1195,48 @@ mod tests {
 
         tokio::fs::create_dir_all(TMP_PATH).await.unwrap();
 
-        let file_len = tokio::fs::metadata(FILE_PATH).await.unwrap().len();
-        let mut file = tokio::fs::File::open(FILE_PATH).await.unwrap();
-        let stream = ReaderStream::new(file);
+        let (path1, file_len) = {
+            let file_len = tokio::fs::metadata(FILE_PATH).await.unwrap().len();
+            let mut file = tokio::fs::File::open(FILE_PATH).await.unwrap();
+            let stream = ReaderStream::new(file);
 
-        let result = handle_file_saving(stream, "jpg", TMP_PATH, file_len as usize)
-            .await
-            .unwrap();
+            let result = handle_file_saving(stream, "jpg", TMP_PATH, file_len as usize)
+                .await
+                .unwrap();
 
-        let file_path = Path::new(&result.saved_path);
-        let file = tokio::fs::read(file_path).await.unwrap();
-        let hash = get_file_hash_for_testing(&file);
+            let file_path = Path::new(&result.saved_path);
+            let file = tokio::fs::read(file_path).await.unwrap();
+            let hash = get_file_hash_for_testing(&file);
 
-        assert_eq!(result.size_bytes, file.len());
-        assert_eq!(result.hash, hash);
+            assert_eq!(result.size_bytes, file.len());
+            assert_eq!(result.hash, hash);
 
-        tokio::fs::remove_file(&result.saved_path).await.unwrap();
+            (result.saved_path, file_len)
+        };
+
+        let path2 = {
+            let file_len = tokio::fs::metadata(FILE_PATH).await.unwrap().len();
+            let mut file = tokio::fs::File::open(FILE_PATH).await.unwrap();
+            let stream = ReaderStream::new(file);
+
+            let result = handle_file_saving(stream, "jpg", TMP_PATH, file_len as usize * 2)
+                .await
+                .unwrap();
+
+            let file_path = Path::new(&result.saved_path);
+            let file = tokio::fs::read(file_path).await.unwrap();
+            let hash = get_file_hash_for_testing(&file);
+
+            assert_eq!(result.size_bytes, file.len());
+            assert_eq!(result.hash, hash);
+
+            result.saved_path
+        };
+
+        assert_eq!(path1, path2);
+        assert!(path1.exists());
+
+        tokio::fs::remove_file(&path1).await.unwrap();
 
         let mut file = tokio::fs::File::open(FILE_PATH).await.unwrap();
         let stream = ReaderStream::new(file);
@@ -1243,12 +1280,12 @@ mod tests {
         let result = app
             .add_post_file(0, &auth_token, post.key.clone(), TMP_PATH)
             .await
-            .map_err(|err| err.downcast::<ServerErr>().unwrap())
+            // .map_err(|err| err.downcast::<ServerErr>().unwrap())
             .err()
             .unwrap();
         assert!(matches!(
             result,
-            ServerErr::AddPostFileErr(_) // ServerErr::AddPostFileErr(ServerAddPostFileErr::ReadingResolutionErr(_))
+            ServerAddPostFileErr::InvalidResolution { width, height } // ServerErr::AddPostFileErr(ServerAddPostFileErr::ReadingResolutionErr(_))
         ));
 
         let file_path = to_post_file_path(&file1_hash, "svg", &output_path);
@@ -1260,7 +1297,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn api_add_post_file_fail() {
+    async fn api_add_post_file_too_big() {
         const FILE1_SIZE: usize = 3606;
         const FILE1_PATH: &str = "../assets/favicon.ico";
         const FILE2_SIZE: usize = 513;
@@ -1302,8 +1339,8 @@ mod tests {
 
             let result = app
                 .add_post_file(0, &auth_token, post.key.clone(), file_path)
-                .await
-                .map_err(|err| err.downcast::<ServerErr>().unwrap());
+                .await;
+            // .map_err(|err| err.downcast::<ServerErr>().unwrap());
 
             result
         };
@@ -1324,11 +1361,11 @@ mod tests {
 
             assert!(matches!(
                 result,
-                ServerErr::AddPostFileErr(ServerAddPostFileErr::FileTooBig {
+                ServerAddPostFileErr::FileTooBig {
                     file_name,
                     max,
                     got
-                })
+                }
             ));
         }
 
@@ -1346,11 +1383,11 @@ mod tests {
 
         assert!(matches!(
             result,
-            ServerErr::AddPostFileErr(ServerAddPostFileErr::FileTooBig {
+            ServerAddPostFileErr::FileTooBig {
                 file_name,
                 max,
                 got
-            })
+            }
         ));
 
         let result = upload_fn(FILE1_SIZE + FILE2_SIZE, FILE1_SIZE, FILE2_PATH)
@@ -1372,7 +1409,8 @@ mod tests {
         use std::hash::Hasher;
         // let file = tokio::fs::read(file_path.as_ref()).await.unwrap();
         // let mut hasher = GxBuildHasher::default();
-        let mut hasher = GxHasher::default();
+        let mut hasher = DefaultHasher::default();
+        // let mut hasher = GxHasher::with_seed(0);
         hasher.write(&file);
         hasher.finish().to_string()
     }
@@ -1412,6 +1450,7 @@ mod tests {
                 .unwrap();
             let file = tokio::fs::read(file_path).await.unwrap();
             let hash = get_file_hash_for_testing(&file);
+            trace!("hashing in test {file_path} = {hash}");
 
             let total_size = post.file.iter().fold(0_usize, |a, b| a + b.size_bytes);
             assert_eq!(post.file.len(), i + 1); // +1 because its length
@@ -1427,6 +1466,7 @@ mod tests {
                 let file_path = Path::new(&app.state.settings.site.files_path)
                     .join(hash)
                     .with_extension(extension);
+                trace!("reading file for testing hash {file_path:?}");
                 let file = tokio::fs::read(&file_path).await.unwrap();
                 let hash = get_file_hash_for_testing(&file);
 
@@ -1435,6 +1475,24 @@ mod tests {
                 tokio::fs::remove_file(file_path).await.unwrap();
             }
         }
+
+        let result = app
+            .add_post_file(0, &auth_token, post.key.clone(), FILE1_PATH)
+            .await
+            .err()
+            .unwrap();
+        let path = {
+            let file = tokio::fs::read(FILE1_PATH).await.unwrap();
+            let hash = get_file_hash_for_testing(&file);
+            let extension = Path::new(FILE1_PATH).extension().unwrap();
+            let file_path = Path::new(&app.state.settings.site.files_path)
+                .join(hash)
+                .with_extension(extension);
+            file_path
+        };
+        assert_eq!(result, ServerAddPostFileErr::Duplicate);
+        assert!(path.exists());
+        tokio::fs::remove_file(path).await.unwrap();
     }
 
     #[tokio::test]

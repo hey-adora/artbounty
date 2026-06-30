@@ -110,25 +110,25 @@ impl FileUpload {
         });
     }
 
-    pub fn select(&self, files: &[File]) {
-        if files.is_empty() {
-            return;
-        }
+    // pub fn select(&self, files: &[File]) {
+    //     if files.is_empty() {
+    //         return;
+    //     }
 
-        self.post_files.update(|v| {
-            v.clear();
-            for file in files {
-                v.push(PostFile::new(file.clone()));
-                // self.add_progress(UploadProgress::new(file, UploadProgressState::Selected));
-            }
-        });
-        // self.progress.set(UploadProgress::Selected {
-        //     file_name: file.name(),
-        //     total_size_bytes: file.size() as usize,
-        // });
-    }
+    //     self.post_files.update(|v| {
+    //         v.clear();
+    //         for file in files {
+    //             v.push(PostFile::new(file.clone()));
+    //             // self.add_progress(UploadProgress::new(file, UploadProgressState::Selected));
+    //         }
+    //     });
+    //     // self.progress.set(UploadProgress::Selected {
+    //     //     file_name: file.name(),
+    //     //     total_size_bytes: file.size() as usize,
+    //     // });
+    // }
 
-    pub fn upload(&self) {
+    pub fn upload(&self, files: &[File]) {
         // let progress = self.progress;
         // self.add_progress(UploadProgress::Uploading {
         //     file_name: file.name(),
@@ -140,7 +140,19 @@ impl FileUpload {
         //     completed_bytes: 0,
         //     total_size_bytes: file.size() as usize,
         // });
+        // let post_files = ;
+        //
+        self.post_files.update(|current_files| {
+            for file in files {
+                current_files.push(PostFile::new(file.clone()));
+            }
+        });
+        // for file in files {
+        //     v.push(PostFile::new(file.clone()));
+        //     // self.add_progress(UploadProgress::new(file, UploadProgressState::Selected));
+        // }
         let post_files = self.post_files.clone();
+
         for (index, post_file) in post_files.get_untracked().iter().enumerate() {
             let file = post_file.file.clone();
             spawn_local(async move {
@@ -190,22 +202,26 @@ impl FileUpload {
                         .unwrap();
 
                         let form = FormData::new().unwrap();
-                        form.set_with_str("what", "nooooooooo").unwrap();
+                        form.set_with_blob("upload", &file.unchecked_ref()).unwrap();
+                        // form.set_with_str("what", "nooooooooo").unwrap();
 
                         req.open_with_async(
                             "POST",
-                            "http://localhost:3000/api/test_upload_big_file",
+                            "http://localhost:3000/api/post/oqmp4g1iiswwp8nixrae/add_file",
                             true,
                         )
                         .unwrap();
 
-                        // req.set_request_header("Content-Type", "multipart/form-data");
-                        req.set_request_header("Content-Type", "application/octet-stream")
+                        req.set_request_header("Content-Type", "application/x-www-form-urlencoded")
                             .unwrap();
+                        // req.set_request_header("Content-Type", "multipart/form-data")
+                        //     .unwrap();
+                        // req.set_request_header("Content-Type", "application/octet-stream")
+                        //     .unwrap();
                         // req.send_with_opt_str(Some("hello")).unwrap();
-                        req.send_with_opt_blob(Some(&file)).unwrap();
+                        // req.send_with_opt_blob(Some(&file)).unwrap();
 
-                        // req.send_with_opt_form_data(Some(&form)).unwrap();
+                        req.send_with_opt_form_data(Some(&form)).unwrap();
                     },
                 ))
                 .await

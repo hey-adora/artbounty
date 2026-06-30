@@ -941,6 +941,9 @@ pub enum ServerAddPostFileErr {
     //
     // #[error(transparent)]
     // StreamErr(#[from] anyhow::Error),
+    #[error("file already exists")]
+    Duplicate,
+
     #[error("post id param not found")]
     ParamNotFoundPostId,
 
@@ -2660,8 +2663,8 @@ pub mod tests {
     use crate::api::shared::post_comment::UserPostComment;
     use crate::api::{
         Api, ApiTest, EmailChangeErr, EmailChangeNewErr, EmailChangeStage, EmailChangeTokenErr,
-        Order, PostLikeErr, Server404Err, ServerAuthErr, ServerErr, ServerLoginErr,
-        ServerRegistrationErr, ServerReqImg, ServerRes, ServerSendInviteErr,
+        Order, PostLikeErr, Server404Err, ServerAddPostFileErr, ServerAuthErr, ServerErr,
+        ServerLoginErr, ServerRegistrationErr, ServerReqImg, ServerRes, ServerSendInviteErr,
         ServerUpdatePostTitleErr, TimeRange, UserPost,
     };
     use crate::db::DB404Err;
@@ -2821,7 +2824,7 @@ pub mod tests {
             auth_token: impl AsRef<str>,
             post_key: impl AsRef<str>,
             file_path: impl AsRef<str>,
-        ) -> anyhow::Result<UserPost> {
+        ) -> Result<UserPost, ServerAddPostFileErr> {
             let current_dir = std::env::current_dir().unwrap();
             let file_path = current_dir.join(file_path.as_ref());
             trace!("full file path {:?}", file_path);
@@ -2857,8 +2860,9 @@ pub mod tests {
             match result {
                 Ok(crate::api::ServerRes::Post(post)) => Ok(post),
                 // Ok(crate::api::ServerRes::Ok) => Some(()),
-                Ok(err) => Err(anyhow!("wrong response {err:?}")),
-                Err(err) => Err(err.into()),
+                Ok(err) => panic!("borked1 {err:?}"),
+                Err(ServerErr::AddPostFileErr(err)) => Err(err),
+                Err(err) => panic!("borked2 {err:?}"),
             }
         }
 
