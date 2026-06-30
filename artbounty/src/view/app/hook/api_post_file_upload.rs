@@ -202,7 +202,7 @@ impl FileUpload {
                         .unwrap();
 
                         let form = FormData::new().unwrap();
-                        form.set_with_blob("upload", &file.unchecked_ref()).unwrap();
+                        form.set_with_blob("upload", file.unchecked_ref()).unwrap();
                         // form.set_with_str("what", "nooooooooo").unwrap();
 
                         req.open_with_async(
@@ -212,10 +212,12 @@ impl FileUpload {
                         )
                         .unwrap();
 
-                        req.set_request_header("Content-Type", "application/x-www-form-urlencoded")
-                            .unwrap();
+                        // req.set_request_header("Content-Type", "application/x-www-form-urlencoded")
+                        //     .unwrap();
+
                         // req.set_request_header("Content-Type", "multipart/form-data")
                         //     .unwrap();
+
                         // req.set_request_header("Content-Type", "application/octet-stream")
                         //     .unwrap();
                         // req.send_with_opt_str(Some("hello")).unwrap();

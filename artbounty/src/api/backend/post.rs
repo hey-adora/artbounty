@@ -600,6 +600,8 @@ pub async fn add_post_file(
 ) -> impl IntoResponse {
     type Err = ServerAddPostFileErr;
 
+    trace!("running add_post_file api");
+
     let max_storage = db_user.max_storage_bytes;
     let max_storage_per_file = db_user.max_storage_per_file_bytes;
     let mut used_storage = db_user.used_storage_bytes;

@@ -29,7 +29,7 @@ pub mod valid {
     // max_total_storage_bytes;
     pub const MAX_STORAGE_PER_FILE: usize = 1024 * 30; // 30MB
     pub const MAX_STORAGE: usize = 1024 * 1000 * 2; // 2GB
-    pub const SUPPORTED_FILE_EXTENSIONS: &[&str] = &["ico", "svg"];
+    pub const SUPPORTED_FILE_EXTENSIONS: &[&str] = &["ico", "svg", "jpg", "jpeg", "png", "webp"];
     pub const MAX_POST_DESCRIPTION_LENGTH: usize = 2000;
     pub const MAX_POST_COMMENT_LENGTH: usize = 2000;
     pub const MAX_POST_TAGS_LENGTH: usize = 2000;
